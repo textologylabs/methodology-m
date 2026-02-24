@@ -8,7 +8,7 @@ Version 1.0 — Draft
 
 Methodology M is a delivery method for distributed software systems where a single user story spans multiple repos, multiple deployable units, and can only be verified in an integrated environment.
 
-It builds on the AI-first SDLC concept of PATs (Promised Acceptance Tests) — change encapsulated with its validation — and extends it to the multi-repo, multi-team reality.
+It builds on the AI-first SDLC concept of PATs (Pseudo Acceptance Tests) — change encapsulated with its validation — and extends it to the multi-repo, multi-team reality.
 
 ## What it covers
 
