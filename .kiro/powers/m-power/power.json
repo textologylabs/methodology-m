@@ -21,6 +21,11 @@
       "name": "setup-workspace",
       "description": "Create a new M-type project workspace on GitLab",
       "documentation": "setup-workspace.md"
+    },
+    {
+      "name": "decompose-story",
+      "description": "Decompose a story into component-scoped sub-tasks with PAT mapping",
+      "documentation": "decompose-story.md"
     }
   ]
 }

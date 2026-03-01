@@ -19,12 +19,12 @@ Create a new M-type project workspace on GitLab.
 ```
 m-power setup-workspace
   project-name: <name>
-  [parent-id: <parent-group-id>]
+  [parent-path: <parent-group-path>]
   visibility: "public" | "private"
   description: <description>
 ```
 
-**Note:** On GitLab.com SaaS, create the parent group manually via UI first, then use `parent-id` to create the subgroup via M Power.
+**Note:** On GitLab.com SaaS, create the parent group manually via UI first, then use `parent-path` to create the subgroup via M Power.
 
 **Outcome:**
 - GitLab group/subgroup created and ready
@@ -32,16 +32,36 @@ m-power setup-workspace
 
 ---
 
+### 2. `decompose-story` (v0.1.0)
+
+Decompose a story into component-scoped sub-tasks with PAT mapping.
+
+**What it does:**
+- Reads a story file and extracts PATs and component list
+- Proposes a PAT-to-component mapping interactively
+- On confirmation, generates enriched story and sub-task files in `workspace/jira/`
+- Each sub-task gets its slice of the PATs plus Cypress stub skeletons
+
+**Usage:**
+```
+m-power decompose-story
+  story-file: <path-to-story-md>
+  [workspace: <output-folder>]
+```
+
+**Outcome:**
+- `workspace/jira/TODOM-NNN.md` — enriched story with mapping and sub-task refs
+- `workspace/jira/TODOM-NNNa.md`, `TODOM-NNNb.md`, etc. — one per component
+
+---
+
 ## Roadmap
 
 As we build M-type projects, M Power will grow:
 
-- `scaffold-root-repo` — Create root repo with project.yaml, shell, PATs
-- `scaffold-managed-repo` — Create managed repo with CI pipeline
-- `generate-story-pats` — Generate story-level PATs from acceptance criteria
-- `decompose-story` — Map story to topology, create sub-tasks
-- `create-readiness-tracker` — Create readiness manifest for a story
-- `generate-cypress` — Convert PATs to Cypress tests
+- `scaffold-repo` — Create a GitLab repo from a sub-task file (CI stub, readme, PAT stubs)
+- `generate-cypress` — Convert PAT stubs into runnable Cypress specs
+- `create-readiness-tracker` — Create readiness manifest for a story in the root repo
 
 ---
 
