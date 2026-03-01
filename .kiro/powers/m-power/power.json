@@ -1,0 +1,26 @@
+{
+  "name": "m-power",
+  "displayName": "M Power",
+  "version": "0.1.1",
+  "description": "Bootstrap skill for Methodology M projects — automates setup, scaffolding, and delivery of distributed multi-repo systems",
+  "keywords": [
+    "m-power",
+    "m power",
+    "m-type",
+    "m type"
+  ],
+  "author": "Methodology M Workshop",
+  "license": "CC BY 4.0",
+  "mcpServers": [
+    "gitlab_ops",
+    "gitlab"
+  ],
+  "documentation": "POWER.md",
+  "capabilities": [
+    {
+      "name": "setup-workspace",
+      "description": "Create a new M-type project workspace on GitLab",
+      "documentation": "setup-workspace.md"
+    }
+  ]
+}
