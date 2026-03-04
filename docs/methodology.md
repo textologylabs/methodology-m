@@ -472,11 +472,16 @@ The skill asks questions during bootstrap, like `create-react-app` or `npm init`
 
 ### What it generates
 
-- Root repo with `project.yaml`, shell package, `.kiro/` folder (agents, hooks, steering)
-- Managed repo stubs (or instructions for creating them)
-- Story Zero (PROJ-000) with PAT, sub-tasks, readiness tracker — adapted to the topology mode
-- CI pipeline configs for the chosen platform
-- Deployment templates for the chosen model
+The skill orchestrates a sequence of atomic capabilities, each building on the previous:
+
+1. **Workspace** — GitLab group/subgroup for the project
+2. **Root repo** — `project.yaml`, shell package stub, `.kiro/` folder (agents, hooks, steering), Story Zero committed to `jira/`
+3. **Story-level PATs** — generated from Story Zero, committed to `pats/` in the root repo
+4. **Decomposition** — sub-tasks, managed repo stubs, readiness tracker
+5. **CI pipeline configs** for the chosen platform
+6. **Deployment templates** for the chosen model
+
+The root repo is the source of truth from step 2 onwards. Each subsequent step reads from and writes to it.
 
 ### The layering
 
@@ -507,12 +512,27 @@ A tech lead has the M-project skill installed. Nothing else exists.
  local markdown, Cypress, Docker Compose."
 ```
 
-The skill scaffolds:
-- Root repo (`todo-root`) with `project.yaml`, `.kiro/` folder (agents, hooks, steering), shell package stub
-- Managed repo stubs for `todo-mfe`, `todo-api-read`, `todo-api-write`
-- Story Zero already written: story ticket (`jira/PROJ-000.md`), story-level PAT (`pats/PROJ-000.pat.yaml`), sub-tasks, readiness tracker
+### The bootstrap sequence
+
+Bootstrap is not a single big-bang operation — it follows a defined sequence where the root repo is created first and becomes the source of truth immediately. Each step builds on the previous one, and the user has decision points between steps.
+
+**Step 1: Create workspace** — The skill creates the GitLab group (or subgroup) for the project. This is the container for all repos.
+
+**Step 2: Bootstrap root repo** — The skill creates the root repo (`todo-root`) and seeds it with:
+- `project.yaml` — the project manifest, with all components pinned to `v0.0.0`
+- `jira/PROJ-000.md` — Story Zero, committed to the root repo
+- `.kiro/` folder — agents, hooks, steering
+- Conventional folder structure (`pats/`, `stories/`, `packages/shell/`)
+
+The root repo is now the source of truth. The story lives in the codebase, not in a scratch file or external system.
+
+**Step 3: Generate PATs** — The skill offers to generate story-level PATs from the story just committed. This delegates to the `generate-pats` capability, which presents the draft for review. On confirmation, the PAT is written to `pats/PROJ-000.pat.yaml` in the root repo.
+
+**Step 4: Decompose story** — With the story and PATs in the root repo, the skill decomposes Story Zero into component sub-tasks, maps PATs to components, and creates managed repo stubs.
 
 At this point, nothing works. The repos exist but contain only scaffolding. The `project.yaml` points at `v0.0.0` tags that don't exist yet. The story-level PATs would fail if you ran them — there's nothing to test against.
+
+This sequencing resolves the bootstrap paradox: PATs need to live in the root repo, but the root repo doesn't exist until bootstrap creates it. By making root repo creation the first step and PAT generation a follow-on step that writes directly to the root repo, the chicken-and-egg problem dissolves. Each capability stays atomic — `bootstrap-root-repo` creates and seeds, `generate-pats` generates PATs, `decompose-story` decomposes — but the skill orchestrates them in the right order.
 
 ### The Idea phase — already done
 

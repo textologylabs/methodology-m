@@ -28,11 +28,40 @@ m-power setup-workspace
 
 **Outcome:**
 - GitLab group/subgroup created and ready
-- Empty group — repos created by Story Zero
+- Empty group — repos created during bootstrap
 
 ---
 
-### 2. `generate-pats` (v0.1.0)
+### 2. `bootstrap-root-repo` (v0.1.0)
+
+Create and seed the root repo for an M-type project.
+
+**What it does:**
+- Creates the root repo on GitLab with conventional folder structure
+- Seeds it with `project.yaml` and Story Zero (`jira/<story-id>.md`)
+- On completion, offers to run `generate-pats` to produce and commit story-level PATs
+- After bootstrap, the root repo is the source of truth for all subsequent actions
+
+**Usage:**
+```
+m-power bootstrap-root-repo
+  group-path: <gitlab-group-path>
+  project-name: <name>
+  story-file: <path-to-story-zero-md>
+  components: <component-catalogue>
+  [topology-mode: "distributed" | "monolith-first"]
+  [pat-framework: "cypress" | "playwright"]
+  [deployment-model: "docker-compose" | "kubernetes" | "none"]
+```
+
+**Outcome:**
+- Root repo created with `project.yaml`, `jira/<story-id>.md`, folder structure
+- Optionally: `pats/<story-id>.pat.yaml` (via delegated `generate-pats`)
+- Ready for `decompose-story`
+
+---
+
+### 3. `generate-pats` (v0.1.0)
 
 Generate story-level PATs from a story file.
 
@@ -53,7 +82,7 @@ m-power generate-pats
 
 ---
 
-### 3. `decompose-story` (v0.1.0)
+### 4. `decompose-story` (v0.1.0)
 
 Decompose a story into component-scoped sub-tasks with PAT mapping.
 

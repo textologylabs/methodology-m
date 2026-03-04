@@ -23,6 +23,11 @@
       "documentation": "setup-workspace.md"
     },
     {
+      "name": "bootstrap-root-repo",
+      "description": "Create and seed the root repo for an M-type project",
+      "documentation": "bootstrap-root-repo.md"
+    },
+    {
       "name": "generate-pats",
       "description": "Generate story-level PATs from a story file",
       "documentation": "generate-pats.md"
