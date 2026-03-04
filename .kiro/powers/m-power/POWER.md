@@ -32,26 +32,48 @@ m-power setup-workspace
 
 ---
 
-### 2. `decompose-story` (v0.1.0)
+### 2. `generate-pats` (v0.1.0)
 
-Decompose a story into component-scoped sub-tasks with PAT mapping.
+Generate story-level PATs from a story file.
 
 **What it does:**
-- Reads a story file and extracts PATs and component list
-- Proposes a PAT-to-component mapping interactively
-- On confirmation, generates enriched story and sub-task files in `workspace/jira/`
-- Each sub-task gets its slice of the PATs plus Cypress stub skeletons
+- Reads a story file and transforms acceptance criteria into PAT.yaml format
+- Presents the draft PAT for review
+- On confirmation, writes the pat.yaml to the workspace
 
 **Usage:**
 ```
-m-power decompose-story
+m-power generate-pats
   story-file: <path-to-story-md>
   [workspace: <output-folder>]
 ```
 
 **Outcome:**
-- `workspace/jira/TODOM-NNN.md` — enriched story with mapping and sub-task refs
-- `workspace/jira/TODOM-NNNa.md`, `TODOM-NNNb.md`, etc. — one per component
+- `workspace/<story-id>.pat.yaml` — machine-readable, topology-agnostic PATs
+
+---
+
+### 3. `decompose-story` (v0.1.0)
+
+Decompose a story into component-scoped sub-tasks with PAT mapping.
+
+**What it does:**
+- Reads a story file (for component list) and its PAT file (for acceptance criteria)
+- Proposes a PAT-to-component mapping interactively
+- On confirmation, generates enriched story and sub-task files in the workspace
+- Each sub-task gets its slice of the PATs plus test stub skeletons
+
+**Usage:**
+```
+m-power decompose-story
+  story-file: <path-to-story-md>
+  pat-file: <path-to-pat-yaml>
+  [workspace: <output-folder>]
+```
+
+**Outcome:**
+- `workspace/<story-id>.md` — enriched story with mapping and sub-task refs
+- `workspace/<story-id>a.md`, `<story-id>b.md`, etc. — one per component
 
 ---
 

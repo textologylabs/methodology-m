@@ -1,5 +1,5 @@
 ---
-inclusion: manual
+inclusion: auto
 ---
 
 # Workshop Steering — Methodology M Reference Implementation
@@ -50,3 +50,16 @@ workshop/
 All steps are logged in `workshop-script.md` with the exact commands used.
 Generated artefacts in `workshop/workspace/` can be deleted and regenerated
 by replaying those steps.
+
+## Powers First Rule
+
+When a user references a power by name (e.g. "using M Power", "with m-power",
+"use X power"), you MUST activate that power via `kiroPowers action=activate`
+BEFORE reading any capability files manually, exploring the power's folder
+structure, or taking any other action.
+
+The activation response gives you everything you need: documentation, available
+tools, and steering files. Only after activation should you proceed with the
+requested capability.
+
+Never bypass activation by reading power files directly from disk.

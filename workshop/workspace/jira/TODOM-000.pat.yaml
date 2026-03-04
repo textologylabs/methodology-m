@@ -1,0 +1,55 @@
+story: TODOM-000
+version: 1
+
+acceptance:
+  - id: AC-001
+    when: User navigates to the application shell
+    then: Shell renders without errors and is ready to compose microfrontends
+    steps:
+      - navigate: /
+      - assert: "[data-testid='app-shell']" is visible
+      - assert: "[data-testid='app-shell']" contains no error state
+
+  - id: AC-002
+    when: Shell loads the todo microfrontend
+    then: MFE renders a Hello component visible in the shell
+    steps:
+      - navigate: /
+      - wait: "[data-testid='todo-mfe']" is visible
+      - assert: "[data-testid='todo-mfe-hello']" is visible
+
+  - id: AC-003
+    when: MFE initialises and fetches from the API
+    then: MFE displays the message returned by the API
+    steps:
+      - navigate: /
+      - wait: "[data-testid='todo-mfe-hello']" is visible
+      - assert: "[data-testid='api-message']" is visible
+      - assert: "[data-testid='api-message']" contains "hello"
+
+  - id: AC-004
+    when: API endpoints are called
+    then: GET /hello returns 200 with a message field and POST /placeholder returns 200 OK
+    steps:
+      - navigate: /
+      - wait: "[data-testid='api-message']" is visible
+      - assert: "[data-testid='api-message']" contains "hello"
+
+  - id: AC-005
+    when: System is deployed from pinned versions
+    then: All components are versioned at v0.1.0 and topology is reproducible
+    steps:
+      - navigate: /
+      - assert: "[data-testid='app-shell']" is visible
+      - assert: "[data-testid='todo-mfe']" is visible
+      - assert: "[data-testid='api-message']" is visible
+
+  - id: AC-006
+    when: Story-level Cypress tests run against the composed system
+    then: All story-level PATs pass end-to-end
+    steps:
+      - navigate: /
+      - assert: "[data-testid='app-shell']" is visible
+      - assert: "[data-testid='todo-mfe-hello']" is visible
+      - assert: "[data-testid='api-message']" is visible
+      - assert: "[data-testid='api-message']" contains "hello"

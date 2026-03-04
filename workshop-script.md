@@ -52,3 +52,27 @@ When a power action generates a file (e.g. decomposed sub-tasks), it writes into
 | PAT test framework | Cypress |
 | Deployment model | Docker Compose |
 
+
+---
+
+## Step 3: Generate Story-Level PATs for TODOM-000 ✅
+
+**Rationale:** Before decomposing a story into component sub-tasks, we need machine-readable, topology-agnostic PATs. The `generate-pats` capability transforms the story's acceptance criteria into a structured PAT.yaml that drives everything downstream.
+
+**Verbal command used:**
+```
+generate pats for todom-000
+```
+
+**What happened:**
+- M Power read the story file (`workshop/jira/TODOM-000.md`)
+- Extracted 6 acceptance criteria and transformed them into PAT entries
+- Each AC got a unique ID (AC-001 through AC-006), topology-agnostic `when`/`then`, and concrete `steps` with `data-testid` selectors
+- Draft was presented for review and confirmed
+
+**Result:** `workshop/workspace/jira/TODOM-000.pat.yaml`
+
+**Notes:**
+- Story-level PATs describe user outcomes, not component behaviour
+- Steps use `data-testid` attributes for stable, framework-agnostic selectors
+- This PAT file is the input to `decompose-story` (Step 2 produced the sub-tasks before PATs existed — in the proper flow, PATs come first)

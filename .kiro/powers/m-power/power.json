@@ -23,6 +23,11 @@
       "documentation": "setup-workspace.md"
     },
     {
+      "name": "generate-pats",
+      "description": "Generate story-level PATs from a story file",
+      "documentation": "generate-pats.md"
+    },
+    {
       "name": "decompose-story",
       "description": "Decompose a story into component-scoped sub-tasks with PAT mapping",
       "documentation": "decompose-story.md"
