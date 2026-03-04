@@ -2,56 +2,51 @@
 inclusion: manual
 ---
 
-# Workshop Steering — Todo M Reference Implementation
+# Workshop Steering — Methodology M Reference Implementation
 
-**Project:** todo-m-workshop
+This steering file provides context for the workshop that builds the reference
+implementation of Methodology M. It is the consumer of M Power — not part of it.
 
-This steering file provides workshop-specific context and decisions for building the Methodology M reference implementation.
+## Project
 
-## Project Context
+- Name: `todo-m`
+- GitLab group: `methodology-m/todo-m-workshop`
+- Visibility: public
+- Purpose: prove Methodology M works end-to-end by building a Todo app
 
-- **Project Name:** todo-m-workshop
-- **GitLab Group:** `todo-m-workshop`
-- **Visibility:** Public
-- **Description:** Reference implementation for Methodology M — distributed, multi-repo delivery
+## Instantiation Parameters
 
-## Application
+These were chosen at project bootstrap and apply throughout the workshop:
 
-Building a Todo application to demonstrate Methodology M:
+| Parameter | Value |
+|-----------|-------|
+| Topology | distributed |
+| Components | todo-m-root (shell, embedded), todo-m-mfe, todo-m-api-read, todo-m-api-write (referenced) |
+| CI platform | GitLab CI |
+| Story management | local markdown (`workshop/jira/`) |
+| PAT framework | Cypress |
+| Deployment | Docker Compose |
 
-- **Shell:** SPA host (Module Federation)
-- **MFE:** Todo microfrontend (React)
-- **API Read:** GET /todos endpoint (Node.js/Express)
-- **API Write:** POST/PATCH/DELETE endpoints (Node.js/Express)
+## Repo Naming
 
-## Story Zero (PROJ-000)
+Repos follow the pattern `todo-m-<component>`:
 
-The bootstrapping story that proves the M-type infrastructure works.
+- `todo-m-root` — shell, module federation, story-level Cypress, project.yaml
+- `todo-m-mfe` — todo microfrontend
+- `todo-m-api-read` — read API
+- `todo-m-api-write` — write API
 
-**Story-level PATs:**
-- Shell loads and displays content from MFE
-- MFE fetches from API and displays response
-- All components pinned to validated versions in project.yaml
+## Workshop Layout
 
-**Sub-tasks:**
-- PROJ-000a: todo-api-read — GET /hello endpoint
-- PROJ-000b: todo-api-write — POST /placeholder endpoint
-- PROJ-000c: todo-mfe — Hello component + fetch
-- PROJ-000d: todo-root — Shell + Module Federation + Cypress
+```
+workshop/
+  jira/           ← source stories (static, hand-authored)
+  workspace/      ← generated artefacts (replayable via workshop-script.md)
+    jira/         ← enriched stories, sub-tasks
+```
 
-## Technology Stack
+## Replayability
 
-- **Shell:** Vanilla JS or lightweight framework
-- **MFE:** React
-- **APIs:** Node.js + Express
-- **CI/CD:** GitLab CI
-- **Tests:** Cypress (story-level), Jest/Vitest (repo-level)
-- **Local Composition:** Docker Compose
-
-## Key Decisions
-
-- **Auto-tag on merge:** CI handles versioning, no manual tagging
-- **Local markdown for Jira:** `jira/` folder in root repo, version-controlled
-- **Sequential implementation:** Simulate four devs by implementing sub-tasks one at a time
-- **Replayable:** Every step documented with exact tool payloads in `workspace-script.md`
-
+All steps are logged in `workshop-script.md` with the exact commands used.
+Generated artefacts in `workshop/workspace/` can be deleted and regenerated
+by replaying those steps.
