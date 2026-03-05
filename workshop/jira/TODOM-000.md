@@ -8,48 +8,53 @@
 
 Name: `todo-m`
 GitLab group: `methodology-m/todo-m-workshop`
+Topology: distributed
+CI platform: GitLab CI
+Story management: local markdown
+PAT framework: Cypress
+Deployment: Docker Compose
 
 Repos follow the pattern `todo-m-<component>`:
 
-- `todo-m-root` — shell, module federation, story-level Cypress, project.yaml
-- `todo-m-mfe` — todo microfrontend
-- `todo-m-api-read` — read API (GET endpoints)
-- `todo-m-api-write` — write API (POST/PUT/DELETE endpoints)
+- `todo-m-root` — shell (embedded), module federation, story-level Cypress, project.yaml
+- `todo-m-mfe` — todo microfrontend (referenced)
+- `todo-m-api-read` — read API, GET endpoints (referenced)
+- `todo-m-api-write` — write API, POST/PUT/DELETE endpoints (referenced)
 
 ## Summary
 
 Scaffold and validate the complete M-type project infrastructure. This story proves that distributed multi-repo delivery works before any user-facing features are built. It is the least interesting from a feature perspective but the most critical from a systems perspective — all subsequent stories depend on this foundation.
 
-## Acceptance Criteria (Story-Level PATs)
+## Acceptance Criteria
 
 These are topology-agnostic user-outcome statements. They define what "working infrastructure" means.
 
-1. Shell loads and displays content
-   - User navigates to the application shell
+1. Shell loads and renders
+   - User navigates to the application
    - Shell renders without errors
    - Shell is ready to compose microfrontends
 
-2. MFE loads and displays content
-   - Shell successfully loads the todo-mfe microfrontend
-   - MFE renders a "Hello" component
-   - MFE is visible in the shell
+2. Microfrontend loads inside the shell
+   - The shell composes the microfrontend
+   - The microfrontend renders a greeting component
+   - The greeting is visible to the user
 
-3. MFE fetches from API
-   - MFE makes a GET request to the API
-   - API returns a message
-   - MFE displays the message
+3. Microfrontend displays data from the API
+   - The microfrontend fetches data from the backend
+   - The backend returns a message
+   - The message is displayed to the user
 
-4. API endpoints respond
-   - GET /hello returns 200 with a message field
-   - POST /placeholder returns 200 OK
-   - Both endpoints are accessible from the MFE
+4. API endpoints are operational
+   - A read endpoint returns a success response with a message
+   - A write endpoint accepts a request and returns a success response
+   - Both endpoints are reachable from the frontend
 
 5. All components are versioned and pinned
-   - Each component has a semantic version tag (v0.1.0)
-   - Root repo's project.yaml pins all components to v0.1.0
-   - Topology is reproducible and deployable
+   - Each component has a semantic version tag
+   - The project manifest pins all components to known versions
+   - The topology is reproducible from the manifest alone
 
-6. Story-level tests validate the system
-   - Cypress tests run against the composed system
-   - All story-level PATs pass
-   - Integration is proven end-to-end
+6. Story-level tests validate the composed system
+   - Acceptance tests run against the fully composed system
+   - All story-level acceptance criteria pass end-to-end
+   - Integration is proven across all components

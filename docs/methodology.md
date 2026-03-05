@@ -502,14 +502,48 @@ The very first story in an M-type project is PROJ-000 — a technical bootstrapp
 
 This is important. If Story Zero were a manual setup phase — create repos, wire pipelines, hope it works — then the methodology would start at Story One. Every team would have a different "how we got here" story, and the foundations would be untested. Instead, Story Zero is an M-type story. It has PATs, sub-tasks, a readiness tracker, shadow integration, a merge transaction. The scaffolding is the implementation. The PAT validates that it works.
 
-### Starting state: nothing
+### Starting state: Story Zero
 
-A tech lead has the M-project skill installed. Nothing else exists.
+A tech lead has the M-project skill installed and has written Story Zero — a markdown file describing the project. Story Zero is the single input to bootstrap. Its `## Project` section contains the metadata the skill needs:
+
+- Project name
+- GitLab group path
+- Component catalogue (names, roles, embedded/referenced)
+- Topology mode, CI platform, PAT framework, deployment model
+
+The skill extracts these from the story. Anything missing, it asks for. No separate configuration file, no implicit knowledge — the story is self-describing.
 
 ```
-"Create an M-type project called todo-app with a shell, a todo-mfe,
- a todo-api-read, and a todo-api-write. Distributed, GitLab CI,
- local markdown, Cypress, Docker Compose."
+# PROJ-000: Bootstrap M-Type Infrastructure
+
+## Project
+
+Name: `todo-app`
+GitLab group: `org/todo-app-project`
+Topology: distributed
+CI platform: GitLab CI
+Story management: local markdown
+PAT framework: Cypress
+Deployment: Docker Compose
+
+Repos follow the pattern `todo-app-<component>`:
+
+- `todo-app-root` — shell (embedded), module federation, story-level Cypress, project.yaml
+- `todo-app-mfe` — todo microfrontend (referenced)
+- `todo-app-api-read` — read API (referenced)
+- `todo-app-api-write` — write API (referenced)
+
+## Summary
+...
+
+## Acceptance Criteria
+...
+```
+
+The tech lead points the skill at this file:
+
+```
+"Bootstrap the root repo using M Power. Use the story file at jira/PROJ-000.md."
 ```
 
 ### The bootstrap sequence

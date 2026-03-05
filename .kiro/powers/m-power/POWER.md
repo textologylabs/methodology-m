@@ -118,5 +118,5 @@ As we build M-type projects, M Power will grow:
 
 ## Implementation Notes
 
-M Power uses GitLab MCPs (`gitlab_ops`, `gitlab_generic`) to automate project setup and management.
+M Power uses GitLab MCPs (`gitlab_ops`, `gitlab`) to automate project setup and management.
 

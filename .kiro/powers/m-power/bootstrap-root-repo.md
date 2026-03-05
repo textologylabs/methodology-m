@@ -17,21 +17,52 @@ sequence but does not reimplement PAT logic.
 
 | Parameter        | Type   | Required | Description                                    |
 |------------------|--------|----------|------------------------------------------------|
-| group-path       | string | Yes      | GitLab group path (from setup-workspace)       |
-| project-name     | string | Yes      | Project name (used for repo naming)            |
 | story-file       | path   | Yes      | Path to Story Zero markdown file               |
-| components       | list   | Yes      | Component catalogue (names, roles, types)      |
+| group-path       | string | No       | GitLab group path (extracted from story if omitted) |
+| project-name     | string | No       | Project name (extracted from story if omitted)  |
+| components       | list   | No       | Component catalogue (extracted from story if omitted) |
 | topology-mode    | string | No       | "distributed" or "monolith-first" (default: distributed) |
 | pat-framework    | string | No       | "cypress" or "playwright" (default: cypress)   |
 | deployment-model | string | No       | "docker-compose", "kubernetes", or "none"      |
 
+Story Zero is the primary input. If the story file contains a `## Project`
+section, the capability extracts project metadata automatically. Explicit
+parameters override extracted values. Anything the capability cannot find
+in the story or in explicit parameters, it asks the user for.
+
+### Expected `## Project` section format
+
+The story file's `## Project` section should contain:
+
+- `Name:` — project name (used for repo naming pattern)
+- `GitLab group:` — full group path where repos will be created
+- `Topology:` — "distributed" or "monolith-first"
+- `CI platform:` — "GitLab CI", "GitHub Actions", or "none"
+- `Story management:` — "local markdown" or "Jira"
+- `PAT framework:` — "Cypress", "Playwright", or "both"
+- `Deployment:` — "Docker Compose", "Kubernetes", or "none"
+- Component list — repo names with roles and types (embedded/referenced)
+
 ## Execution
 
-### Step 1 — Create the root repo
+### Step 1 — Extract project metadata
 
-Create `<project-name>-root` in the GitLab group. Initialise with README.
+Read the story file. Parse the `## Project` section to extract:
+- Project name (from `Name:` field)
+- GitLab group path (from `GitLab group:` field)
+- Component catalogue (from the repo list)
 
-### Step 2 — Generate project.yaml
+If any of these are missing from the story and not provided as explicit
+parameters, ask the user.
+
+### Step 2 — Create the root repo
+
+Create `<project-name>-root` in the GitLab group using `gitlab-ops create_project`
+(which supports `namespace_id` for group targeting). Do NOT initialise with README
+— the seed commit in Step 6 includes a project-specific README. Initialising with
+a default README causes a conflict when pushing the seed files.
+
+### Step 3 — Generate project.yaml
 
 Build the project manifest from the component catalogue:
 
@@ -41,11 +72,11 @@ Build the project manifest from the component catalogue:
   - monolith-first: embedded, location `./packages/<component>`
 - All versions pinned to `v0.0.0` (nothing exists yet)
 
-### Step 3 — Seed Story Zero
+### Step 4 — Seed Story Zero
 
 Place the story file into the root repo at `jira/<story-id>.md`.
 
-### Step 4 — Create conventional folder structure
+### Step 5 — Create conventional folder structure
 
 Create placeholder structure for the root repo:
 
@@ -54,16 +85,19 @@ Create placeholder structure for the root repo:
 - `packages/shell/` — shell package stub (embedded component)
 - `.kiro/` — agent configuration (steering, hooks)
 
-### Step 5 — Commit and push
+### Step 6 — Commit and push
 
-Commit all seeded files to the root repo:
+Commit all seeded files to the root repo in a single commit:
 
 - `project.yaml`
 - `jira/<story-id>.md`
-- `README.md` (with project description)
+- `README.md` (project-specific, not the GitLab boilerplate)
 - Folder structure with `.gitkeep` files
 
-### Step 6 — Offer PAT generation
+Because the repo was created without `initialize_with_readme`, all files
+can be pushed in one commit with no conflicts.
+
+### Step 7 — Offer PAT generation
 
 Present the user with:
 
@@ -79,7 +113,7 @@ If confirmed, run `generate-pats` with:
 The `generate-pats` capability handles the draft/review/confirm cycle.
 On confirmation, the PAT file is committed to the root repo.
 
-### Step 7 — Report
+### Step 8 — Report
 
 Output the root repo URL and a summary of what was created.
 Note that the next step is `decompose-story`.
