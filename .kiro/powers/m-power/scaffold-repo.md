@@ -50,6 +50,7 @@ Push all seed files in a single commit using `gitlab push_files`:
 - `README.md` — component name, parent story reference, repo-level PATs
 - `.gitlab-ci.yml` — pluggable lifecycle pipeline (see Pipeline Template)
 - `package.json` (or equivalent for repo-type) — with lifecycle scripts
+- `package-lock.json` — minimal lockfile so `npm ci` works from day zero
 - `jira/<sub-task-id>.md` — copy of the sub-task file
 - `pats/<sub-task-id>.stub` — PAT stub file extracted from the sub-task
 
@@ -243,3 +244,6 @@ provides the hook, the implementation decides the logic.
   may already exist. `push_files` rejects commits with existing files.
 - `scaffold-repo` does NOT set up webhooks or root repo CI — that's
   `wire-orchestration`.
+- Always include a `package-lock.json` in the seed commit (even with no
+  dependencies). Without it, `npm ci` fails immediately. The lockfile
+  is trivial for an empty project — just name, version, lockfileVersion.
