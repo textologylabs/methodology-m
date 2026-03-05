@@ -424,7 +424,7 @@ The skill scaffolds:
 - Managed repo stubs for `todo-mfe`, `todo-api-read`, `todo-api-write`
 - Story Zero already written: story ticket (`jira/PROJ-000.md`), story-level PAT (`pats/PROJ-000.pat.yaml`), sub-tasks, readiness tracker
 
-At this point, nothing works. The repos exist but contain only scaffolding. The `project.yaml` points at `v0.0.0` tags that don't exist yet. The story-level PATs would fail if you ran them — there's nothing to test against.
+At this point, nothing works. The repos exist but contain only scaffolding. The `project.yaml` has null tags — nothing has been released yet. The story-level PATs would fail if you ran them — there's nothing to test against.
 
 ### The Idea phase — already done
 

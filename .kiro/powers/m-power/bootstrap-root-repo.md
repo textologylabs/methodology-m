@@ -70,7 +70,7 @@ Build the project manifest from the component catalogue:
 - All other components: type based on topology-mode
   - distributed: referenced, location `<group-path>/<project-name>-<component>`
   - monolith-first: embedded, location `./packages/<component>`
-- All versions pinned to `v0.0.0` (nothing exists yet)
+- All tags set to `~` (YAML null — nothing released yet)
 
 ### Step 4 — Seed Story Zero
 

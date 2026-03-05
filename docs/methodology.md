@@ -553,7 +553,7 @@ Bootstrap is not a single big-bang operation — it follows a defined sequence w
 **Step 1: Create workspace** — The skill creates the GitLab group (or subgroup) for the project. This is the container for all repos.
 
 **Step 2: Bootstrap root repo** — The skill creates the root repo (`todo-root`) and seeds it with:
-- `project.yaml` — the project manifest, with all components pinned to `v0.0.0`
+- `project.yaml` — the project manifest, with all component tags set to null (nothing released yet)
 - `jira/PROJ-000.md` — Story Zero, committed to the root repo
 - `.kiro/` folder — agents, hooks, steering
 - Conventional folder structure (`pats/`, `stories/`, `packages/shell/`)
@@ -564,7 +564,7 @@ The root repo is now the source of truth. The story lives in the codebase, not i
 
 **Step 4: Decompose story** — With the story and PATs in the root repo, the skill decomposes Story Zero into component sub-tasks, maps PATs to components, and creates managed repo stubs.
 
-At this point, nothing works. The repos exist but contain only scaffolding. The `project.yaml` points at `v0.0.0` tags that don't exist yet. The story-level PATs would fail if you ran them — there's nothing to test against.
+At this point, nothing works. The repos exist but contain only scaffolding. The `project.yaml` has null tags — nothing has been released yet. The story-level PATs would fail if you ran them — there's nothing to test against.
 
 This sequencing resolves the bootstrap paradox: PATs need to live in the root repo, but the root repo doesn't exist until bootstrap creates it. By making root repo creation the first step and PAT generation a follow-on step that writes directly to the root repo, the chicken-and-egg problem dissolves. Each capability stays atomic — `bootstrap-root-repo` creates and seeds, `generate-pats` generates PATs, `decompose-story` decomposes — but the skill orchestrates them in the right order.
 

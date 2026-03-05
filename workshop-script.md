@@ -56,7 +56,7 @@ In the real M Power flow, there is no staging area — everything goes directly 
 👻 Invokes `m-power bootstrap-root-repo`:
 1. Extracts project metadata from Story Zero's `## Project` section
 2. Creates `todo-m-root` repo in `methodology-m/todo-m-workshop` via `gitlab-ops create_project` (requires `namespace_id` — the standard GitLab MCP `create_repository` cannot target groups)
-3. Pushes seed commit: `project.yaml` (all versions at v0.0.0), `jira/TODOM-000.md`, folder structure (`pats/`, `stories/`, `packages/shell/`, `.kiro/`), and `README.md`
+3. Pushes seed commit: `project.yaml` (all tags null — nothing released yet), `jira/TODOM-000.md`, folder structure (`pats/`, `stories/`, `packages/shell/`, `.kiro/`), and `README.md`
 4. Asks: "Root repo seeded. Want me to generate PATs now?"
 
 💬 `Yes`
@@ -183,7 +183,7 @@ Key insight for the audience: PATs are framework-agnostic. The same acceptance c
 🖥️ Tests pass. Tag the release.
 
 👻 Tags `todo-m-api-read` at `v0.1.0`. Updates `project.yaml` in the root repo:
-- `api-read` tag changes from `v0.0.0` → `v0.1.0`
+- `api-read` tag changes from `~` (null) → `v0.1.0`
 
 🦊 Show the audience: the tag on GitLab, the updated project.yaml.
 
