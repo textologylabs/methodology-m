@@ -106,12 +106,72 @@ m-power decompose-story
 
 ---
 
+### 5. `scaffold-repo` (v0.1.0)
+
+Create and configure a managed repo from a sub-task file.
+
+**What it does:**
+- Creates the managed repo on GitLab
+- Seeds with README, sub-task file, PAT stubs, and a pluggable CI pipeline
+- Protects `main` branch (merge-only, no direct push)
+- Creates a project access token for merge transaction use
+- The CI pipeline uses a lifecycle model: install → build → test → snapshot → tag
+- Lifecycle phases are delegated to project scripts (npm, pip, cargo, etc.)
+
+**Usage:**
+```
+m-power scaffold-repo
+  sub-task-file: <path-to-sub-task-md>
+  project-yaml: <path-to-project-yaml>
+  [repo-type: "node" | "python" | "rust"]
+  [namespace-id: <gitlab-namespace-id>]
+```
+
+**Outcome:**
+- Managed repo created with pluggable CI pipeline and placeholder lifecycle scripts
+- `main` branch protected (merge-only)
+- Project access token created (for root repo merge transactions)
+- Ready to receive implementation work via MR
+
+---
+
+### 6. `wire-orchestration` (v0.1.0)
+
+Connect managed repos to the root repo's orchestration layer.
+
+**What it does:**
+- Creates a pipeline trigger token on the root repo
+- Installs webhooks on each managed repo (MR events → root repo trigger)
+- Stores managed repo access tokens as protected CI variables on the root repo
+- Pushes the root repo CI pipeline (shadow integration, merge transaction, story-level tests)
+- Protects root repo `main` branch
+
+**Usage:**
+```
+m-power wire-orchestration
+  project-yaml: <path-to-project-yaml>
+  [root-project-id: <gitlab-project-id>]
+  access-tokens:
+    <component-name>: <token-value>
+    ...
+```
+
+**Outcome:**
+- Webhooks on all managed repos firing at root repo trigger
+- Root repo CI pipeline with shadow integration and merge transaction stages
+- CI variables with managed repo access tokens (protected, masked)
+- Root repo `main` branch protected
+- Full Methodology M orchestration operational
+
+---
+
 ## Roadmap
 
 As we build M-type projects, M Power will grow:
 
-- `scaffold-repo` — Create a GitLab repo from a sub-task file (CI stub, readme, PAT stubs)
-- `generate-cypress` — Convert PAT stubs into runnable Cypress specs
+- `implement-component` — Scaffold implementation code from a sub-task file
+- `generate-acceptance-tests` — Transform PAT stubs into runnable test code
+- `tag-release` — Tag a managed repo and update project.yaml
 - `create-readiness-tracker` — Create readiness manifest for a story in the root repo
 
 ---

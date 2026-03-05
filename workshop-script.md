@@ -95,14 +95,49 @@ In the real M Power flow, there is no staging area — everything goes directly 
 
 💬 `Scaffold the managed repos for TODOM-000.`
 
-👻 Invokes `m-power scaffold-repo` for each sub-task:
-1. Creates `todo-m-mfe`, `todo-m-api-read`, `todo-m-api-write` on GitLab
-2. Seeds each with README, CI stub, repo-level PAT stubs
-3. Updates `project.yaml` with repo locations
+👻 Invokes `m-power scaffold-repo` for each sub-task (TODOM-000b, 000c, 000d):
 
-🦊 Show the audience the GitLab group — all repos visible. Walk through one managed repo.
+1. Creates `todo-m-mfe`, `todo-m-api-read`, `todo-m-api-write` on GitLab (no README init — avoids conflict with seed commit)
+2. Pushes seed commit via `push_files`: README, sub-task file, repo-level PAT stubs, pluggable `.gitlab-ci.yml`, `package.json` with placeholder lifecycle scripts
+3. Reconfigures branch protection — GitLab auto-protects `main` with push=maintainer; scaffold unprotects then re-protects with push=no one, merge=maintainer (unprotect/re-protect required — no update API exists)
+4. Creates project access token per repo (Premium+) or notes free-tier fallback (group PAT)
 
-👀 All repos exist. Topology complete. Scaffolding only — no implementation yet.
+The CI pipeline has lifecycle phases:
+- `install` → `build` → `test` (every pipeline)
+- `snapshot` (MR pipelines only — publishes `v0.0.0-mr.<MR_IID>` tag)
+- `tag` (merge to main only — auto-tags semver)
+
+🦊 Show the audience one managed repo:
+- The `.gitlab-ci.yml` — lifecycle phases, not hardcoded commands
+- Branch protection — push rejected, merge only
+- The `package.json` — placeholder scripts that implementation will fill in
+
+👀 All repos exist with operational CI pipelines. Branch protection enforced (push=no one). Ready for orchestration wiring.
+
+---
+
+## Step 5: Wire Orchestration ⏳
+
+💬 `Wire up the orchestration layer using M Power.`
+
+👻 Invokes `m-power wire-orchestration`:
+
+1. Creates a pipeline trigger token on `todo-m-root` (for shadow integration)
+2. Installs webhooks on each managed repo — MR events fire at root repo trigger
+3. Stores access token as a protected, masked CI variable on root repo (`M_GROUP_TOKEN` — single group PAT on free tier; per-repo project tokens on Premium+)
+4. Pushes root repo `.gitlab-ci.yml` with orchestration pipelines:
+   - Shadow integration: `compose` → `integration-test` (triggered by managed repo webhooks)
+   - Merge transaction: atomic merge of managed MRs (manual trigger, serialised via `resource_group`)
+   - Post-merge validation: story-level tests on main
+5. Creates root repo `package.json` with placeholder lifecycle scripts (`compose`, `integration-test`, `merge-transaction`)
+6. Protects root repo `main` branch — merge-only
+
+🦊 Show the audience:
+- The webhook on a managed repo — "when an MR is created here, the root repo knows"
+- The root repo CI pipeline — shadow integration, merge transaction stages
+- The CI variables — masked tokens, one per managed repo
+
+👀 Full Methodology M orchestration is wired. Raising an MR on any managed repo will trigger shadow integration on the root repo. The merge transaction pipeline is ready to coordinate atomic merges. The process exists from Story Zero — no special cases.
 
 ---
 
@@ -133,9 +168,13 @@ Key insight for the audience: PATs are framework-agnostic. The same acceptance c
 
 ## M Power Capabilities Needed
 
-### Existing
-- `generate-pats` — already built (Stage 0)
-- `decompose-story` — already built (Stage 0)
+### Existing (Stage 0)
+- `setup-workspace` — creates the GitLab group
+- `bootstrap-root-repo` — creates root repo, seeds with project.yaml and Story Zero
+- `generate-pats` — generates story-level PATs from acceptance criteria
+- `decompose-story` — decomposes story into component sub-tasks
+- `scaffold-repo` — creates managed repos with pluggable CI pipelines, branch protection, access tokens
+- `wire-orchestration` — connects managed repos to root repo (webhooks, triggers, tokens, root CI pipeline)
 
 ### New for Stage 1
 - `implement-component` — Reads a sub-task file, scaffolds the implementation (Express app, package.json, etc.), and generates the initial code. Works from the repo-level PATs in the sub-task.
@@ -144,11 +183,10 @@ Key insight for the audience: PATs are framework-agnostic. The same acceptance c
 
 ### Deferred (Stage 2+)
 - `create-readiness-tracker` — Creates the readiness manifest in the root repo
-- `shadow-integration` — The topology MR workflow (CI-driven, not a Kiro capability)
 
 ---
 
-## Step 5: Implement todo-m-api-read (Live Demo) ⏳
+## Step 6: Implement todo-m-api-read (Live Demo) ⏳
 
 💬 `Implement TODOM-000c in todo-m-api-read. Use the sub-task file for context.`
 
@@ -161,7 +199,7 @@ Key insight for the audience: PATs are framework-agnostic. The same acceptance c
 
 ---
 
-## Step 6: Transform PAT Stubs into Acceptance Tests ⏳
+## Step 7: Transform PAT Stubs into Acceptance Tests ⏳
 
 💬 `Generate acceptance tests for TODOM-000c from the PAT stubs.`
 
@@ -178,7 +216,7 @@ Key insight for the audience: PATs are framework-agnostic. The same acceptance c
 
 ---
 
-## Step 7: Tag and Release ⏳
+## Step 8: Tag and Release ⏳
 
 🖥️ Tests pass. Tag the release.
 
@@ -191,7 +229,7 @@ Key insight for the audience: PATs are framework-agnostic. The same acceptance c
 
 ---
 
-## Step 8: Fast-Forward Remaining Components ⏳
+## Step 9: Fast-Forward Remaining Components ⏳
 
 💬 `Fast-forward the remaining components to v0.1.0.`
 
@@ -207,7 +245,7 @@ Each gets tagged at `v0.1.0`. Root repo `project.yaml` updated to pin all refere
 
 ---
 
-## Step 9: Pause and Reflect ⏳
+## Step 10: Pause and Reflect ⏳
 
 📝 Presenter summarises what Stage 1 demonstrated:
 
@@ -242,6 +280,8 @@ Stage 2 will demonstrate:
 1. `setup-workspace` — creates the GitLab group
 2. `bootstrap-root-repo` — creates root repo, seeds with `project.yaml` and Story Zero
 3. `generate-pats` — generates PATs, commits to root repo (delegated, not reimplemented)
-4. `decompose-story` — decomposes into sub-tasks, creates managed repos
+4. `decompose-story` — decomposes into sub-tasks
+5. `scaffold-repo` — creates managed repos with CI pipelines, branch protection, access tokens
+6. `wire-orchestration` — connects managed repos to root repo (webhooks, triggers, root CI pipeline)
 
 The root repo becomes the source of truth the moment it's created. Each capability stays atomic with user decision points between steps.
