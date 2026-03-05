@@ -120,6 +120,8 @@ defines WHEN things run. The project's build scripts define WHAT runs.
 # Lifecycle phases are delegated to project scripts.
 # The pipeline orchestrates; the scripts implement.
 
+image: node:20
+
 stages:
   - install
   - build
@@ -196,6 +198,11 @@ replaces them with real commands.
 | `test`     | Every pipeline           | Run repo-level PATs and unit tests   | Pipeline fails, MR blocked |
 | `snapshot` | MR pipelines only        | Publish pre-release artefact         | MR can't shadow-integrate |
 | `tag`      | Merge to main only       | Create semver tag on the new commit  | Manual tag required       |
+
+**CI image:** The pipeline must specify `image: node:20` (or the
+appropriate runtime for the repo-type). Without an explicit image,
+GitLab falls back to the runner's default (typically `ruby:3.1`),
+which won't have npm/node available.
 
 The `--if-present` flag on npm run means phases without a script
 silently succeed. This lets the scaffold work out of the box before

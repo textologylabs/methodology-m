@@ -51,6 +51,22 @@ All steps are logged in `workshop-script.md` with the exact commands used.
 Generated artefacts in `workshop/workspace/` can be deleted and regenerated
 by replaying those steps.
 
+**Fix-forward rule:** When fixing any issue discovered during execution
+(missing CI image, API gotcha, wrong parameter, etc.), ALWAYS propagate
+the fix back into the source artefacts so the next replay doesn't hit
+the same problem. The chain is:
+
+1. Fix the live issue (e.g. push corrected file to GitLab)
+2. Update the M Power capability doc (the template/instructions that
+   produced the broken output)
+3. Update `workshop-script.md` if the step description is affected
+4. Add a note to the capability doc's `## Notes` section documenting
+   the gotcha for future reference
+
+If you fix something live but don't update the source artefacts, the
+workshop will break again on the next replay. Every fix is a lesson —
+capture it where it matters.
+
 ## Workshop Script Format
 
 Every step in `workshop-script.md` must clearly record:

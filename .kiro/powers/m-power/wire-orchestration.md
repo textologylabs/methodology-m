@@ -85,6 +85,8 @@ three distinct workflows:
 # Orchestrates shadow integration, merge transactions,
 # and story-level acceptance testing.
 
+image: node:20
+
 stages:
   - compose
   - integration-test
