@@ -249,3 +249,26 @@ During the demo: branch, implement, raise MRs, merge, break things — all on th
 - Should the walkthrough be a separate document or embedded in the root repo README?
 - How do we handle the Jira dependency? Use a `jira/` folder in the root repo with one markdown file per ticket. Self-contained, version-controlled, replayable. Each file follows a consistent template (title, description, AC, sub-tasks). The article can note "in a real setup, this would be Jira."
 - Replay granularity: can someone replay a single story, or do they need to replay from the beginning?
+
+## Future: GitLab Duo Agent Platform Integration
+
+GitLab Duo Agent Platform (GA January 2026) provides native infrastructure for
+running AI agents across the SDLC inside GitLab. Key opportunities for M:
+
+- **AGENTS.md in root repo** — generate an `AGENTS.md` as part of `bootstrap-root-repo`
+  that encodes M rules for the project (e.g. "always check project.yaml before changes",
+  "PATs must be topology-agnostic", "never merge managed MRs individually"). This is an
+  industry-standard convention compatible with GitLab Duo, Claude Code, and other tools.
+  Low effort, high value — worth adopting now.
+- **Custom Flows for merge transaction** — the merge transaction and shadow integration
+  could be packaged as GitLab Duo custom flows (YAML-defined, runner-executed, event-driven).
+  This would make M's orchestration autonomous rather than human-in-the-loop.
+- **Custom Agents for M roles** — Story Decomposer, Story Integrator, PAT Validator as
+  custom agents in the AI Catalog, installable per-project.
+- **MCP Client for PAT validation** — Playwright MCP could replace Cypress pipeline steps
+  for story-level PAT validation, with agents driving the browser directly.
+- **AI Catalog distribution** — M could be packaged as a catalog entry that any GitLab
+  project can install — agents, flows, and AGENTS.md in one bundle.
+
+Current approach (Kiro + MCP) is right for pass 1. Duo Agent Platform is the natural
+production deployment target once M is proven end-to-end.
