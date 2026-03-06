@@ -51,8 +51,13 @@ For each managed repo, create a webhook using
 `gitlab-ops create_webhook`:
 - URL: `https://gitlab.com/api/v4/projects/<root-project-id>/trigger/pipeline`
   with the trigger token as a query parameter
-- Events: `merge_requests_events: true`
+- Events: `merge_requests_events: true`, `push_events: false`
 - SSL verification: enabled
+
+**Important:** GitLab defaults `push_events` to `true` when creating a
+webhook, even if not specified. Explicitly set `push_events: false` to
+avoid triggering the root repo pipeline on every push to managed repos.
+Only MR events should trigger shadow integration.
 
 The webhook fires when an MR is created, updated, or merged on the
 managed repo. The root repo's pipeline trigger receives the event and
