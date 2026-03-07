@@ -98,7 +98,7 @@ In the real M Power flow, there is no staging area — everything goes directly 
 👻 Invokes `m-power scaffold-repo` for each sub-task (TODOM-000b, 000c, 000d):
 
 1. Creates `todo-m-mfe`, `todo-m-api-read`, `todo-m-api-write` on GitLab (no README init — avoids conflict with seed commit)
-2. Pushes seed commit via `push_files`: README, sub-task file, repo-level PAT stubs, pluggable `.gitlab-ci.yml`, `package.json` with placeholder lifecycle scripts
+2. Pushes seed commit via `push_files`: README, sub-task file, repo-level PAT stubs, pluggable `.gitlab-ci.yml`, `.kiro/steering/m-managed-repo.md` (M development guide), `package.json` with placeholder lifecycle scripts
 3. Reconfigures branch protection — GitLab auto-protects `main` with push=maintainer; scaffold unprotects then re-protects with push=no one, merge=maintainer (unprotect/re-protect required — no update API exists)
 4. Creates project access token per repo (Premium+) or notes free-tier fallback (group PAT)
 
@@ -153,7 +153,18 @@ transform PAT stubs into real acceptance tests, tag a release. Proves the
 PAT-driven workflow before tackling integration.
 
 **Live demo:** TODOM-000c (todo-m-api-read) — the simplest component. One
-endpoint, no UI, clean PAT-to-AT transformation.
+endpoint, no UI, clean PAT-to-AT transformation. The presenter works in the
+local clone, following a normal dev workflow:
+
+1. 🖥️ `cd` into the local clone of `todo-m-api-read`
+2. 🖥️ Create a feature branch: `git checkout -b feat/TODOM-000c-implement`
+3. 💬 Ask Kiro to implement the endpoint (Beat 1)
+4. 🖥️ `npm install` and verify with `curl` (smoke test)
+5. 💬 Ask Kiro to transform PAT stubs into acceptance tests (Beat 2)
+6. 🖥️ `npm test` — show tests passing
+7. 🖥️ Commit, push, open MR on GitLab
+8. 🦊 Show CI pipeline running and passing
+9. 🦊 Merge the MR
 
 **Fast-forward:** After the live demo, pre-baked commits land the remaining
 components (TODOM-000d, TODOM-000b, TODOM-000a) so we can move to
@@ -231,6 +242,17 @@ contract is explicit."
 
 👀 Audience sees: AI reading the sub-task, understanding the contract,
 generating minimal implementation. No tests yet — that comes next.
+
+🖥️ Verify the endpoint works:
+```
+npm start &
+curl http://localhost:3001/hello
+kill %1
+```
+
+👀 Audience sees: `{"message":"Hello from todo-m-api-read"}` — the contract
+is met. But this is a manual check. The next beat makes it automated and
+CI-runnable.
 
 ---
 

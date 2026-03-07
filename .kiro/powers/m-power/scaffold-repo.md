@@ -49,10 +49,12 @@ Push all seed files in a single commit using `gitlab push_files`:
 
 - `README.md` — component name, parent story reference, repo-level PATs
 - `.gitlab-ci.yml` — pluggable lifecycle pipeline (see Pipeline Template)
+- `.gitignore` — standard ignores for the repo type (e.g. `node_modules/`)
 - `package.json` (or equivalent for repo-type) — with lifecycle scripts
 - `package-lock.json` — minimal lockfile so `npm ci` works from day zero
 - `jira/<sub-task-id>.md` — copy of the sub-task file
 - `pats/<sub-task-id>.stub` — PAT stub file extracted from the sub-task
+- `.kiro/steering/m-managed-repo.md` — M development guide (see Steering Template)
 
 **Important:** Because the repo was created without `initialize_with_readme`
 (Step 2), all files are new and `push_files` works cleanly. If any files
@@ -130,6 +132,14 @@ stages:
   - snapshot
   - tag
 
+# Default cache: every job pulls node_modules from cache.
+# Only the install job pushes (pull-push policy).
+cache: &default_cache
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - node_modules/
+  policy: pull
+
 # --- Always run ---
 
 install:
@@ -137,9 +147,8 @@ install:
   script:
     - npm ci
   cache:
-    key: ${CI_COMMIT_REF_SLUG}
-    paths:
-      - node_modules/
+    <<: *default_cache
+    policy: pull-push
 
 build:
   stage: build
@@ -247,3 +256,163 @@ provides the hook, the implementation decides the logic.
 - Always include a `package-lock.json` in the seed commit (even with no
   dependencies). Without it, `npm ci` fails immediately. The lockfile
   is trivial for an empty project — just name, version, lockfileVersion.
+- **CI cache with DAG (`needs:`):** GitLab `needs:` creates a DAG but
+  does NOT propagate cache between jobs. Each job that requires
+  `node_modules/` must declare its own cache block. The template uses a
+  YAML anchor (`&default_cache`) with `policy: pull` as the default, and
+  the install job overrides to `policy: pull-push`. Without this, jobs
+  downstream of install (build, test, etc.) won't find `node_modules/`
+  and commands like `vitest` will fail with "not found".
+
+## Steering Template
+
+The `.kiro/steering/m-managed-repo.md` file is an auto-inclusion steering
+file that gives any AI session the context needed to work in an M-managed
+repo. It is generated from the sub-task metadata and project configuration.
+
+The steering file must use `inclusion: auto` front matter so it is picked
+up automatically when the repo is opened.
+
+### Template
+
+The following is parameterised. Replace `<placeholders>` with values
+extracted from the sub-task file and project.yaml.
+
+```
+---
+inclusion: auto
+---
+
+# M-Managed Repo — AI Development Guide
+
+This repo is managed by Methodology M. This steering file gives you the
+context needed to work effectively in this codebase.
+
+## Repo Identity
+
+- **Component:** <component-name>
+- **Role:** <component-role> (e.g. backend, frontend, frontend-host)
+- **Type:** referenced (tracked by version in the root repo)
+- **Root repo:** <root-repo-name> (under the same GitLab group)
+- **Story management:** Sub-task files in `jira/`, linked to parent stories in the root repo
+
+## Methodology M Essentials
+
+This is an M-type managed repo. Key concepts:
+
+- **PATs (Pseudo Acceptance Tests)** are structured, machine-readable
+  validation criteria. They describe what to verify without prescribing
+  a test framework. PAT stubs in `pats/` are pseudocode — human-readable
+  intent that must be transformed into executable acceptance tests.
+
+- **Repo-level PATs** answer: "does this component fulfil its contract?"
+  They run in this repo's CI pipeline and test the component in isolation.
+
+- **Story-level PATs** live in the root repo and test the composed system.
+  This repo doesn't run those — it only owns its own contract.
+
+- **Acceptance tests (ATs)** are the executable form of PATs. The PAT stub
+  is the specification; the AT is the compiled, CI-runnable proof. By the
+  time an MR is raised, every PAT must have a corresponding passing AT.
+
+## Artefact Layout
+
+  jira/              Sub-task files (acceptance criteria, parent story link)
+  pats/              PAT stubs (.stub.js) and acceptance tests (.spec.js)
+  src/               Application source code
+  .gitlab-ci.yml     CI pipeline (lifecycle phases, not hardcoded commands)
+  package.json       Lifecycle scripts (build, test, start, snapshot, tag)
+
+## Sub-Task Files
+
+Files in `jira/` describe what this repo must deliver for a given story.
+Each sub-task has:
+
+- A parent story reference
+- Acceptance criteria (repo-level PATs in prose)
+- A summary of the contract this component owns
+
+When asked to implement something, read the sub-task file first. It is the
+contract. Build exactly what it specifies.
+
+## PAT Stubs and Acceptance Tests
+
+Files in `pats/` come in two forms:
+
+- `*.stub.js` — PAT stubs. Pseudocode describing what to test. These are
+  generated during story decomposition and represent the contract in
+  human-readable form. Do not delete them after transformation.
+
+- `*.spec.js` — Acceptance tests. Real, executable test code that proves
+  the implementation meets the contract. Generated by transforming stubs.
+
+### Transforming PAT Stubs into Acceptance Tests
+
+When asked to "generate acceptance tests" or "transform PAT stubs":
+
+1. Read the stub file to understand the contract
+2. Read the sub-task file for additional context
+3. Choose the appropriate test framework based on the component role:
+   - Backend API → supertest + vitest (HTTP contract testing)
+   - Frontend MFE → vitest + Testing Library (component testing, mocked API)
+   - Root repo / shell → Cypress (story-level, composed system)
+4. Write the spec file alongside the stub (same directory, .spec.js extension)
+5. Ensure tests import the app directly (not via a running server) for speed
+   and reliability — separate app.js from server.js for this reason
+
+## CI Pipeline
+
+The .gitlab-ci.yml uses lifecycle phases delegated to package.json scripts:
+
+| Phase | Script | When |
+|-------|--------|------|
+| install | npm ci | Every pipeline |
+| build | npm run build | Every pipeline |
+| test | npm test | Every pipeline |
+| snapshot | npm run snapshot | MR pipelines only |
+| tag | npm run tag | Merge to main only |
+
+The pipeline orchestrates; the scripts implement. When updating functionality,
+update the package.json scripts — not the CI file.
+
+## Branch and MR Conventions
+
+- Feature branches: feat/<subtask-id>-<description>
+- MR titles must include the sub-task ID
+- Branch protection: push to main is blocked; all changes go through MRs
+- Managed repo MRs stay open until the root repo's merge transaction lands
+  the full story — do not merge individually
+
+## Development Workflow
+
+The typical cycle for implementing a sub-task:
+
+1. Read the sub-task file in jira/ — understand the contract
+2. Create a feature branch from main
+3. Implement the functionality described in the sub-task
+4. Transform PAT stubs into acceptance tests
+5. Run npm test — all acceptance tests must pass
+6. Commit, push, open MR with sub-task ID in the title
+7. CI runs: install → build → test → snapshot
+8. Wait for story-level integration (managed by root repo)
+
+## Code Conventions
+
+- Separate app logic from server binding (app.js / server.js pattern)
+  so tests can import the app without starting a server
+- Keep implementations minimal — deliver exactly what the sub-task specifies
+- No framework-specific magic — keep it readable and testable
+```
+
+### Parameterisation
+
+The scaffold capability fills in these placeholders from the inputs:
+
+| Placeholder | Source |
+|-------------|--------|
+| `<component-name>` | Sub-task file `Component:` field |
+| `<component-role>` | Inferred from component type (API → backend, MFE → frontend, shell → frontend-host) |
+| `<root-repo-name>` | project.yaml `project:` field + `-root` suffix |
+
+Everything else in the template is generic M methodology content that
+applies to all managed repos regardless of project.
