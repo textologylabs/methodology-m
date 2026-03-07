@@ -85,9 +85,9 @@ In the real M Power flow, there is no staging area — everything goes directly 
 
 💬 Reviews mapping, confirms or adjusts.
 
-👻 Generates and commits sub-task files (TODOM-000a through TODOM-000d).
+👻 Generates and commits sub-task files (TODOM-000a through TODOM-000d) and the readiness tracker (`stories/TODOM-000.yaml`).
 
-👀 Root repo now contains `jira/TODOM-000a.md` through `jira/TODOM-000d.md` plus enriched story.
+👀 Root repo now contains `jira/TODOM-000a.md` through `jira/TODOM-000d.md`, enriched story, and `stories/TODOM-000.yaml` (readiness tracker with all high-water marks null). Idea phase complete.
 
 ---
 

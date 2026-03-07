@@ -36,14 +36,35 @@ Repos follow the pattern `todo-m-<component>`:
 - `todo-m-api-read` — read API
 - `todo-m-api-write` — write API
 
-## Workshop Layout
+## Where Things Live
+
+Artefacts live in two places with different roles:
+
+**This local repo** (`methodology-m`) — planning, scripting, and workshop artefacts:
 
 ```
+docs/                  ← methodology articles and plans
 workshop/
-  jira/           ← source stories (static, hand-authored)
-  workspace/      ← generated artefacts (replayable via workshop-script.md)
-    jira/         ← enriched stories, sub-tasks
+  jira/                ← source stories (static, hand-authored)
+  workspace/
+    jira/              ← enriched stories, sub-tasks, PATs (generated)
+workshop-script.md     ← the demo playbook
 ```
+
+Workshop artefacts (stories, PATs, sub-tasks in `workshop/workspace/jira/`)
+are authored and stored here. They also get pushed to the GitLab repos as
+part of the workshop flow (e.g. into `jira/` folders in the root repo).
+
+**GitLab repos** under `methodology-m/todo-m-workshop/` — the actual application:
+
+- `todo-m-root` — shell code, project.yaml, story-level Cypress, readiness trackers, CI pipelines
+- `todo-m-mfe` — MFE application code, repo-level CI
+- `todo-m-api-read` — read API application code, repo-level CI
+- `todo-m-api-write` — write API application code, repo-level CI
+
+Application code, CI pipelines, project.yaml, readiness trackers, and
+topology configuration only live on GitLab. When checking whether the
+project infrastructure is set up, **check GitLab** — not this local repo.
 
 ## Replayability
 

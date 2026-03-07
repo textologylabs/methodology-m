@@ -103,6 +103,7 @@ m-power decompose-story
 **Outcome:**
 - `workspace/<story-id>.md` — enriched story with mapping and sub-task refs
 - `workspace/<story-id>a.md`, `<story-id>b.md`, etc. — one per component
+- `workspace/<story-id>.readiness.yaml` — readiness tracker for the root repo
 
 ---
 
@@ -172,7 +173,6 @@ As we build M-type projects, M Power will grow:
 - `implement-component` — Scaffold implementation code from a sub-task file
 - `generate-acceptance-tests` — Transform PAT stubs into runnable test code
 - `tag-release` — Tag a managed repo and update project.yaml
-- `create-readiness-tracker` — Create readiness manifest for a story in the root repo
 
 ---
 

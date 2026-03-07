@@ -63,6 +63,26 @@ Copy of the source story with two additions:
 - A `## Component PAT Mapping` section showing which PATs each component owns
 - A `## Sub-Tasks` section listing the generated sub-task IDs and their repos
 
+**Readiness tracker: `<story-id>.readiness.yaml`**
+
+Tracks high-water marks for each component sub-task. All marks start as null.
+This is the artefact that monitors story progress through the Development phase.
+It gets committed to the root repo under `stories/<story-id>.yaml`.
+
+```
+story: <story-id>
+status: pending
+
+components:
+  - name: <component-name>
+    subtask: <story-id><suffix>
+    high-water-mark: null
+  ...
+
+story-pats:
+  - pats/<story-id>.pat.yaml
+```
+
 **Sub-task files: `<story-id>a.md`, `<story-id>b.md`, etc.**
 
 One file per component. Each contains:
@@ -106,4 +126,7 @@ One file per component. Each contains:
 - PAT stubs are skeletons only — implementation happens in the repo
 - The enriched story in the workspace is the source of truth for subsequent
   scaffolding steps
+- The readiness tracker is committed to the root repo under `stories/` — it
+  is the mechanism that tracks story progress through the Development phase.
+  Without it, there is no completeness gate for the merge transaction.
 - Run `m-power scaffold-repo` against each sub-task file to create the repo
