@@ -141,13 +141,23 @@ The CI pipeline has lifecycle phases:
 
 ---
 
-# Stage 1: First Development Cycle
+# Stage 1: TODOM-000 Development Phase
 
-**Goal:** Demonstrate one complete dev cycle — implement a component, transform PAT stubs into real acceptance tests, tag a release. Proves the PAT-driven workflow before tackling integration.
+**Still Story Zero.** Stage 0 scaffolded the infrastructure; Stage 1
+implements the sub-tasks. Same story, different phase in the M lifecycle.
+Stages are workshop presentation beats, not story boundaries — TODOM-000
+spans Stage 0 through Stage 2.
 
-**Live demo:** TODOM-000c (todo-m-api-read) — the simplest component. One endpoint, no UI, clean PAT-to-AT transformation.
+**Goal:** Demonstrate one complete dev cycle — implement a component,
+transform PAT stubs into real acceptance tests, tag a release. Proves the
+PAT-driven workflow before tackling integration.
 
-**Fast-forward:** After the live demo, pre-baked commits land the remaining components (TODOM-000d, TODOM-000b, TODOM-000a) so we can move to integration without repeating the same cycle three more times.
+**Live demo:** TODOM-000c (todo-m-api-read) — the simplest component. One
+endpoint, no UI, clean PAT-to-AT transformation.
+
+**Fast-forward:** After the live demo, pre-baked commits land the remaining
+components (TODOM-000d, TODOM-000b, TODOM-000a) so we can move to
+integration without repeating the same cycle three more times.
 
 ---
 

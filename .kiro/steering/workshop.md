@@ -49,6 +49,7 @@ workshop/
   workspace/
     jira/              ← enriched stories, sub-tasks, PATs (generated)
 workshop-script.md     ← the demo playbook
+ref-projects/          ← local clones of GitLab repos (gitignored)
 ```
 
 Workshop artefacts (stories, PATs, sub-tasks in `workshop/workspace/jira/`)
@@ -65,6 +66,31 @@ part of the workshop flow (e.g. into `jira/` folders in the root repo).
 Application code, CI pipelines, project.yaml, readiness trackers, and
 topology configuration only live on GitLab. When checking whether the
 project infrastructure is set up, **check GitLab** — not this local repo.
+
+## Local Development Workspace
+
+For implementation work, GitLab repos are cloned locally under `ref-projects/`:
+
+```
+ref-projects/
+  todo-m-workshop/
+    pass1/             ← first run of the workshop
+      todo-m-root/
+      todo-m-mfe/
+      todo-m-api-read/
+      todo-m-api-write/
+```
+
+The `pass1` convention supports replayability — a second run would use `pass2`
+with fresh clones, proving the workshop script works from scratch.
+
+These clones are gitignored (each has its own remote). Implementation happens
+here using normal dev workflow (branch, code, push, MR). M Power capabilities
+use the GitLab API for scaffolding; implementation is local.
+
+In a real project, devs would open all repos in a multi-folder workspace so
+the AI can see everything. Here we keep them inside the methodology repo for
+convenience since this is a reference implementation.
 
 ## Replayability
 
