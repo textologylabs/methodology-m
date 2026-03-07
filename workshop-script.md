@@ -196,33 +196,69 @@ Key insight for the audience: PATs are framework-agnostic. The same acceptance c
 
 ---
 
-## Step 6: Implement todo-m-api-read (Live Demo) ⏳
+## Why Acceptance Tests First?
 
-💬 `Implement TODOM-000c in todo-m-api-read. Use the sub-task file for context.`
+A natural question: "why jump straight to acceptance tests instead of unit
+tests?" In M, PATs are the contract — they define what "done" means for a
+sub-task. Unit tests are a developer concern that emerge naturally during
+implementation. The methodology cares about PATs because they validate the
+story. So the dev cycle is: implement the thing, then prove it meets the
+contract by transforming PAT stubs into executable acceptance tests.
 
-👻 Reads `jira/TODOM-000c.md` from the root repo. Scaffolds:
-1. `package.json` with Express, supertest, vitest as dependencies
-2. `src/index.js` — Express app with `GET /hello` → `{ "message": "Hello from todo-m-api-read" }`
-3. `src/index.test.js` — placeholder (tests come from PAT transformation next)
-
-👀 Audience sees: AI reading the sub-task, understanding the contract, generating minimal implementation.
+Unit tests may appear along the way (and should), but they're not what M
+tracks. The readiness tracker advances when acceptance tests pass, not when
+unit tests pass.
 
 ---
 
-## Step 7: Transform PAT Stubs into Acceptance Tests ⏳
+## Step 6: Implement todo-m-api-read (Beat 1 — Implementation) ⏳
+
+📝 Presenter explains: "We're picking up sub-task TODOM-000c. The AI will
+read the sub-task file, understand the contract, and scaffold the
+implementation. No tests yet — that's the next beat."
+
+💬 `Implement the endpoint for TODOM-000c in todo-m-api-read. Use the sub-task file for context.`
+
+👻 Reads `jira/TODOM-000c.md` from the repo. Scaffolds:
+1. Updates `package.json` — adds Express, real lifecycle scripts (replacing stubs)
+2. Creates `src/app.js` — Express app with `GET /hello` → `{ "message": "Hello from todo-m-api-read" }`
+3. Creates `src/server.js` — starts the server (separated from app for testability)
+
+📝 Presenter pauses: "Notice what just happened. The AI read a sub-task
+document — not a Jira ticket, not a Slack message — a structured artefact
+with acceptance criteria. It knows exactly what to build because the
+contract is explicit."
+
+👀 Audience sees: AI reading the sub-task, understanding the contract,
+generating minimal implementation. No tests yet — that comes next.
+
+---
+
+## Step 7: Transform PAT Stubs into Acceptance Tests (Beat 2 — PAT-to-AT) ⏳
+
+📝 Presenter explains: "Now the interesting part. The repo already has a PAT
+stub — pseudocode that describes what the acceptance test should verify. We're
+going to ask the AI to transform that stub into a real, executable test."
 
 💬 `Generate acceptance tests for TODOM-000c from the PAT stubs.`
 
-👻 Reads `pats/TODOM-000c.stub.js`, transforms into real supertest specs:
+👻 Reads `pats/TODOM-000c.stub.js`, transforms into real supertest + vitest specs:
 1. Replaces stub comments with actual supertest assertions
 2. `GET /hello` → expect 200, expect body to have `message` field
-3. Writes `pats/TODOM-000c.spec.js` (or `__tests__/acceptance.test.js`)
+3. Writes `pats/TODOM-000c.spec.js`
 
 💬 Reviews generated tests, confirms or tweaks.
 
 🖥️ `npm test` — shows tests passing against the implementation.
 
-👀 Audience sees: the PAT stub (pseudocode) becoming a real test (executable code). Same acceptance criterion, now deterministic and CI-runnable.
+📝 Presenter highlights: "Same acceptance criterion, two representations.
+The stub was pseudocode — human-readable intent. The spec is executable —
+CI-runnable proof. The methodology doesn't prescribe a test framework; it
+prescribes PATs. supertest here, Cypress in the root repo, Testing Library
+in the MFE. The PAT is the constant."
+
+👀 Audience sees: the PAT stub (pseudocode) becoming a real test (executable
+code). Same acceptance criterion, now deterministic and CI-runnable.
 
 ---
 
