@@ -4,6 +4,18 @@
 
 M Power is a Kiro skill that bootstraps Methodology M projects. It encapsulates the patterns and automation needed to set up and deliver M-type projects.
 
+## CRITICAL — Execution Rule
+
+**DO NOT improvise capability execution from the summaries below.** Each capability has a detailed execution spec in a standalone file at `.kiro/powers/m-power/<capability-name>.md`. Before executing ANY capability, you MUST read the corresponding file first. The summaries in this document are for orientation only — they tell you what a capability does, not how to do it. The standalone file is the authoritative playbook. Skip it and you will miss critical details (branch protection sequences, CI image requirements, webhook configuration flags, etc.) that will cause failures.
+
+**Execution protocol:**
+1. User requests a capability (e.g. "wire up orchestration using M Power")
+2. You read `.kiro/powers/m-power/<capability-name>.md` — the FULL file, not a skim
+3. You follow the steps in that file exactly
+4. You produce the report described in that file
+
+No exceptions. No shortcuts. No "I think I know what this does."
+
 ## Capabilities
 
 ### 1. `setup-workspace` (v0.1.0)
