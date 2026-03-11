@@ -178,13 +178,63 @@ m-power wire-orchestration
 
 ---
 
+### 7. `generate-acceptance-tests` (v0.1.0)
+
+Transform PAT stubs into executable acceptance test code.
+
+**What it does:**
+- Reads the PAT stub file (pseudocode) and transforms it into real test code
+- Chooses the appropriate test framework based on component role
+- Adds test devDependencies and vitest config
+- Runs the tests to verify they pass
+
+**Usage:**
+```
+m-power generate-acceptance-tests
+  sub-task-id: <sub-task-identifier>
+  [repo-path: <local-path-to-managed-repo>]
+```
+
+**Outcome:**
+- `pats/<sub-task-id>.spec.js` created alongside the stub
+- Test devDependencies added (supertest + vitest for APIs, Testing Library + vitest for MFEs)
+- `npm test` passes — contract is proven
+- Stub file preserved (human-readable spec alongside machine-readable proof)
+
+---
+
+### 8. `tag-release` (v0.1.0)
+
+Tag a managed repo at a version and update the root repo topology.
+
+**What it does:**
+- Creates an annotated git tag on the managed repo
+- Pushes the tag to origin
+- Updates `project.yaml` in the root repo to pin the component to the new version
+
+**Usage:**
+```
+m-power tag-release
+  sub-task-id: <sub-task-identifier>
+  version: <semver-version>
+  [repo-path: <local-path-to-managed-repo>]
+  [root-repo-path: <local-path-to-root-repo>]
+```
+
+**Outcome:**
+- Annotated tag `<version>` on managed repo, pushed to origin
+- Root repo `project.yaml` updated with new tag for the component
+- Root repo change is NOT auto-committed (presenter controls timing)
+
+---
+
 ## Roadmap
 
 As we build M-type projects, M Power will grow:
 
-- `implement-component` — Scaffold implementation code from a sub-task file
-- `generate-acceptance-tests` — Transform PAT stubs into runnable test code
-- `tag-release` — Tag a managed repo and update project.yaml
+- `compose-system` — Stand up the full system from the topology manifest
+- `run-story-pats` — Run story-level PATs against the composed system
+- `merge-transaction` — Atomic merge of managed MRs via the root repo
 
 ---
 

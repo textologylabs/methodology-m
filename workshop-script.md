@@ -116,7 +116,7 @@ The CI pipeline has lifecycle phases:
 
 ---
 
-## Step 5: Wire Orchestration ⏳
+## Step 5: Wire Orchestration ✅
 
 💬 `Wire up the orchestration layer using M Power.`
 
@@ -198,9 +198,11 @@ Key insight for the audience: PATs are framework-agnostic. The same acceptance c
 - `wire-orchestration` — connects managed repos to root repo (webhooks, triggers, tokens, root CI pipeline)
 
 ### New for Stage 1
-- `implement-component` — Reads a sub-task file, scaffolds the implementation (Express app, package.json, etc.), and generates the initial code. Works from the repo-level PATs in the sub-task.
 - `generate-acceptance-tests` — Transforms PAT stubs into real test code using the repo-appropriate framework. Reads the sub-task to determine what framework to use (supertest for API, Testing Library for MFE, Cypress for root).
 - `tag-release` — Tags a managed repo at a version (v0.1.0), following the auto-tag convention. Updates the root repo's project.yaml to pin the new version.
+
+### Not an M Power capability
+- Implementation is normal development work. The sub-task file and managed repo steering guide the AI, but there is no `implement-component` power. The methodology prescribes the contract (PATs) and the validation (acceptance tests), not how you write code.
 
 ### Deferred (Stage 2+)
 - `create-readiness-tracker` — Creates the readiness manifest in the root repo
@@ -222,15 +224,17 @@ unit tests pass.
 
 ---
 
-## Step 6: Implement todo-m-api-read (Beat 1 — Implementation) ⏳
+## Step 6: Implement todo-m-api-read (Beat 1 — Implementation) ✅
 
 📝 Presenter explains: "We're picking up sub-task TODOM-000c. The AI will
 read the sub-task file, understand the contract, and scaffold the
-implementation. No tests yet — that's the next beat."
+implementation. This is normal dev work — the sub-task file and the managed
+repo's steering guide the AI, but there's no special power for writing code.
+No tests yet — that's the next beat."
 
-💬 `Implement the endpoint for TODOM-000c in todo-m-api-read. Use the sub-task file for context.`
+💬 `Implement the endpoint for TODOM-000c. Read the sub-task file for context.`
 
-👻 Reads `jira/TODOM-000c.md` from the repo. Scaffolds:
+👻 Reads `jira/TODOM-000c.md` and the managed repo steering file. Scaffolds:
 1. Updates `package.json` — adds Express, real lifecycle scripts (replacing stubs)
 2. Creates `src/app.js` — Express app with `GET /hello` → `{ "message": "Hello from todo-m-api-read" }`
 3. Creates `src/server.js` — starts the server (separated from app for testability)
@@ -256,18 +260,23 @@ CI-runnable.
 
 ---
 
-## Step 7: Transform PAT Stubs into Acceptance Tests (Beat 2 — PAT-to-AT) ⏳
+## Step 7: Transform PAT Stubs into Acceptance Tests (Beat 2 — PAT-to-AT) ✅
 
 📝 Presenter explains: "Now the interesting part. The repo already has a PAT
 stub — pseudocode that describes what the acceptance test should verify. We're
-going to ask the AI to transform that stub into a real, executable test."
+going to ask the AI to transform that stub into a real, executable test.
+This is an M Power capability — it knows how to pick the right test framework
+based on the component role."
 
-💬 `Generate acceptance tests for TODOM-000c from the PAT stubs.`
+💬 `Generate acceptance tests for TODOM-000c using M Power.`
 
-👻 Reads `pats/TODOM-000c.stub.js`, transforms into real supertest + vitest specs:
-1. Replaces stub comments with actual supertest assertions
-2. `GET /hello` → expect 200, expect body to have `message` field
-3. Writes `pats/TODOM-000c.spec.js`
+👻 Invokes `m-power generate-acceptance-tests`:
+1. Reads `pats/TODOM-000c.stub.js` — the pseudocode contract
+2. Determines framework: backend API → supertest + vitest
+3. Adds test devDependencies (supertest, vitest)
+4. Creates `pats/TODOM-000c.spec.js` with real assertions
+5. Creates `vitest.config.js` with globals enabled
+6. Runs `npm test` to verify
 
 💬 Reviews generated tests, confirms or tweaks.
 
@@ -286,10 +295,13 @@ code). Same acceptance criterion, now deterministic and CI-runnable.
 
 ## Step 8: Tag and Release ⏳
 
-🖥️ Tests pass. Tag the release.
+💬 `Tag todo-m-api-read at v0.1.0 using M Power.`
 
-👻 Tags `todo-m-api-read` at `v0.1.0`. Updates `project.yaml` in the root repo:
-- `api-read` tag changes from `~` (null) → `v0.1.0`
+👻 Invokes `m-power tag-release`:
+1. Verifies tests pass and working tree is clean
+2. Creates annotated tag `v0.1.0` on `todo-m-api-read`
+3. Pushes tag to origin
+4. Updates `project.yaml` in the root repo: `api-read` tag changes from `~` (null) → `v0.1.0`
 
 🦊 Show the audience: the tag on GitLab, the updated project.yaml.
 
@@ -299,15 +311,23 @@ code). Same acceptance criterion, now deterministic and CI-runnable.
 
 ## Step 9: Fast-Forward Remaining Components ⏳
 
-💬 `Fast-forward the remaining components to v0.1.0.`
+📝 Presenter narrates: "Same cycle we just saw — implement, transform PATs,
+test, tag. We're fast-forwarding to keep the demo moving."
 
-👻 Pushes pre-baked implementations for:
+For each remaining component:
+
+🖥️ Presenter implements the component (normal dev work, guided by sub-task file).
+
+💬 `Generate acceptance tests for <sub-task-id> using M Power.`
+
+👻 Invokes `m-power generate-acceptance-tests` for each:
 - **TODOM-000d** (todo-m-api-write): Express + `POST /placeholder` → 200 OK + supertest specs
 - **TODOM-000b** (todo-m-mfe): React component + Testing Library specs (mocked API)
 
-Each gets tagged at `v0.1.0`. Root repo `project.yaml` updated to pin all referenced components.
+💬 `Tag <repo> at v0.1.0 using M Power.`
 
-📝 Presenter narrates: "Same cycle we just saw — implement, transform PATs, test, tag. We're fast-forwarding to keep the demo moving."
+👻 Invokes `m-power tag-release` for each. Root repo `project.yaml` updated
+to pin all referenced components.
 
 👀 All managed repos at v0.1.0. Topology fully implemented but not yet integration-tested.
 
