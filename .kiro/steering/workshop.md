@@ -12,7 +12,7 @@ implementation of Methodology M. It is the consumer of M Power — not part of i
 - Name: `todo-m`
 - GitLab group: `methodology-m/todo-m-workshop`
 - Visibility: public
-- Purpose: prove Methodology M works end-to-end by building a Todo app
+- Purpose: build a reference implementation of Methodology M AND a replayable workshop
 
 ## Instantiation Parameters
 
@@ -153,3 +153,47 @@ tools, and steering files. Only after activation should you proceed with the
 requested capability.
 
 Never bypass activation by reading power files directly from disk.
+
+## Primary Goal: Methodology, Not the App
+
+The todo app is a vehicle — nobody cares about the app itself. The two
+real deliverables are:
+
+1. **The reference implementation** — proving Methodology M works end-to-end
+2. **The replayable workshop** — a script someone can follow to see M in action
+
+Every action must be evaluated through this lens:
+
+### Power-first thinking
+
+Before doing anything manually, ask: "Should this be an M Power capability?"
+
+- If the action is something any M-type project would need (scaffolding,
+  PAT generation, acceptance test transformation, tagging, orchestration
+  wiring), it belongs in a power capability — generic, parameterised,
+  reusable.
+- If the action is project-specific (choosing Express for the API, picking
+  React for the MFE), it's implementation guided by the sub-task file and
+  steering — normal dev work, not a power.
+- When in doubt, lean toward making it a power. It's easier to simplify
+  a generic capability than to extract one from ad-hoc work after the fact.
+
+### Replayability thinking
+
+Every step must be reproducible:
+
+- **Power invocations** are inherently replayable — same inputs, same outputs.
+- **Manual steps** (implementation, local commands) must be documented in
+  `workshop-script.md` with enough detail that someone can follow along.
+- **Ad-hoc fixes** must be propagated back into source artefacts (see
+  fix-forward rule above). A fix that only lives in conversation history
+  is a fix that breaks on replay.
+
+### What NOT to do
+
+- Don't implement things "manually" when a power capability should exist
+- Don't make changes directly on GitLab that aren't captured in the script
+- Don't skip documenting a step because "it's obvious"
+- Don't optimise the todo app — it's deliberately boring by design
+- Don't treat this as app development with a methodology bolted on;
+  it's methodology development with an app as the test harness

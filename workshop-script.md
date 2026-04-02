@@ -143,109 +143,20 @@ The CI pipeline has lifecycle phases:
 
 # Stage 1: TODOM-000 Development Phase
 
-**Still Story Zero.** Stage 0 scaffolded the infrastructure; Stage 1
-implements the sub-tasks. Same story, different phase in the M lifecycle.
-Stages are workshop presentation beats, not story boundaries — TODOM-000
-spans Stage 0 through Stage 2.
-
-**Goal:** Demonstrate one complete dev cycle — implement a component,
-transform PAT stubs into real acceptance tests, tag a release. Proves the
-PAT-driven workflow before tackling integration.
-
-**Live demo:** TODOM-000c (todo-m-api-read) — the simplest component. One
-endpoint, no UI, clean PAT-to-AT transformation. The presenter works in the
-local clone, following a normal dev workflow:
-
-1. 🖥️ `cd` into the local clone of `todo-m-api-read`
-2. 🖥️ Create a feature branch: `git checkout -b feat/TODOM-000c-implement`
-3. 💬 Ask Kiro to implement the endpoint (Beat 1)
-4. 🖥️ `npm install` and verify with `curl` (smoke test)
-5. 💬 Ask Kiro to transform PAT stubs into acceptance tests (Beat 2)
-6. 🖥️ `npm test` — show tests passing
-7. 🖥️ Commit, push, open MR on GitLab
-8. 🦊 Show CI pipeline running and passing
-9. 🦊 Merge the MR
-
-**Fast-forward:** After the live demo, pre-baked commits land the remaining
-components (TODOM-000d, TODOM-000b, TODOM-000a) so we can move to
-integration without repeating the same cycle three more times.
+Implement the sub-tasks, transform PAT stubs into acceptance tests, tag
+releases. See `docs/workshop-design-notes.md` for design rationale
+(technology choices, capability catalogue, live demo strategy).
 
 ---
 
-## PAT-to-AT Technology Choices
-
-The PAT format is universal. The acceptance test (AT) framework is repo-appropriate:
-
-| Repo | PAT Stubs Say | AT Framework | Why |
-|------|---------------|--------------|-----|
-| todo-m-api-read | "GET /hello returns 200 with message field" | supertest + vitest | HTTP contract testing, no browser needed |
-| todo-m-api-write | "POST /placeholder returns 200 OK" | supertest + vitest | Same — pure API contract |
-| todo-m-mfe | "MFE renders Hello component" | vitest + Testing Library | Component-level, mocked API, fast |
-| todo-m-root | "Shell loads, MFE visible, API message displays" | Cypress | Story-level, composed system, browser required |
-
-Key insight for the audience: PATs are framework-agnostic. The same acceptance criterion expressed in PAT.yaml becomes a supertest spec in an API repo and a Cypress spec in the root repo. The methodology doesn't prescribe Cypress everywhere — it prescribes PATs everywhere.
-
----
-
-## M Power Capabilities Needed
-
-### Existing (Stage 0)
-- `setup-workspace` — creates the GitLab group
-- `bootstrap-root-repo` — creates root repo, seeds with project.yaml and Story Zero
-- `generate-pats` — generates story-level PATs from acceptance criteria
-- `decompose-story` — decomposes story into component sub-tasks
-- `scaffold-repo` — creates managed repos with pluggable CI pipelines, branch protection, access tokens
-- `wire-orchestration` — connects managed repos to root repo (webhooks, triggers, tokens, root CI pipeline)
-
-### New for Stage 1
-- `generate-acceptance-tests` — Transforms PAT stubs into real test code using the repo-appropriate framework. Reads the sub-task to determine what framework to use (supertest for API, Testing Library for MFE, Cypress for root).
-- `tag-release` — Tags a managed repo at a version (v0.1.0), following the auto-tag convention. Updates the root repo's project.yaml to pin the new version.
-
-### Not an M Power capability
-- Implementation is normal development work. The sub-task file and managed repo steering guide the AI, but there is no `implement-component` power. The methodology prescribes the contract (PATs) and the validation (acceptance tests), not how you write code.
-
-### Deferred (Stage 2+)
-- `create-readiness-tracker` — Creates the readiness manifest in the root repo
-
----
-
-## Why Acceptance Tests First?
-
-A natural question: "why jump straight to acceptance tests instead of unit
-tests?" In M, PATs are the contract — they define what "done" means for a
-sub-task. Unit tests are a developer concern that emerge naturally during
-implementation. The methodology cares about PATs because they validate the
-story. So the dev cycle is: implement the thing, then prove it meets the
-contract by transforming PAT stubs into executable acceptance tests.
-
-Unit tests may appear along the way (and should), but they're not what M
-tracks. The readiness tracker advances when acceptance tests pass, not when
-unit tests pass.
-
----
-
-## Step 6: Implement todo-m-api-read (Beat 1 — Implementation) ✅
-
-📝 Presenter explains: "We're picking up sub-task TODOM-000c. The AI will
-read the sub-task file, understand the contract, and scaffold the
-implementation. This is normal dev work — the sub-task file and the managed
-repo's steering guide the AI, but there's no special power for writing code.
-No tests yet — that's the next beat."
+## Step 6: Implement todo-m-api-read ✅
 
 💬 `Implement the endpoint for TODOM-000c. Read the sub-task file for context.`
 
-👻 Reads `jira/TODOM-000c.md` and the managed repo steering file. Scaffolds:
+👻 Reads the sub-task (TODOM-000c) and the managed repo steering. Scaffolds:
 1. Updates `package.json` — adds Express, real lifecycle scripts (replacing stubs)
 2. Creates `src/app.js` — Express app with `GET /hello` → `{ "message": "Hello from todo-m-api-read" }`
 3. Creates `src/server.js` — starts the server (separated from app for testability)
-
-📝 Presenter pauses: "Notice what just happened. The AI read a sub-task
-document — not a Jira ticket, not a Slack message — a structured artefact
-with acceptance criteria. It knows exactly what to build because the
-contract is explicit."
-
-👀 Audience sees: AI reading the sub-task, understanding the contract,
-generating minimal implementation. No tests yet — that comes next.
 
 🖥️ Verify the endpoint works:
 ```
@@ -254,44 +165,27 @@ curl http://localhost:3001/hello
 kill %1
 ```
 
-👀 Audience sees: `{"message":"Hello from todo-m-api-read"}` — the contract
-is met. But this is a manual check. The next beat makes it automated and
-CI-runnable.
+👀 `{"message":"Hello from todo-m-api-read"}` — contract met. No tests yet — next step.
 
 ---
 
-## Step 7: Transform PAT Stubs into Acceptance Tests (Beat 2 — PAT-to-AT) ✅
+## Step 7: Compile PATs into CATs ✅
 
-📝 Presenter explains: "Now the interesting part. The repo already has a PAT
-stub — pseudocode that describes what the acceptance test should verify. We're
-going to ask the AI to transform that stub into a real, executable test.
-This is an M Power capability — it knows how to pick the right test framework
-based on the component role."
-
-💬 `Generate acceptance tests for TODOM-000c using M Power.`
+💬 `Generate CATs for TODOM-000c using M Power.`
 
 👻 Invokes `m-power generate-acceptance-tests`:
-1. Reads `pats/TODOM-000c.stub.js` — the pseudocode contract
+1. Reads `pats/TODOM-000c.stub.js` — the PAT (pseudocode contract)
 2. Determines framework: backend API → supertest + vitest
 3. Adds test devDependencies (supertest, vitest)
-4. Creates `pats/TODOM-000c.spec.js` with real assertions
+4. Creates `pats/TODOM-000c.spec.js` — the CAT (compiled, CI-runnable)
 5. Creates `vitest.config.js` with globals enabled
 6. Runs `npm test` to verify
 
 💬 Reviews generated tests, confirms or tweaks.
 
-🖥️ `npm test` — shows tests passing against the implementation.
+🖥️ `npm test` — tests pass.
 
-📝 Presenter highlights: "Same acceptance criterion, two representations.
-The stub was pseudocode — human-readable intent. The spec is executable —
-CI-runnable proof. The methodology doesn't prescribe a test framework; it
-prescribes PATs. supertest here, Cypress in the root repo, Testing Library
-in the MFE. The PAT is the constant."
-
-👀 Audience sees: the PAT stub (pseudocode) becoming a real test (executable
-code). Same acceptance criterion, now deterministic and CI-runnable.
-
----
+👀 PAT (pseudo) → CAT (compiled). Same criterion, now deterministic and CI-runnable.
 
 ## Step 8: Tag and Release ⏳
 
@@ -311,18 +205,17 @@ code). Same acceptance criterion, now deterministic and CI-runnable.
 
 ## Step 9: Fast-Forward Remaining Components ⏳
 
-📝 Presenter narrates: "Same cycle we just saw — implement, transform PATs,
-test, tag. We're fast-forwarding to keep the demo moving."
+For each remaining component — same cycle: implement, compile PATs into CATs, tag.
 
-For each remaining component:
+💬 `Implement <sub-task-id>. Read the sub-task file for context.`
 
-🖥️ Presenter implements the component (normal dev work, guided by sub-task file).
+� Implements each component (normal dev work, guided by sub-task).
 
-💬 `Generate acceptance tests for <sub-task-id> using M Power.`
+💬 `Generate CATs for <sub-task-id> using M Power.`
 
 👻 Invokes `m-power generate-acceptance-tests` for each:
-- **TODOM-000d** (todo-m-api-write): Express + `POST /placeholder` → 200 OK + supertest specs
-- **TODOM-000b** (todo-m-mfe): React component + Testing Library specs (mocked API)
+- **TODOM-000d** (todo-m-api-write): Express + `POST /placeholder` → 200 OK + supertest CATs
+- **TODOM-000b** (todo-m-mfe): React component + Testing Library CATs (mocked API)
 
 💬 `Tag <repo> at v0.1.0 using M Power.`
 
@@ -335,14 +228,12 @@ to pin all referenced components.
 
 ## Step 10: Pause and Reflect ⏳
 
-📝 Presenter summarises what Stage 1 demonstrated:
+Stage 1 demonstrated:
 
-- PAT stubs → real acceptance tests (the transformation)
+- PATs (pseudo) → CATs (compiled) — the transformation
 - Framework choice is per-repo, not per-project
 - Each component validated in isolation (repo-level PATs)
 - No integration yet — that's Stage 2
-
-👀 Audience understands: we've built the pieces. Next we prove they work together.
 
 ---
 

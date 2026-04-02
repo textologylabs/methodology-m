@@ -1,7 +1,7 @@
 {
   "name": "m-power",
   "displayName": "M Power",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Bootstrap skill for Methodology M projects — automates setup, scaffolding, and delivery of distributed multi-repo systems",
   "keywords": [
     "m-power",
@@ -11,10 +11,6 @@
   ],
   "author": "Methodology M Workshop",
   "license": "CC BY 4.0",
-  "mcpServers": [
-    "gitlab_ops",
-    "gitlab"
-  ],
   "documentation": "POWER.md",
   "capabilities": [
     {
@@ -36,6 +32,26 @@
       "name": "decompose-story",
       "description": "Decompose a story into component-scoped sub-tasks with PAT mapping",
       "documentation": "decompose-story.md"
+    },
+    {
+      "name": "scaffold-repo",
+      "description": "Create and configure a managed repo from a sub-task file",
+      "documentation": "scaffold-repo.md"
+    },
+    {
+      "name": "wire-orchestration",
+      "description": "Connect managed repos to the root repo orchestration layer",
+      "documentation": "wire-orchestration.md"
+    },
+    {
+      "name": "generate-acceptance-tests",
+      "description": "Compile PAT stubs into CATs using the repo-appropriate framework",
+      "documentation": "generate-acceptance-tests.md"
+    },
+    {
+      "name": "tag-release",
+      "description": "Tag a managed repo at a version and update the root repo topology",
+      "documentation": "tag-release.md"
     }
   ]
 }
