@@ -4,3 +4,6 @@
 
 # Cloned application repos (each has its own git remote)
 ref-projects/
+
+# IDE workspace files
+*.code-workspace
