@@ -358,22 +358,42 @@ git clone git@gitlab.com:methodology-m/todo-m-workshop/todo-m-api-write.git
 
 ---
 
-## Step 16: Compile PATs into CATs for todo-m-mfe ⏳
+## Step 16: Validate MFE with Chrome DevTools & Compile CATs ⏳
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
-👻 Auto-advances — PAT satisfied, now compiling CATs.
+👻 Auto-advances — implementation complete, now validating PATs.
+
+**PAT Validation (Chrome DevTools MCP):**
+
+👻 Starts the MFE dev server, opens it in the browser via Chrome DevTools MCP.
+Visually verifies the Hello component renders, the `data-testid` attributes are
+present, and the API message displays (with the API stub returning mock data).
+
+👀 The audience sees a real browser — not just test output. The PAT is validated
+visually before any test code is written. This is the "human eye" check that
+confirms the implementation matches intent.
+
+**CAT Compilation (two layers):**
 
 👻 Invokes `m-power generate-acceptance-tests`:
 1. Reads `pats/TODOM-000b.stub.js` — the PAT (pseudocode contract)
-2. Determines framework: React MFE → Testing Library + vitest
-3. Adds test devDependencies (testing-library, vitest, jsdom)
-4. Creates `pats/TODOM-000b.spec.js` — the CAT (compiled, CI-runnable, mocked API)
-5. Runs `npm test` to verify
+2. Determines framework: React MFE needs two test layers:
+   - **Unit CATs** (vitest + Testing Library + jsdom) — fast, CI-friendly, mocked API
+   - **E2E CATs** (Cypress) — browser-based, runs against composed system in Stage 2
+3. Adds devDependencies: `@testing-library/react`, `@testing-library/jest-dom`, `vitest`, `jsdom`, `cypress`
+4. Creates `pats/TODOM-000b.spec.jsx` — unit CAT (mocked fetch, component-level)
+5. Creates `pats/TODOM-000b.cy.js` — e2e CAT (Cypress, visits `/`, asserts real DOM)
+6. Creates `cypress.config.js` — points at `localhost:3001`, pattern `pats/**/*.cy.js`
+7. Runs `npm test` (vitest only — Cypress e2e runs later in Stage 2 against the composed system)
 
 💬 Reviews generated tests, confirms or tweaks.
 
-👀 PAT (pseudo) → CAT (compiled). MFE tested with mocked API.
+👀 PAT (pseudo) → two CAT layers (unit + e2e). Unit tests green now. Cypress tests
+are written but won't run until the shell composes the full system. This is by design —
+the MFE can't be e2e tested in isolation because it's a Module Federation remote.
+
+---
 
 ---
 
@@ -381,31 +401,52 @@ git clone git@gitlab.com:methodology-m/todo-m-workshop/todo-m-api-write.git
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
-👻 Auto-advances — CATs pass, now raising MR.
+👻 Auto-advances — unit CATs pass, now raising MR.
 
 👻 Commits all changes on feature branch `feat/TODOM-000b-implement`, pushes, creates MR on GitLab.
 
-🦊 Show the audience: the MR on GitLab, CI pipeline running repo-level tests.
+🦊 Show the audience: the MR on GitLab, CI pipeline running repo-level tests (vitest unit CATs).
 
-👀 MR raised, CI green, merged to main.
+👀 Repo-level CI is green — the MFE's own tests pass. But the MR **cannot be merged**
+because shadow integration pushed a `failed` commit status. The shell doesn't exist yet,
+so the root repo can't compose the system.
+
+This is the methodology working as designed — the MR parks here until the system can
+integrate. The MFE isn't broken; the topology is incomplete.
 
 ---
 
-## Step 18: Tag and Release todo-m-mfe ⏳
+## Step 18: Shadow Integration Failure (Teaching Moment) ⏳
 
-📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
 
-� Auto-advances — MR merged, now tagging..
+This step isn't triggered by the presenter — it happened automatically. When the
+MFE MR was raised in Step 17, the webhook fired and triggered shadow integration
+on the root repo. It failed. This is the right time to show the audience why.
 
-👻 Invokes `m-power tag-release` (sub-task-id: TODOM-000b, version: v0.1.0):
-1. Verifies clean working tree, on `main`, `npm test` passes
-2. Creates annotated tag `v0.1.0` on HEAD
-3. Pushes tag to origin
-4. Updates `project.yaml` in todo-m-root: mfe tag `~` → `v0.1.0`
+🦊 Navigate to the root repo's CI/CD pipelines. Find the triggered pipeline.
 
-🦊 Show the audience: the tag on GitLab, the updated `project.yaml`.
+👀 The `shadow:compose` job failed with:
+```
+ERROR: Shell not implemented yet (packages/shell/package.json missing)
+Shadow integration cannot compose the system without the shell.
+Blocked component: TODOM-000a (shell)
+```
 
-👀 `todo-m-mfe` tagged at `v0.1.0`. All managed repos at v0.1.0. Topology fully implemented but not yet integration-tested.
+This is **correct, expected behaviour**. The shadow integration pipeline checks
+whether the system can be composed from pinned versions. The shell (TODOM-000a)
+doesn't exist yet, so composition is impossible. The pipeline fails honestly
+rather than silently skipping.
+
+🦊 Show the audience the `shadow:report-failure` job — it pushed a `failed`
+commit status back to the MFE's MR. That's why the MR can't merge.
+
+**Key points for the audience:**
+
+- Shadow integration is live from Step 5 — it doesn't wait for all components
+- Failure is **blocking** — the MR stays open until the system can compose
+- The root repo CI explicitly names the blocked component — no mystery failures
+- This resolves itself when the shell is implemented — no manual intervention needed
 
 ---
 
@@ -413,25 +454,213 @@ git clone git@gitlab.com:methodology-m/todo-m-workshop/todo-m-api-write.git
 
 Stage 1 demonstrated:
 
-- PATs (pseudo) → CATs (compiled) — the transformation
-- Framework choice is per-repo, not per-project
-- Each component validated in isolation (repo-level PATs)
-- The four-step cycle: implement → CATs → MR → tag
-- No integration yet — that's Stage 2
+- **PAT validation with Chrome DevTools** — visual verification in a real browser before writing test code
+- **Two CAT layers** — unit (vitest, fast, CI) and e2e (Cypress, composed system) compiled from the same PAT stub
+- **Framework choice is per-repo** — APIs got supertest, MFE got Testing Library + Cypress
+- **Each component validated in isolation** — repo-level PATs pass independently
+- **The four-step cycle**: implement → validate & compile CATs → MR → tag
+- **Shadow integration blocks incomplete topologies** — the MFE MR is parked, waiting for the shell. This is a feature, not a bug.
 
 ---
 
-## What's Next: Stage 2 (Integration)
+# Stage 2: Integration — Shell & Story Completion
 
-Stage 2 will demonstrate:
-- Implementing the shell in the root repo (TODOM-000a)
-- Composing the full system locally (Module Federation + Docker Compose)
-- Running story-level PATs (Cypress) against the composed system
-- The topology MR as integration dashboard
-- Story Zero validated end-to-end
+The shell lives in the root repo (`packages/shell/`). Unlike managed repos,
+it doesn't get its own GitLab project — it's the Module Federation host that
+composes everything. This stage implements the shell, unblocks the parked MFE
+MR, and closes out TODOM-000.
+
+The MFE MR from Step 17 is still open. Once the shell exists and shadow
+integration passes, it can finally merge. The ordering is deliberate — you
+can't merge what you can't integrate.
 
 ---
 
+## Step 20: Implement the Shell ⏳
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
+
+💬 `Implement the shell for TODOM-000a. Read the sub-task file for context.`
+
+👻 Reads the sub-task (TODOM-000a) and the story-level PATs. Implements:
+1. Creates `packages/shell/package.json` — webpack, webpack-dev-server, Module Federation plugin, HTML webpack plugin
+2. Creates `packages/shell/webpack.config.js` — Module Federation host consuming `todo_mfe` remote
+3. Creates `packages/shell/public/index.html` — root HTML with `<div id="root">` and `data-testid="app-shell"`
+4. Creates `packages/shell/src/index.js` — bootstraps the shell, lazy-loads the MFE remote
+5. Creates `packages/shell/src/App.jsx` — renders the MFE inside `data-testid="todo-mfe"` container
+6. Updates root `package.json` — adds `compose` script (starts shell + APIs), `integration-test` script (runs Cypress)
+
+👀 Shell implemented. Module Federation host configured to consume the MFE remote.
+
+---
+
+## Step 21: Compose and Validate Locally with Chrome DevTools ⏳
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
+
+💬 `Compose the full system locally and validate the story-level PATs visually.`
+
+👻 Starts all services locally:
+- `todo-m-api-read` on port 3002
+- `todo-m-api-write` on port 3003
+- `todo-m-mfe` (webpack dev server, Module Federation remote) on port 3001
+- `packages/shell` (webpack dev server, Module Federation host) on port 3000
+
+👻 Opens `http://localhost:3000` via Chrome DevTools MCP. Validates:
+- `[data-testid="app-shell"]` is visible (AC-001)
+- `[data-testid="todo-mfe"]` loads the MFE remote (AC-002)
+- `[data-testid="todo-mfe-hello"]` renders the Hello component (AC-002)
+- `[data-testid="api-message"]` shows "Hello from todo-m-api-read" (AC-003)
+
+👀 The audience sees the full composed system in a real browser — shell hosting
+the MFE, MFE fetching from the API, everything wired together via Module Federation.
+This is the first time the topology is running as a whole.
+
+---
+
+## Step 22: Compile Story-Level CATs (Cypress) ⏳
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
+
+👻 Auto-advances — visual validation passed, now compiling story-level CATs.
+
+👻 Invokes `m-power generate-acceptance-tests` at the story level:
+1. Reads `pats/TODOM-000.pat.yaml` — the story-level PATs (AC-001 through AC-006)
+2. Determines framework: story-level integration → Cypress
+3. Adds Cypress devDependencies to root `package.json`
+4. Creates `pats/TODOM-000.cy.js` — story-level Cypress tests covering all ACs
+5. Creates `cypress.config.js` — points at `localhost:3000` (shell), pattern `pats/**/*.cy.js`
+6. Runs Cypress against the composed system (all services still running from Step 21)
+
+💬 Reviews generated Cypress tests, confirms or tweaks.
+
+👀 Story-level PATs compiled to Cypress and passing against the composed system.
+All six acceptance criteria validated end-to-end.
+
+---
+
+## Step 23: Raise MR on Root Repo ⏳
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
+
+👻 Auto-advances — story-level CATs pass, now raising MR.
+
+👻 Commits all changes on feature branch `feat/TODOM-000a-shell`, pushes, creates MR on GitLab.
+
+🦊 Show the audience: the MR on the root repo. This contains the shell implementation,
+the compose scripts, and the story-level Cypress tests.
+
+👀 MR raised. Root repo CI pipeline runs compose + integration-test stages.
+
+---
+
+## Step 24: Shadow Integration Passes — MFE Unblocked ⏳
+
+📂 GitLab UI
+
+This is the payoff from Step 18. The shell now exists, so shadow integration
+can compose the system.
+
+🦊 Show the audience two things:
+
+1. **Root repo pipeline** — the `shadow:compose` job passes. Compare to Step 18
+   where it failed with "Shell not implemented yet". Same pipeline, same check —
+   the shell just showed up.
+
+2. **MFE MR !3** — the shadow integration commit status flips from `failed` to
+   `success`. The MR is now mergeable.
+
+👀 The parked MFE MR is unblocked. No manual intervention — the system told us
+when it was ready. This is the shadow integration loop completing.
+
+---
+
+## Step 25: Merge MFE MR and Tag ⏳
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
+
+🦊 Merge MFE MR !3 on GitLab.
+
+🖥️ Pull main locally:
+```
+git checkout main
+git pull origin main
+```
+
+👻 Invokes `m-power tag-release` (sub-task-id: TODOM-000b, version: v0.1.0):
+1. Verifies clean working tree, on `main`, `npm test` passes
+2. Creates annotated tag `v0.1.0` on HEAD
+3. Pushes tag to origin
+4. Updates `project.yaml` in todo-m-root: mfe tag `~` → `v0.1.0`
+
+👀 `todo-m-mfe` tagged at `v0.1.0`. All three managed repos now released.
+
+---
+
+## Step 26: Merge Root Repo MR and Tag ⏳
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
+
+🦊 Merge root repo MR on GitLab.
+
+🖥️ Pull main locally:
+```
+git checkout main
+git pull origin main
+```
+
+👻 Invokes `m-power tag-release` (sub-task-id: TODOM-000a, version: v0.1.0):
+1. Verifies clean working tree, on `main`
+2. Runs story-level Cypress tests one final time (post-merge validation)
+3. Creates annotated tag `v0.1.0` on HEAD
+4. Pushes tag to origin
+5. Updates `project.yaml`: shell tag `~` → `v0.1.0`
+
+🦊 Show the audience `project.yaml` — all four components now pinned at `v0.1.0`:
+```
+components:
+  shell: v0.1.0
+  mfe: v0.1.0
+  api-read: v0.1.0
+  api-write: v0.1.0
+```
+
+👀 Root repo tagged at `v0.1.0`. Every component versioned. Topology fully reproducible.
+
+---
+
+## Step 27: Story Complete — TODOM-000 Done ⏳
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
+
+👻 Updates the readiness tracker (`stories/TODOM-000.yaml`) — all high-water marks
+set to `v0.1.0`. Story status: complete.
+
+👀 TODOM-000 is done. From Story Zero to a fully composed, tested, versioned system:
+- 4 repos (1 root + 3 managed)
+- 4 components all at v0.1.0
+- Story-level Cypress PATs passing end-to-end
+- Shadow integration operational and proven (failed → passed)
+- Every step traceable from story → sub-task → PAT → CAT → MR → tag
+
+---
+
+## Wrap-Up
+
+This concludes the first workshop script. TODOM-000 (Story Zero) is fully
+implemented, tested, and released.
+
+The key insight from the ordering: the MFE MR was parked for the entire
+duration of Stage 2 — blocked by shadow integration because the shell
+didn't exist. Once the shell was implemented, everything unblocked
+automatically. No manual gate-keeping, no "are we ready?" meetings.
+The system tells you when it's ready.
+
+Future stories (TODOM-001, etc.) will be covered in a separate script file —
+the methodology is established, and subsequent stories follow the same cycle
+without the bootstrap overhead.
+
+---
 ## Design Decisions
 
 ### Bootstrap Sequencing

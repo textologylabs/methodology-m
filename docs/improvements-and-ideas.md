@@ -654,3 +654,236 @@ is the whole point of the methodology.
 - I-007 (pipelines must succeed — gates the MR)
 - Shell implementation (TODOM-000a) must exist before shadow
   integration can produce meaningful results
+
+---
+
+## I-011: Root repo scaffold must include MR pipeline rules in CI template
+
+**Category:** Scaffold template / M Power capability
+**Priority:** Important (blocks root repo MR mergeability)
+**Discovered:** 2026-04-04, during Step 23 — root repo MR !4 couldn't merge because no pipeline ran
+
+### Problem
+
+The `wire-orchestration` capability generates a `.gitlab-ci.yml` for the
+root repo with two pipeline contexts:
+
+1. **Trigger pipelines** — shadow integration, fired by managed repo webhooks
+2. **Main branch pipelines** — post-merge validation (`validate:compose`, `validate:integration-test`)
+
+**Missing: MR pipelines.** The `validate:*` jobs only have rules for
+`$CI_COMMIT_BRANCH == "main"`, so when an MR is raised on the root repo
+itself (e.g. implementing the shell), no pipeline runs. GitLab's
+`only_allow_merge_if_pipeline_succeeds` setting then blocks the merge
+because there's no pipeline to succeed.
+
+### Fix
+
+Add `$CI_PIPELINE_SOURCE == "merge_request_event"` as an additional rule
+to the `validate:compose` and `validate:integration-test` jobs:
+
+```
+rules:
+  - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  - if: $CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE != "trigger"
+```
+
+This was applied manually during pass1 (commit `81e46ea` on `todo-m-root`).
+
+### What needs to change
+
+The `wire-orchestration` capability doc must include MR pipeline rules
+in the root repo CI template. This is a one-line addition per validate
+job but it's easy to miss — and when it's missing, the root repo MR is
+completely blocked with no obvious reason.
+
+### Dependencies
+
+- I-007 (pipelines must succeed) — this improvement assumes that setting
+  is enabled, which makes the missing MR rule a hard blocker rather than
+  just a cosmetic gap
+
+---
+
+## I-012: Embedded shell must follow managed repo lifecycle including shadow integration equivalent
+
+**Category:** Architecture / CI pipeline design
+**Priority:** Critical (conceptual integrity)
+**Discovered:** 2026-04-04, during Step 23 — root repo MR had no compose/integration-test in its pipeline
+
+### Problem
+
+The shell lives in `packages/shell/` inside the root repo but it is
+**conceptually a managed component** — it follows the same lifecycle
+(install → build → test) and must pass the same integration gate
+(shadow integration) before its MR can merge.
+
+The initial root repo CI only had orchestration jobs (shadow integration
+for managed repos, post-merge validation). It treated the root repo as
+pure infrastructure, not as a project that also ships a component.
+
+### Resolution
+
+The root repo MR pipeline now runs the **full managed repo lifecycle
+plus inline shadow integration**:
+
+```
+install → build → test → compose → integration-test
+```
+
+The compose and integration-test stages are the **inline equivalent of
+shadow integration**. For managed repos, shadow integration is triggered
+externally via webhook and reports back as a commit status. For the
+embedded shell, the same validation runs as inline pipeline stages.
+
+**The outcome is identical:** the MR cannot merge unless the composed
+system works. The mechanism differs (inline vs webhook) because the
+shell can't webhook itself, but the gate is the same.
+
+### Design principle
+
+**Every component — whether in its own repo or embedded in the root
+repo — must pass the same gates before merge.** The root repo is not
+special. It's an orchestrator AND a component host. Its CI must reflect
+both roles:
+
+1. **Component lifecycle** (install/build/test) — same as managed repos
+2. **Integration gate** (compose/integration-test) — inline equivalent
+   of shadow integration
+3. **Orchestration** (shadow integration for others, merge transaction,
+   post-merge validation) — root-repo-only concern, trigger-only
+
+### What needs to change in M Power
+
+The `wire-orchestration` capability must generate the root repo CI with
+all three concerns from the start. Currently it only generates concern 3.
+Concerns 1 and 2 should be generated based on the root repo's component
+catalogue (if it hosts an embedded component like the shell).
+
+### Dependencies
+
+- I-011 (MR pipeline rules — prerequisite for this)
+- I-008 (role-specific CI templates — the shell's lifecycle jobs should
+  follow the same template pattern as managed repos)
+
+---
+
+## I-013: Shadow integration — compose from `main` vs `main` + open MR branches
+
+**Category:** Architecture / orchestration design
+**Priority:** Think further (not blocking, but affects Story Zero ordering)
+**Discovered:** 2026-04-04, during Step 24 — MFE MR blocked because shell
+isn't on `main` yet, even though the shell MR is open and passing
+
+### Problem
+
+Shadow integration currently composes the system from `main` of all repos.
+If a component isn't on `main` yet (its MR is still open), shadow
+integration fails — even if that component's MR is green and ready.
+
+This creates an **ordering constraint**: components must merge in
+dependency order. For Story Zero, the shell (host) must merge before
+the MFE (remote) can pass shadow integration. This is arguably correct
+for Story Zero — the host should land first — but it's a constraint
+the methodology doesn't explicitly acknowledge.
+
+### The eager alternative
+
+Shadow integration could compose from `main` + all open MR branches
+for the same story. This would answer the question: "if we merge
+everything that's in flight, does the system work?"
+
+**Advantages:**
+- No ordering constraint — all MRs can be validated in parallel
+- Closer to what the merge transaction will actually produce
+- Unblocks the "all components developed simultaneously" workflow
+
+**Challenges:**
+- Which MR branches to include? All open? Only same-story? Only those
+  with green repo-level CI?
+- Speculative merge conflicts — two MR branches might conflict
+- Compose step becomes significantly more complex (multi-repo checkout
+  at specific refs)
+- False positives — testing a state that may never exist if one MR
+  gets amended before merge
+
+### Current model is fine for now
+
+The `main`-only model works because:
+- Story Zero has a natural ordering (shell before MFE)
+- Future stories build on a working baseline — `main` already has all
+  previous components, so each new MR is incremental
+- The merge transaction handles atomicity — all MRs merge together,
+  so the "what if one changes" problem is managed
+
+### When the eager model becomes necessary
+
+- Large stories with many independent components developed in parallel
+- No natural dependency ordering between components
+- Teams that can't tolerate sequential merge ordering
+
+### Decision
+
+Park for now. The `main`-only model works for the reference
+implementation. Revisit if a real project hits the ordering constraint
+as a genuine bottleneck rather than a Story Zero edge case.
+
+---
+
+## I-014: CI compose and integration-test need a pluggable runtime environment
+
+**Category:** CI pipeline / architecture
+**Priority:** Important (currently placeholder in CI)
+**Discovered:** 2026-04-04, during Step 23 — compose script failed in CI
+because it pointed at a non-existent `scripts/compose.js`
+
+### Problem
+
+The root repo's `compose` and `integration-test` npm scripts are
+**validated locally** (start 4 services, run Cypress) but have no CI
+implementation. The methodology defines the intent — "compose the
+system and run story-level tests" — but the mechanism is a plugin
+decision, not a methodology decision.
+
+### Current state
+
+The npm scripts are echo placeholders that pass in CI. The real
+validation was done locally with Chrome DevTools MCP and Cypress.
+This is acceptable for pass1 but not for a real project.
+
+### The mechanism is pluggable
+
+How you compose and test the system in CI depends on the project's
+infrastructure choices. Examples:
+
+| Approach | Compose | Integration-test |
+|---|---|---|
+| Docker Compose | `docker compose up -d` | `docker compose run cypress` |
+| Fixed environment | Deploy to staging via CI | Run Cypress against staging URL |
+| Kubernetes | Helm install to ephemeral namespace | Run tests against namespace URL |
+| Local processes | Start services as background jobs | Run Cypress against localhost |
+| Serverless | Deploy stack (e.g. CDK/SAM) | Run tests against deployed endpoints |
+
+The methodology prescribes **what** (compose + integration-test as
+lifecycle phases). The project chooses **how** (Docker, k8s, fixed
+env, etc.). This aligns with I-009 (plugin architecture) — the
+compose/integration mechanism is another plugin category.
+
+### What needs to happen
+
+1. Define a **compose plugin interface** — what does a compose plugin
+   need to provide? (start, stop, health-check, base URL)
+2. Define an **integration-test plugin interface** — what does it need?
+   (base URL from compose, test runner command, teardown)
+3. Store the plugin choice in `project.yaml` or Story Zero metadata
+4. The `wire-orchestration` capability generates CI jobs that call the
+   plugin, not a hardcoded mechanism
+5. Ship Docker Compose as the **reference plugin** (most common case)
+
+### Dependencies
+
+- I-009 (plugin architecture — this is another plugin category)
+- I-003 (configurable test framework — integration-test runner is
+  related but distinct from unit CAT framework)
+- Story Zero wizard (I-001) should ask about compose strategy during
+  bootstrap
