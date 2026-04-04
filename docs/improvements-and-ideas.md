@@ -550,6 +550,22 @@ architecture.
    bootstrap
 5. Store plugin choices in `project.yaml` or a dedicated config section
 
+**Critical: M Power capabilities must not contain platform-specific
+logic.** The power defines the intent ("report shadow integration
+result back to the source MR"). A provider implements the mechanism
+(GitLab: commit status API + webhook variables; GitHub: check runs +
+repository dispatch). The power calls the provider, never the platform
+API directly. This applies to:
+
+- `wire-orchestration` — webhook setup, trigger tokens, variable passing
+- `scaffold-repo` — CI template generation, branch protection, project settings
+- Shadow status reporting — commit status / check run API
+- Merge transaction — MR merge API, tag creation
+
+Each of these is currently hardcoded to GitLab. The provider interface
+must be defined so that swapping to GitHub (or any other VCS/CI) is a
+configuration change, not a rewrite of the power capabilities.
+
 ### Dependencies
 
 - Ties into I-001 (Story Zero wizard — asks plugin questions)
