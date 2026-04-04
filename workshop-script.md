@@ -35,9 +35,36 @@ workshop/
 
 In the real M Power flow, there is no staging area — everything goes directly into the root repo.
 
+## Active Folder Convention
+
+Every step that involves local work must state the active folder. Steps in
+Stage 0 (Steps 1–5) operate via GitLab API from the planning repo — no
+local clone needed. From Stage 1 onward, the presenter works in local
+clones under `ref-projects/`.
+
+```
+.                              ← methodology-m (planning repo)
+ref-projects/
+  todo-m-workshop/
+    pass1/
+      todo-m-root/             ← shell, orchestration, story-level tests
+      todo-m-mfe/              ← microfrontend
+      todo-m-api-read/         ← read API
+      todo-m-api-write/        ← write API
+```
+
+---
+
+# Stage 0: Project Bootstrap
+
+All steps in this stage operate via GitLab API (M Power + GitLab MCP).
+The presenter is in the `methodology-m` planning repo root.
+
 ---
 
 ## Step 1: Create Project Workspace ✅
+
+📂 `methodology-m` (planning repo root)
 
 🦊 Create top-level group `methodology-m` manually (SaaS restriction).
 
@@ -49,7 +76,9 @@ In the real M Power flow, there is no staging area — everything goes directly 
 
 ---
 
-## Step 2: Bootstrap Root Repo ✅ (seeding) / ⏳ (PATs)
+## Step 2: Bootstrap Root Repo ✅
+
+📂 `methodology-m` (planning repo root)
 
 💬 `Bootstrap the root repo using M Power. Use the story file at workshop/jira/TODOM-000.md.`
 
@@ -75,7 +104,9 @@ In the real M Power flow, there is no staging area — everything goes directly 
 
 ---
 
-## Step 3: Decompose Story ⏳
+## Step 3: Decompose Story ✅
+
+📂 `methodology-m` (planning repo root)
 
 💬 `Decompose TODOM-000 into sub-tasks using M Power.`
 
@@ -91,7 +122,9 @@ In the real M Power flow, there is no staging area — everything goes directly 
 
 ---
 
-## Step 4: Scaffold Managed Repos ⏳
+## Step 4: Scaffold Managed Repos ✅
+
+📂 `methodology-m` (planning repo root)
 
 💬 `Scaffold the managed repos for TODOM-000.`
 
@@ -118,6 +151,8 @@ The CI pipeline has lifecycle phases:
 
 ## Step 5: Wire Orchestration ✅
 
+📂 `methodology-m` (planning repo root)
+
 💬 `Wire up the orchestration layer using M Power.`
 
 👻 Invokes `m-power wire-orchestration`:
@@ -143,35 +178,57 @@ The CI pipeline has lifecycle phases:
 
 # Stage 1: TODOM-000 Development Phase
 
-Implement the sub-tasks, transform PAT stubs into acceptance tests, tag
-releases. See `docs/workshop-design-notes.md` for design rationale
-(technology choices, capability catalogue, live demo strategy).
+Implement the sub-tasks, transform PAT stubs into acceptance tests, raise
+MRs, tag releases. Each component follows a four-step cycle:
+implement → compile CATs → raise MR → tag release.
+
+Steps 8–10 (CATs, MR, tag) auto-advance from the previous step — no
+separate user prompt needed. The agent progresses automatically once the
+PAT is satisfied: compile CATs → raise MR → merge → tag. The entire
+cycle is a single continuous flow from the initial implement prompt.
+
+From this point, the presenter works in local clones.
 
 ---
 
-## Step 6: Implement todo-m-api-read ✅
+## Step 6: Clone Repos Locally ✅
+
+📂 `methodology-m` (planning repo root)
+
+🖥️ Clone all repos into the pass1 workspace:
+```
+mkdir -p ref-projects/todo-m-workshop/pass1
+cd ref-projects/todo-m-workshop/pass1
+git clone git@gitlab.com:methodology-m/todo-m-workshop/todo-m-root.git
+git clone git@gitlab.com:methodology-m/todo-m-workshop/todo-m-mfe.git
+git clone git@gitlab.com:methodology-m/todo-m-workshop/todo-m-api-read.git
+git clone git@gitlab.com:methodology-m/todo-m-workshop/todo-m-api-write.git
+```
+
+👀 Local workspace ready. All four repos cloned under `ref-projects/todo-m-workshop/pass1/`.
+
+---
+
+## Step 7: Implement todo-m-api-read ✅
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-api-read`
 
 💬 `Implement the endpoint for TODOM-000c. Read the sub-task file for context.`
 
-👻 Reads the sub-task (TODOM-000c) and the managed repo steering. Scaffolds:
+👻 Reads the sub-task (TODOM-000c) and the managed repo steering. Implements:
 1. Updates `package.json` — adds Express, real lifecycle scripts (replacing stubs)
 2. Creates `src/app.js` — Express app with `GET /hello` → `{ "message": "Hello from todo-m-api-read" }`
 3. Creates `src/server.js` — starts the server (separated from app for testability)
 
-🖥️ Verify the endpoint works:
-```
-npm start &
-curl http://localhost:3001/hello
-kill %1
-```
-
-👀 `{"message":"Hello from todo-m-api-read"}` — contract met. No tests yet — next step.
+👀 PAT satisfied — `GET /hello` returns 200 with message field.
 
 ---
 
-## Step 7: Compile PATs into CATs ✅
+## Step 8: Compile PATs into CATs for todo-m-api-read ✅
 
-💬 `Generate CATs for TODOM-000c using M Power.`
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-api-read`
+
+👻 Auto-advances — PAT satisfied, now compiling CATs.
 
 👻 Invokes `m-power generate-acceptance-tests`:
 1. Reads `pats/TODOM-000c.stub.js` — the PAT (pseudocode contract)
@@ -183,56 +240,183 @@ kill %1
 
 💬 Reviews generated tests, confirms or tweaks.
 
-🖥️ `npm test` — tests pass.
+👀 PAT (pseudo) → CAT (compiled). Tests green.
 
-👀 PAT (pseudo) → CAT (compiled). Same criterion, now deterministic and CI-runnable.
+---
 
-## Step 8: Tag and Release ⏳
+## Step 9: Raise MR for todo-m-api-read ✅
 
-💬 `Tag todo-m-api-read at v0.1.0 using M Power.`
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-api-read`
 
-👻 Invokes `m-power tag-release`:
-1. Verifies tests pass and working tree is clean
-2. Creates annotated tag `v0.1.0` on `todo-m-api-read`
+👻 Auto-advances — CATs pass, now raising MR.
+
+👻 Commits all changes on feature branch `feat/TODOM-000c-implement`, pushes, creates MR on GitLab.
+
+🦊 Show the audience: the MR on GitLab, CI pipeline running repo-level tests.
+
+👀 MR raised, CI green, merged to main.
+
+---
+
+## Step 10: Tag and Release todo-m-api-read ✅
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-api-read`
+
+� Auto-advances — MR merged, now tagging.P
+
+👻 Invokes `m-power tag-release` (sub-task-id: TODOM-000c, version: v0.1.0):
+1. Verifies clean working tree, on `main`, `npm test` passes
+2. Creates annotated tag `v0.1.0` on HEAD
 3. Pushes tag to origin
-4. Updates `project.yaml` in the root repo: `api-read` tag changes from `~` (null) → `v0.1.0`
+4. Updates `project.yaml` in todo-m-root: api-read tag `~` → `v0.1.0`
 
-🦊 Show the audience: the tag on GitLab, the updated project.yaml.
+🦊 Show the audience: the tag on GitLab, the updated `project.yaml`.
 
-👀 First component released. One piece of the topology is real.
-
----
-
-## Step 9: Fast-Forward Remaining Components ⏳
-
-For each remaining component — same cycle: implement, compile PATs into CATs, tag.
-
-💬 `Implement <sub-task-id>. Read the sub-task file for context.`
-
-� Implements each component (normal dev work, guided by sub-task).
-
-💬 `Generate CATs for <sub-task-id> using M Power.`
-
-👻 Invokes `m-power generate-acceptance-tests` for each:
-- **TODOM-000d** (todo-m-api-write): Express + `POST /placeholder` → 200 OK + supertest CATs
-- **TODOM-000b** (todo-m-mfe): React component + Testing Library CATs (mocked API)
-
-💬 `Tag <repo> at v0.1.0 using M Power.`
-
-👻 Invokes `m-power tag-release` for each. Root repo `project.yaml` updated
-to pin all referenced components.
-
-👀 All managed repos at v0.1.0. Topology fully implemented but not yet integration-tested.
+👀 `todo-m-api-read` tagged at `v0.1.0`. First component released.
 
 ---
 
-## Step 10: Pause and Reflect ⏳
+## Step 11: Implement todo-m-api-write ✅
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-api-write`
+
+💬 `Implement the endpoint for TODOM-000d. Read the sub-task file for context.`
+
+👻 Reads the sub-task (TODOM-000d) and the managed repo steering. Implements:
+1. Updates `package.json` — adds Express, real lifecycle scripts (replacing stubs)
+2. Creates `src/app.js` — Express app with `POST /placeholder` → 200 OK
+3. Creates `src/server.js` — starts the server (separated from app for testability)
+
+👀 PAT satisfied — `POST /placeholder` returns 200 OK.
+
+---
+
+## Step 12: Compile PATs into CATs for todo-m-api-write ✅
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-api-write`
+
+👻 Auto-advances — PAT satisfied, now compiling CATs.
+
+👻 Invokes `m-power generate-acceptance-tests`:
+1. Reads `pats/TODOM-000d.stub.js` — the PAT (pseudocode contract)
+2. Determines framework: backend API → supertest + vitest
+3. Adds test devDependencies (supertest, vitest)
+4. Creates `pats/TODOM-000d.spec.js` — the CAT (compiled, CI-runnable)
+5. Creates `vitest.config.js` with globals enabled
+6. Runs `npm test` to verify
+
+💬 Reviews generated tests, confirms or tweaks.
+
+👀 PAT (pseudo) → CAT (compiled). Tests green.
+
+---
+
+## Step 13: Raise MR for todo-m-api-write ✅
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-api-write`
+
+👻 Auto-advances — CATs pass, now raising MR.
+
+👻 Commits all changes on feature branch `feat/TODOM-000d-implement`, pushes, creates MR on GitLab.
+
+🦊 Show the audience: the MR on GitLab, CI pipeline running repo-level tests.
+
+👀 MR raised, CI green, merged to main.
+
+---
+
+## Step 14: Tag and Release todo-m-api-write ✅
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-api-write`
+
+� Auto-advances — MR merged, now tagging. 
+
+👻 Invokes `m-power tag-release` (sub-task-id: TODOM-000d, version: v0.1.0):
+1. Verifies clean working tree, on `main`, `npm test` passes
+2. Creates annotated tag `v0.1.0` on HEAD
+3. Pushes tag to origin
+4. Updates `project.yaml` in todo-m-root: api-write tag `~` → `v0.1.0`
+
+🦊 Show the audience: the tag on GitLab, the updated `project.yaml`.
+
+👀 `todo-m-api-write` tagged at `v0.1.0`. Second component released.
+
+---
+
+## Step 15: Implement todo-m-mfe ⏳
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
+
+💬 `Implement the MFE for TODOM-000b. Read the sub-task file for context.`
+
+👻 Reads the sub-task (TODOM-000b) and the managed repo steering. Implements:
+1. Updates `package.json` — adds React, Module Federation, real lifecycle scripts (replacing stubs)
+2. Creates Hello component that fetches from the API and displays the message
+3. Configures Module Federation as a remote
+
+👀 PAT satisfied — MFE renders Hello component, displays API message.
+
+---
+
+## Step 16: Compile PATs into CATs for todo-m-mfe ⏳
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
+
+👻 Auto-advances — PAT satisfied, now compiling CATs.
+
+👻 Invokes `m-power generate-acceptance-tests`:
+1. Reads `pats/TODOM-000b.stub.js` — the PAT (pseudocode contract)
+2. Determines framework: React MFE → Testing Library + vitest
+3. Adds test devDependencies (testing-library, vitest, jsdom)
+4. Creates `pats/TODOM-000b.spec.js` — the CAT (compiled, CI-runnable, mocked API)
+5. Runs `npm test` to verify
+
+💬 Reviews generated tests, confirms or tweaks.
+
+👀 PAT (pseudo) → CAT (compiled). MFE tested with mocked API.
+
+---
+
+## Step 17: Raise MR for todo-m-mfe ⏳
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
+
+👻 Auto-advances — CATs pass, now raising MR.
+
+👻 Commits all changes on feature branch `feat/TODOM-000b-implement`, pushes, creates MR on GitLab.
+
+🦊 Show the audience: the MR on GitLab, CI pipeline running repo-level tests.
+
+👀 MR raised, CI green, merged to main.
+
+---
+
+## Step 18: Tag and Release todo-m-mfe ⏳
+
+📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
+
+� Auto-advances — MR merged, now tagging..
+
+👻 Invokes `m-power tag-release` (sub-task-id: TODOM-000b, version: v0.1.0):
+1. Verifies clean working tree, on `main`, `npm test` passes
+2. Creates annotated tag `v0.1.0` on HEAD
+3. Pushes tag to origin
+4. Updates `project.yaml` in todo-m-root: mfe tag `~` → `v0.1.0`
+
+🦊 Show the audience: the tag on GitLab, the updated `project.yaml`.
+
+👀 `todo-m-mfe` tagged at `v0.1.0`. All managed repos at v0.1.0. Topology fully implemented but not yet integration-tested.
+
+---
+
+## Step 19: Pause and Reflect ⏳
 
 Stage 1 demonstrated:
 
 - PATs (pseudo) → CATs (compiled) — the transformation
 - Framework choice is per-repo, not per-project
 - Each component validated in isolation (repo-level PATs)
+- The four-step cycle: implement → CATs → MR → tag
 - No integration yet — that's Stage 2
 
 ---

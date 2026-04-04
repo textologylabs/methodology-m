@@ -401,6 +401,106 @@ The skill creates the project. The project sustains itself through steering, age
 
 ---
 
+## 6a. Strategy and Plugins: M as Architecture
+
+### The separation
+
+Methodology M defines the strategy — the *what* and *why* of managed
+multi-repo delivery. The implementation choices — the *how* — are
+plugins. The methodology is invariant across projects. The plugins
+vary per project, per team, per organisation.
+
+This separation is fundamental. M prescribes PATs, not Cypress. M
+prescribes shadow integration, not GitLab webhooks. M prescribes
+topology manifests, not YAML files. Every concrete technology choice
+in the reference implementation is a plugin, not the methodology.
+
+### The plugin map
+
+| Strategy (M defines) | Plugin (project chooses) |
+|---|---|
+| Version control + CI orchestration | GitLab, GitHub Actions, Bitbucket Pipelines |
+| PAT format | YAML, markdown, custom DSL |
+| PAT verification tooling | Chrome DevTools, curl, Postman, browser preview |
+| CAT compilation target | Cypress, Playwright, supertest, Testing Library |
+| CAT execution environment | Docker, native, cloud runners |
+| Stub generation | Express mock, WireMock, MSW |
+| Package/artefact registry | npm, Docker registry, GitLab packages |
+| Story management | Jira, Linear, GitLab issues, markdown |
+| Deployment model | Docker Compose, K8s, serverless |
+
+### PAT verification vs CAT execution
+
+These are distinct concerns with distinct tooling:
+
+- **PAT verification** is the developer (or agent) confirming the
+  implementation meets the contract *during development*. For a UI,
+  this means opening it in a browser and looking at it. For an API,
+  this means calling it with curl. The tooling is interactive and
+  exploratory — Chrome DevTools, Postman, a terminal. The agent uses
+  these tools to self-verify before declaring a PAT satisfied.
+
+- **CAT execution** is the automated proof that runs in CI. Cypress
+  in a headless browser, supertest against an Express app, Playwright
+  in a container. The tooling is deterministic and repeatable. No
+  human (or agent) in the loop.
+
+The PAT verification plugin determines what the agent reaches for
+during development. The CAT execution plugin determines what CI runs.
+They may use the same underlying technology (both Cypress) or
+completely different ones (Chrome DevTools for verification, Cypress
+for CI).
+
+### Plugin resolution
+
+Plugin choices are declared during project bootstrap (Section 6,
+instantiation parameters) and stored in `project.yaml` or a dedicated
+configuration section. M Power capabilities resolve plugins at three
+levels:
+
+1. **Repo-level override** — a managed repo declares its own tooling
+   (e.g. this repo uses Playwright, not Cypress). Highest priority.
+2. **Project-level default** — from Story Zero / `project.yaml`.
+   Used when the repo doesn't override.
+3. **Built-in fallback** — the reference implementation's defaults.
+   Used when neither repo nor project declares anything.
+
+This means a project can standardise on Cypress but let one repo use
+Playwright if there's a good reason. The methodology doesn't care.
+The plugins are interchangeable.
+
+### Impact on M Power capabilities
+
+Every M Power capability that generates artefacts must be plugin-aware:
+
+- `scaffold-repo` generates CI configs → must use the VCS/CI plugin
+- `generate-acceptance-tests` compiles PATs → must use the CAT plugin
+- `wire-orchestration` sets up webhooks → must use the VCS plugin
+- The agent's PAT verification step → must use the verification plugin
+
+Hardcoding any of these to a specific technology violates the
+architecture. The reference implementation uses GitLab + Cypress +
+supertest + Chrome DevTools — but these are the *reference plugins*,
+not the methodology.
+
+### Impact on the reference implementation
+
+The current reference implementation has several hardcoded plugin
+choices that need to be abstracted:
+
+- CI templates assume GitLab CI syntax
+- CAT compilation assumes supertest for backends, Cypress for frontends
+- PAT verification assumes Chrome DevTools for UIs, curl for APIs
+- Stub generation assumes Express
+- Webhook wiring assumes GitLab API
+
+Each of these should be driven by the plugin configuration, not
+hardcoded in the capability docs. The reference implementation
+demonstrates one valid plugin combination. The architecture supports
+any combination.
+
+---
+
 ## 7. Story Zero: Project Genesis
 
 ### The bootstrapping story

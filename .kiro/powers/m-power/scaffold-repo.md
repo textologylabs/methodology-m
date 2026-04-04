@@ -125,6 +125,14 @@ defines WHEN things run. The project's build scripts define WHAT runs.
 
 image: node:20
 
+# Workflow rules prevent duplicate pipelines (one for branch push,
+# one for MR) and ensure all jobs — including those with per-job
+# rules — participate correctly in MR pipelines.
+workflow:
+  rules:
+    - if: $CI_MERGE_REQUEST_IID      # MR pipelines
+    - if: $CI_COMMIT_BRANCH == "main" # post-merge on main
+
 stages:
   - install
   - build

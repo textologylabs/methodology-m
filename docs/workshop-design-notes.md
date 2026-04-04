@@ -85,3 +85,63 @@ thing, then prove it meets the contract by compiling PATs into CATs.
 Unit tests may appear along the way (and should), but they're not what M
 tracks. The readiness tracker advances when CATs pass, not when unit
 tests pass.
+
+---
+
+## Demo Reset Strategy
+
+The demo starts with scaffolding already in place (Story Zero complete)
+and implements a single story live. To rehearse multiple times without
+re-scaffolding, we reset the repos to the pre-demo state after each run.
+
+### How it works
+
+Every story ends with a tag on each managed repo. The tag before the
+demo story is the reset point. For example, if Story Zero ends at
+`v0.1.0` and the demo story is TODOM-001, resetting means putting
+every repo's main back to `v0.1.0` and deleting the `v0.2.0` tags.
+
+Per repo:
+
+1. Unprotect main
+2. `git push --force origin v0.1.0:main`
+3. `git push --delete origin v0.2.0` (delete the demo story tag)
+4. Re-protect main (push=no one, merge=maintainers)
+
+The root repo also needs its `project.yaml` reset — the topology bump
+from the demo story must be reverted. Same force-push to the pre-demo
+commit.
+
+### What survives the reset
+
+Everything from Story Zero is untouched:
+
+- Repo structure, CI config, branch protection rules
+- Webhooks and pipeline triggers
+- Access tokens and CI variables
+- Story Zero tags (`v0.1.0`)
+
+Only the demo story's commits, tags, and MRs are removed.
+
+### M Power capability: `reset-to-tag`
+
+Worth building as a power capability for repeated rehearsals. It would:
+
+1. Read `project.yaml` to discover all managed repos
+2. For each repo: unprotect → force-push tag to main → delete later tags → re-protect
+3. Reset root repo main to the corresponding commit
+4. Optionally clean up merged MRs (close any that reference the demo story)
+
+Input: the tag to reset to (e.g. `v0.1.0`).
+Output: all repos back to that state, ready for a fresh run.
+
+### Local workspace
+
+After a GitLab reset, the local clones need a pull:
+
+```
+git fetch --all --prune
+git reset --hard origin/main
+```
+
+Or just delete the pass folder and re-clone. Tags make this cheap.

@@ -197,3 +197,15 @@ Every step must be reproducible:
 - Don't optimise the todo app — it's deliberately boring by design
 - Don't treat this as app development with a methodology bolted on;
   it's methodology development with an app as the test harness
+
+## PAT-Based Development
+
+When implementing any sub-task under Methodology M, always validate against
+the repo-level PATs as you go. Read the PAT contract, implement towards it,
+and use whatever tools are appropriate (curl, browser, Chrome DevTools MCP,
+etc.) to verify the behaviour described in the PAT. Iterate until the PAT
+contract is satisfied.
+
+This is not a special step — it's how implementation works under M. Every
+implementation action is a self-validating approximation loop driven by the
+PATs. Only move to CAT compilation once the PAT contract is met.
