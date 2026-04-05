@@ -1013,3 +1013,45 @@ abstract the initial project structure. They're complementary:
   This is a new artefact type in the methodology: one per company,
   referenced by all projects.
 
+
+---
+
+## I-016: Methodology paper overhaul
+
+**Category:** Documentation
+**Priority:** Post-demo (after TODOM-001 workshop is complete)
+**Discovered:** 2026-04-05, during project.yaml design session
+
+### Problem
+
+The methodology paper (`methodology-m.md`) was written before the
+reference implementation existed. Many concepts have been refined,
+renamed, or expanded during pass1. The paper needs a major overhaul
+to reflect what we've actually built and learned.
+
+### What needs updating
+
+- **project.yaml schema** — the paper references a minimal topology
+  manifest. The actual schema now includes ports, templates, compose
+  strategies, pat-compilation, and environment pipelines
+  (see `docs/project-yaml-design.md`)
+- **Shadow integration** — the paper describes the concept but the
+  implementation details (webhook flow, commit status reporting,
+  compose strategies) are much richer now
+- **Templates and M config repo** — new concept not in the original paper
+- **PAT→CAT compilation** — configurable per role, not hardcoded
+- **Compose vs deploy** — the distinction between pre-merge assembly
+  and post-merge deployment pipelines
+- **Plugin architecture** — the paper mentions extensibility but the
+  concrete plugin categories (CI, compose, deploy, test, template)
+  emerged during implementation
+- **Fix-forward rule** — emerged as a key practice, not in the paper
+- **Embedded vs referenced components** — the shell lifecycle pattern
+
+### Approach
+
+Don't rewrite during the demo sprint. Capture everything in improvement
+items and design docs as we go. After TODOM-001 is complete and the
+workshop is proven, do a single focused overhaul pass on the paper
+using all the accumulated learnings.
+
