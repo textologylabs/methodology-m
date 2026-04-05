@@ -1055,3 +1055,99 @@ items and design docs as we go. After TODOM-001 is complete and the
 workshop is proven, do a single focused overhaul pass on the paper
 using all the accumulated learnings.
 
+
+
+---
+
+## I-017: DRY up shadow:compose and validate:compose in root repo CI
+
+**Category:** CI pipeline / maintainability
+**Priority:** Nice to have (tech debt)
+**Discovered:** 2026-04-05, during pipeline failure analysis on MR !6
+
+### Problem
+
+The root repo `.gitlab-ci.yml` has two compose jobs — `shadow:compose`
+(triggered by managed repo webhooks) and `validate:compose` (runs on
+MR events and main pushes). Both contain identical logic: clone sibling
+repos, `docker compose build`, `docker compose up -d`, health-check
+loop, teardown in `after_script`.
+
+This is copy-pasted code. Fix a timeout in one, forget the other.
+Change a health endpoint, update one but not both. Classic drift risk.
+
+### Proposal
+
+Two options, in order of preference:
+
+1. **Shared script** — extract the clone/build/healthcheck/teardown
+   logic into `scripts/compose-up.sh` in the root repo. Both jobs
+   call `sh scripts/compose-up.sh`. Cleaner, testable locally, and
+   the diff between the two jobs becomes just the `rules:` block.
+
+2. **YAML anchors** — extract the shared `script`, `before_script`,
+   `after_script`, `image`, `services`, and `variables` into a YAML
+   anchor. Both jobs reference it and only override `rules` and
+   `needs`. Stays in one file but YAML anchors get ugly with complex
+   structures.
+
+### Impact
+
+Pure maintainability. No functional change. Prevents the two jobs
+from drifting apart as the compose logic evolves (new services,
+different health endpoints, timeout changes, etc.).
+
+
+---
+
+## I-018: Compose strategy as a formal plugin boundary in wire-orchestration
+
+**Category:** Architecture / M Power capability design
+**Priority:** Important (foundational for extensibility)
+**Discovered:** 2026-04-05, during DinD health check fix on MR !6
+
+### Problem
+
+The `wire-orchestration` capability currently generates CI with
+Docker Compose + GitLab DinD details baked directly into the template
+(DinD service, TLS certs, `apk add`, `docker` hostname for health
+checks, etc.). This is all GitLab + Docker Compose implementation
+detail — not methodology.
+
+### The layering
+
+- **Power (methodology):** "the compose stage must clone siblings,
+  build the stack, verify health, and tear down." Defines lifecycle
+  phases and the contract each must satisfy.
+- **Plugin (compose strategy):** "Docker Compose via DinD on GitLab CI"
+  — DinD service config, TLS certs, `docker` hostname, `apk` installs.
+  A different plugin might use k8s, bare processes, or serverless deploy.
+- **Project config:** ports, endpoints, timeout values, which siblings
+  to clone — from `project.yaml`.
+
+### Product model
+
+M Power ships one reference implementation per plugin category:
+- VCS/CI: GitLab
+- Compose strategy: Docker Compose (DinD for CI, native for local)
+- Test framework: Cypress (story-level), vitest (repo-level)
+
+These are batteries-included defaults. Community can provide
+alternatives (GitHub Actions, Playwright, k8s compose, etc.) against
+the same contract interfaces. Nobody's blocked, nobody boils the ocean.
+
+### What needs to happen
+
+1. The `wire-orchestration` capability doc should clearly separate
+   the methodology contract ("what compose must do") from the
+   reference implementation ("how GitLab + Docker Compose does it")
+2. DinD-specific gotchas (like `docker` hostname vs `localhost`)
+   belong in the GitLab plugin notes, not in the generic template
+3. The formal plugin interface definition is I-009 scope — for now,
+   just make the boundary visible in the docs
+
+### Relationship to other items
+
+- I-009 (plugin architecture — this is a specific instance)
+- I-014 (pluggable runtime environment — same concern, compose focus)
+- I-017 (DRY up compose jobs — should use the plugin pattern)
