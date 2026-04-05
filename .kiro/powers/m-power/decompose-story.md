@@ -34,7 +34,25 @@ Read the PAT file. Extract:
 ### Step 2 — Propose PAT mapping
 
 Reason about which PATs (from the pat.yaml `acceptance` entries) each component
-is responsible for, then present the proposed mapping to the user:
+is responsible for, then present the proposed mapping to the user.
+
+**Mandatory root repo sub-task:** Every story MUST include a sub-task for the
+root repo, regardless of whether the shell code changes. The root repo owns
+story-level integration tests — the gate that validates the composed system
+satisfies the story's acceptance criteria. Without this sub-task, shadow
+integration has no tests to run and will fail structurally.
+
+The root repo sub-task always includes:
+- Story-level integration tests (`scripts/integration-tests/<story-id>.sh`)
+- Any compose config changes needed for the story (e.g. shared volumes, new services)
+- Readiness tracker updates
+
+Even when the shell component has no feature changes, the root repo sub-task
+exists because the integration tests are the root repo's contribution to
+every story. This is not optional — it is how M ensures that shadow
+integration is a real gate, not a permissive placeholder.
+
+Present the proposed mapping to the user:
 
 ```
 Proposed PAT mapping for <story-id>:
@@ -45,6 +63,11 @@ Proposed PAT mapping for <story-id>:
 
   <component-name> (sub-task: <story-id>b)
     - <PAT description>
+
+  root (sub-task: <story-id><last-suffix>) [MANDATORY]
+    - Story-level integration tests
+    - Compose config changes (if any)
+    - End-to-end validation of all story PATs
 
   ...
 
@@ -120,9 +143,55 @@ One file per component. Each contains:
 <Test skeletons — one per PAT, framework determined by project config>
 ```
 
+## Root repo sub-task format
+
+The root repo sub-task has a distinct structure because its primary
+deliverable is integration tests, not feature code:
+
+```
+# <story-id><suffix>: root — Story-level integration
+
+**Type:** Technical Sub-Task
+**Status:** Pending
+**Parent:** <story-id>
+**Component:** root
+**Repo:** <root-repo-name>
+
+## Summary
+
+Story-level integration validation for <story-id>. Provides the
+integration tests that gate shadow integration — no managed repo MR
+can merge until these tests pass against the composed system.
+
+## Deliverables
+
+1. Integration test script: `scripts/integration-tests/<story-id>.sh`
+   - Curl-based checks against the composed system
+   - Verifies all story-level PATs are satisfied end-to-end
+   - Runs automatically during shadow integration
+
+2. Cypress spec (optional): `pats/<story-id>.cy.js`
+   - Full browser-based acceptance tests
+   - Runs locally during development and in full CI
+
+3. Compose config changes (if needed)
+   - Shared volumes, new services, environment variables
+   - Updates to docker-compose.yml
+
+## Integration Test Contract
+
+The integration test script must:
+- Exit 0 if all story-level checks pass
+- Exit non-zero if any check fails
+- Output clear descriptions of what passed and what failed
+- Be runnable from the shadow:integration CI job (curl-based, no browser)
+```
+
 ## Notes
 
 - Sub-task IDs use alphabetic suffix: a, b, c, d (up to 26 components)
+- The root repo sub-task is always the LAST suffix (e.g. if 3 managed
+  components get a/b/c, root gets d). This is convention, not a hard rule.
 - PAT stubs are skeletons only — implementation happens in the repo
 - The enriched story in the workspace is the source of truth for subsequent
   scaffolding steps
@@ -130,3 +199,12 @@ One file per component. Each contains:
   is the mechanism that tracks story progress through the Development phase.
   Without it, there is no completeness gate for the merge transaction.
 - Run `m-power scaffold-repo` against each sub-task file to create the repo
+- The root repo sub-task is MANDATORY for every story. Shadow integration
+  will fail structurally (not logically) if no integration tests exist for
+  an in-flight story. This is by design — it forces the team to define
+  "done" before implementation begins.
+- Two failure modes in shadow integration:
+  - **Structural failure:** story has open MRs but no integration test
+    script exists at `scripts/integration-tests/<story-id>.sh`
+  - **Logical failure:** integration tests exist but fail because not
+    all components have implemented their part yet

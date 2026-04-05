@@ -794,6 +794,7 @@ catalogue (if it hosts an embedded component like the shell).
 
 **Category:** Architecture / orchestration design
 **Priority:** Think further (not blocking, but affects Story Zero ordering)
+**Status:** ✅ Resolved (2026-04-05) — eager model implemented via resolve-story-branches.sh, clones story MR branches instead of main
 **Discovered:** 2026-04-04, during Step 24 — MFE MR blocked because shell
 isn't on `main` yet, even though the shell MR is open and passing
 
@@ -1157,3 +1158,102 @@ the same contract interfaces. Nobody's blocked, nobody boils the ocean.
 - I-009 (plugin architecture — this is a specific instance)
 - I-014 (pluggable runtime environment — same concern, compose focus)
 - I-017 (DRY up compose jobs — should use the plugin pattern)
+
+
+---
+
+## I-019: Persistence layer as a pluggable concern in M config repo
+
+**Category:** Architecture / M Power capability design
+**Priority:** Important (affects every project with shared state)
+**Discovered:** 2026-04-05, during TODOM-001 API design — api-read and
+api-write need shared state, no mechanism to declare persistence choice
+
+### Problem
+
+When two or more components need shared state (e.g. api-read and
+api-write sharing a todo list), the persistence mechanism is currently
+an ad-hoc implementation decision per repo. There's no project-level
+declaration of "we use SQLite" or "we use Postgres", no scaffold
+support for wiring it up, and no compose template for adding a DB
+service or shared volume.
+
+### The layering
+
+- **M config repo (organisation):** catalogue of blessed persistence
+  options — SQLite (dev/simple), Postgres, DynamoDB, Redis, etc.
+  Each option is a template that includes: dependency, connection
+  setup, migration pattern, compose service/volume config.
+- **project.yaml (project):** declares which persistence option the
+  project uses, e.g. `persistence: sqlite` or `persistence: postgres`.
+- **scaffold-repo (power):** reads the persistence declaration and
+  wires the chosen option into backend repos — adds the dependency,
+  generates connection boilerplate, updates docker-compose.yml with
+  the service or shared volume.
+
+### Reference implementation
+
+For the todo-m workshop: SQLite on a shared Docker volume. Both
+api-read and api-write mount the same volume and access the same
+`.db` file. No extra container needed.
+
+### What needs to happen (future)
+
+1. Define persistence as a plugin category in I-009
+2. Add persistence declaration to project.yaml schema
+3. Create SQLite and Postgres templates in the M config repo concept
+4. Update scaffold-repo to wire persistence from project declaration
+5. Update docker-compose template generation to add volumes/services
+
+### Relationship to other items
+
+- I-009 (plugin architecture — persistence is another plugin category)
+- I-015 (project templates — persistence setup is part of the template)
+- I-018 (compose strategy — DB services are part of compose config)
+
+
+---
+
+## I-020: Root repo sub-task is mandatory for every story
+
+**Category:** Methodology / M Power capability
+**Priority:** Critical (shadow integration integrity)
+**Status:** ✅ Resolved (2026-04-05) — decompose-story and wire-orchestration capability docs updated
+**Discovered:** 2026-04-05, during TODOM-001 shadow integration design
+
+### Problem
+
+Shadow integration needs story-level integration tests to be a real
+gate. Without tests, shadow compose passes as long as containers are
+healthy — which tells you nothing about whether the story's features
+work.
+
+The integration tests live on the root repo. But if a story doesn't
+change the shell (like TODOM-001), there's no natural root repo MR,
+and therefore no integration tests.
+
+### Resolution
+
+Every story MUST have a root repo sub-task, regardless of whether the
+shell code changes. The root repo's contribution to every story is:
+
+1. Story-level integration tests (`scripts/integration-tests/<story-id>.sh`)
+2. Compose config changes (if needed)
+3. Readiness tracker updates
+
+The `decompose-story` capability now enforces this — the root repo
+sub-task is mandatory and always the last suffix in the decomposition.
+
+The integration test framework has two failure modes:
+- **Structural:** story has open MRs but no test script → fail
+- **Logical:** test script exists but checks fail → fail
+
+Both prevent premature merging. The shadow pipeline bootstraps from
+the root repo's story branch to pick up story-specific tests.
+
+### Capability docs updated
+
+- `decompose-story.md` — mandatory root repo sub-task rule, root
+  sub-task format, integration test contract
+- `wire-orchestration.md` — integration test gate section with
+  structural/logical failure modes

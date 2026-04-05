@@ -172,6 +172,31 @@ Health check URLs must use `docker:<port>`, not `localhost:<port>`.
 The `DOCKER_GATEWAY` variable defaults to `docker` but can be
 overridden for local testing (set to `localhost`).
 
+#### Integration test gate
+
+Shadow integration runs story-level integration tests after health
+checks pass. Two failure modes ensure no story can slip through:
+
+- **Structural failure:** the integration test framework detects that
+  a story is in-flight (open MRs with the story ID in branch names)
+  but no integration test script exists at
+  `scripts/integration-tests/<story-id>.sh`. This fails immediately
+  with a clear message telling the team to add tests.
+
+- **Logical failure:** the integration test script exists but fails
+  because not all components have implemented their part yet. The
+  failure output shows exactly which checks failed, so devs know
+  who to talk to.
+
+The root repo always has a story branch for every story — even when
+the shell code doesn't change — because the integration tests are
+the root repo's contribution. The `decompose-story` capability
+enforces this by always generating a root repo sub-task.
+
+The shadow pipeline bootstraps from the root repo's story branch
+(resolved via `resolve-story-branches.sh`) to pick up story-specific
+integration tests, compose config, and Cypress specs.
+
 #### Health endpoint convention
 
 All API components must expose `GET /health` returning a 2xx response.
