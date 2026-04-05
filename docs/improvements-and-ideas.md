@@ -209,6 +209,7 @@ PAT→CAT as the mechanism; the project chooses the tools.
 
 **Category:** Orchestration / CI pipeline design
 **Priority:** Critical (core M workflow gap)
+**Status:** ✅ Partially resolved (2026-04-05) — shadow status reporting working; merge transaction, auto-tag, auto-bump still TODO
 **Discovered:** 2026-04-04, during pass1 step 13–14 execution
 
 ### Problem
@@ -430,6 +431,7 @@ that define the real API contract.
 
 **Category:** Scaffold template / M Power capability
 **Priority:** Critical (merge integrity)
+**Status:** ✅ Resolved (2026-04-05) — setting applied to all four repos via API
 **Discovered:** 2026-04-04, during MFE MR — GitLab showed "ready to merge" while pipeline was still running
 
 ### Problem
@@ -599,6 +601,7 @@ configuration change, not a rewrite of the power capabilities.
 
 **Category:** Orchestration / CI pipeline design
 **Priority:** Critical (demo centrepiece)
+**Status:** ✅ Resolved (2026-04-05) — shadow:report-status and shadow:report-failure jobs push commit statuses back to managed repo MRs
 **Discovered:** 2026-04-04, during MFE MR — shadow integration ran on
 root repo but was completely invisible on the managed repo MR
 
@@ -678,6 +681,7 @@ is the whole point of the methodology.
 
 **Category:** Scaffold template / M Power capability
 **Priority:** Important (blocks root repo MR mergeability)
+**Status:** ✅ Resolved (2026-04-05) — MR rules added to validate jobs, wire-orchestration capability doc updated
 **Discovered:** 2026-04-04, during Step 23 — root repo MR !4 couldn't merge because no pipeline ran
 
 ### Problem
@@ -726,6 +730,7 @@ completely blocked with no obvious reason.
 
 **Category:** Architecture / CI pipeline design
 **Priority:** Critical (conceptual integrity)
+**Status:** ✅ Resolved (2026-04-05) — root repo CI has full lifecycle (install/build/test/compose/integration-test)
 **Discovered:** 2026-04-04, during Step 23 — root repo MR had no compose/integration-test in its pipeline
 
 ### Problem
@@ -851,6 +856,7 @@ as a genuine bottleneck rather than a Story Zero edge case.
 
 **Category:** CI pipeline / architecture
 **Priority:** Important (currently placeholder in CI)
+**Status:** ✅ Resolved (2026-04-05) — Docker Compose + DinD reference implementation working in CI
 **Discovered:** 2026-04-04, during Step 23 — compose script failed in CI
 because it pointed at a non-existent `scripts/compose.js`
 
