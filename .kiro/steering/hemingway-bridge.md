@@ -1,5 +1,5 @@
 ---
-inclusion: auto
+inclusion: always
 ---
 
 # Hemingway Bridge
@@ -14,7 +14,7 @@ End-of-day context snapshot. One command, one file, one purpose.
 
 When the user says `bridge`:
 
-1. Write (overwrite) `.kiro/hemingway.md` with the current state
+1. Write (overwrite) `.kiro/hemingway-bridge.md` with the current state
 2. The file is a complete snapshot — a reader with no conversation
    history should be able to pick up exactly where we left off
 3. Say "Bridge written. See you tomorrow, Cooper." (or similar)
@@ -44,7 +44,10 @@ Enough to reconstruct the environment without reading every file.]
 
 - The file is overwritten each time, never appended to
 - Written while context is warm — that's the whole point
-- Lives at `.kiro/hemingway.md` (not in drills — it's not a drill)
+- Lives at `.kiro/hemingway-bridge.md` (not in steering, not in drills)
 - Add to `.gitignore` — it's personal working state, not project artefact
-- On session start: if `.kiro/hemingway.md` exists, read it first
+- On session start: if `.kiro/hemingway-bridge.md` exists, read it first
   before doing anything else. It's the previous session's handoff.
+- Only write the bridge when the user explicitly says `bridge` — do NOT
+  update it proactively during the session. It is a one-off end-of-session
+  snapshot, not a living document.

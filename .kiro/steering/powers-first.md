@@ -1,5 +1,5 @@
 ---
-inclusion: auto
+inclusion: always
 ---
 
 # Powers First — Mandatory Activation Rule

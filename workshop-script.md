@@ -343,7 +343,7 @@ git clone git@gitlab.com:methodology-m/todo-m-workshop/todo-m-api-write.git
 
 ---
 
-## Step 15: Implement todo-m-mfe ⏳
+## Step 15: Implement todo-m-mfe ✅
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
@@ -358,7 +358,7 @@ git clone git@gitlab.com:methodology-m/todo-m-workshop/todo-m-api-write.git
 
 ---
 
-## Step 16: Validate MFE with Chrome DevTools & Compile CATs ⏳
+## Step 16: Validate MFE with Chrome DevTools & Compile CATs ✅
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
@@ -397,7 +397,7 @@ the MFE can't be e2e tested in isolation because it's a Module Federation remote
 
 ---
 
-## Step 17: Raise MR for todo-m-mfe ⏳
+## Step 17: Raise MR for todo-m-mfe ✅
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
@@ -416,7 +416,7 @@ integrate. The MFE isn't broken; the topology is incomplete.
 
 ---
 
-## Step 18: Shadow Integration Failure (Teaching Moment) ⏳
+## Step 18: Shadow Integration Failure (Teaching Moment) ✅
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
 
@@ -450,7 +450,7 @@ commit status back to the MFE's MR. That's why the MR can't merge.
 
 ---
 
-## Step 19: Pause and Reflect ⏳
+## Step 19: Pause and Reflect ✅
 
 Stage 1 demonstrated:
 
@@ -476,7 +476,7 @@ can't merge what you can't integrate.
 
 ---
 
-## Step 20: Implement the Shell ⏳
+## Step 20: Implement the Shell ✅
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
 
@@ -494,7 +494,7 @@ can't merge what you can't integrate.
 
 ---
 
-## Step 21: Compose and Validate Locally with Chrome DevTools ⏳
+## Step 21: Compose and Validate Locally with Chrome DevTools ✅
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
 
@@ -518,7 +518,7 @@ This is the first time the topology is running as a whole.
 
 ---
 
-## Step 22: Compile Story-Level CATs (Cypress) ⏳
+## Step 22: Compile Story-Level CATs (Cypress) ✅
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
 
@@ -539,7 +539,7 @@ All six acceptance criteria validated end-to-end.
 
 ---
 
-## Step 23: Raise MR on Root Repo ⏳
+## Step 23: Raise MR on Root Repo ✅
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
 
@@ -554,7 +554,7 @@ the compose scripts, and the story-level Cypress tests.
 
 ---
 
-## Step 24: Shadow Integration Passes — MFE Unblocked ⏳
+## Step 24: Shadow Integration Passes — MFE Unblocked ✅
 
 📂 GitLab UI
 
@@ -575,7 +575,7 @@ when it was ready. This is the shadow integration loop completing.
 
 ---
 
-## Step 25: Merge MFE MR and Tag ⏳
+## Step 25: Merge MFE MR and Tag ✅
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
@@ -597,7 +597,7 @@ git pull origin main
 
 ---
 
-## Step 26: Merge Root Repo MR and Tag ⏳
+## Step 26: Merge Root Repo MR and Tag ✅
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
 
@@ -629,7 +629,7 @@ components:
 
 ---
 
-## Step 27: Story Complete — TODOM-000 Done ⏳
+## Step 27: Story Complete — TODOM-000 Done ✅
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-root`
 

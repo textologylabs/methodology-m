@@ -1,19 +1,19 @@
 story: TODOM-000
-status: pending
+status: complete
 
 components:
   - name: shell
     subtask: TODOM-000a
-    high-water-mark: null
+    high-water-mark: v0.1.0
   - name: mfe
     subtask: TODOM-000b
-    high-water-mark: null
+    high-water-mark: v0.1.0
   - name: api-read
     subtask: TODOM-000c
-    high-water-mark: null
+    high-water-mark: v0.1.0
   - name: api-write
     subtask: TODOM-000d
-    high-water-mark: null
+    high-water-mark: v0.1.0
 
 story-pats:
   - pats/TODOM-000.pat.yaml

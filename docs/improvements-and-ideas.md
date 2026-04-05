@@ -306,7 +306,24 @@ of automated coordination.
 
 **Category:** Scaffold template / M Power capability
 **Priority:** Important (affects every API repo)
+**Status:** ✅ Resolved (2026-04-05)
 **Discovered:** 2026-04-04, during MFE visual verification against api-read
+
+### Resolution
+
+Fixed in pass1 during housekeeping session:
+- api-read port default: 3001 → 3002
+- api-write port default: 3002 → 3003
+- api-write: added `cors` dependency and `app.use(cors())` middleware
+- MFE: fixed `API_URL` default from localhost:3000 → localhost:3002
+- MFE webpack config: same fix for DefinePlugin
+
+Port convention standardised:
+- shell=3000, MFE=3001, api-read=3002, api-write=3003
+
+**Still needed:** The `scaffold-repo` capability doc should generate
+backend repos with CORS middleware and correct port defaults out of the
+box, so future projects don't hit this. Updated in scaffold-repo.md.
 
 ### Problem
 

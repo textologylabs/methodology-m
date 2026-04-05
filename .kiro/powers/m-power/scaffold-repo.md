@@ -271,6 +271,23 @@ provides the hook, the implementation decides the logic.
   the install job overrides to `policy: pull-push`. Without this, jobs
   downstream of install (build, test, etc.) won't find `node_modules/`
   and commands like `vitest` will fail with "not found".
+- **CORS for backend repos:** When `role: backend`, the seed `app.js`
+  must include `cors` middleware (`app.use(cors())`) and `cors` must be
+  listed as a dependency in `package.json`. Without this, any frontend
+  on a different port will fail to fetch from the API — the default
+  development scenario for distributed topologies. CORS is permissive
+  by default for development; production lockdown is a deployment concern.
+- **Port convention:** Backend APIs must use port defaults that don't
+  collide with frontend dev servers. The convention is deterministic
+  based on component order in `project.yaml`:
+  - shell (frontend-host): 3000
+  - first frontend: 3001
+  - first backend: 3002
+  - second backend: 3003
+  - ...and so on
+  The port is set via `PORT` env var with the conventional default in
+  `server.js`. Frontend components referencing APIs must use the correct
+  port in their `API_URL` default.
 
 ## Steering Template
 
@@ -410,6 +427,10 @@ The typical cycle for implementing a sub-task:
   so tests can import the app without starting a server
 - Keep implementations minimal — deliver exactly what the sub-task specifies
 - No framework-specific magic — keep it readable and testable
+- Backend APIs must include CORS middleware (`app.use(cors())`) — required
+  for cross-origin requests from frontends in development
+- Use `PORT` env var for server binding with a conventional default that
+  avoids collisions (shell=3000, MFE=3001, api-read=3002, api-write=3003)
 ```
 
 ### Parameterisation
