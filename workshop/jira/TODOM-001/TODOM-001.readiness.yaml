@@ -1,0 +1,22 @@
+story: TODOM-001
+status: pending
+
+components:
+  - name: api-read
+    subtask: TODOM-001a
+    high-water-mark: ~
+
+  - name: api-write
+    subtask: TODOM-001b
+    high-water-mark: ~
+
+  - name: mfe
+    subtask: TODOM-001c
+    high-water-mark: ~
+
+  - name: shell
+    subtask: TODOM-001d
+    high-water-mark: ~
+
+story-pats:
+  - pats/TODOM-001.pat.yaml

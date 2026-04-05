@@ -70,6 +70,18 @@ pat-compilation:
   backend: supertest + vitest
   frontend: testing-library + vitest
 
+# --- Persistence (shared state between components) ---
+# Declares the persistence mechanism for components that share state.
+# Resolved via the config repo's persistence catalogue.
+# Affects: scaffold-repo (wires dependencies + connection boilerplate),
+#          docker-compose.yml (adds volumes or service containers).
+persistence:
+  type: sqlite                    # key from config repo catalogue
+  # sqlite: shared file on Docker volume, no extra container
+  # postgres: adds a postgres service to compose, connection string via env
+  # dynamodb-local: adds localstack/dynamodb-local to compose
+  volume: todo-data               # Docker volume name for shared state
+
 # --- Compose (shadow integration + local dev) ---
 # System-level assembly strategies. Root repo owns these.
 # "local" is for developer machines. "integration" is for CI shadow.
@@ -141,6 +153,18 @@ environments:
   - System-level (e.g. `blue-green`) — root repo runs a single deploy
     script that handles everything
 
+### Persistence as a project-level declaration
+
+Persistence is a platform decision, not a per-repo ad-hoc choice. The
+config repo catalogues blessed options (SQLite, Postgres, DynamoDB, etc.)
+with templates that include: dependency, connection setup, migration
+pattern, and compose service/volume config. The project declares which
+option it uses; scaffold-repo wires it into backend repos automatically.
+
+For simple cases (SQLite), this means a shared Docker volume. For
+service-based DBs (Postgres), it adds a container to docker-compose.yml
+with health checks and connection string env vars.
+
 ### Ports in component catalogue
 
 Ports are declared once in the component catalogue and derived everywhere:
@@ -168,6 +192,7 @@ compose.tests and environments.tests.
 | components.port | I-005 |
 | templates | I-015, I-009 |
 | pat-compilation | I-003 |
+| persistence | I-019, I-009 |
 | compose | I-014, I-009 |
 | environments | I-014 (extended) |
 | config | I-015 |

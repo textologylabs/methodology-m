@@ -1,0 +1,52 @@
+story: TODOM-001
+version: 1
+
+acceptance:
+  - id: AC-001
+    when: User opens the app with existing todos
+    then: A list of todos is displayed with a count
+    steps:
+      - navigate: /
+      - wait: "[data-testid='todo-list']" is visible
+      - assert: "[data-testid='todo-item']" count > 0
+      - assert: "[data-testid='todo-count']" is visible
+
+  - id: AC-002
+    when: User opens the app with no todos
+    then: An empty state message is shown and the add form is visible
+    steps:
+      - navigate: /
+      - wait: "[data-testid='todo-empty-state']" is visible
+      - assert: "[data-testid='todo-empty-state']" contains "No todos yet"
+      - assert: "[data-testid='todo-input']" is visible
+      - assert: "[data-testid='todo-add-button']" is visible
+
+  - id: AC-003
+    when: User types a title and clicks Add
+    then: The new todo appears in the list and the input is cleared
+    steps:
+      - navigate: /
+      - type: "[data-testid='todo-input']" value "Buy milk"
+      - click: "[data-testid='todo-add-button']"
+      - wait: "[data-testid='todo-item']" count > 0
+      - assert: "[data-testid='todo-list']" contains "Buy milk"
+      - assert: "[data-testid='todo-input']" contains ""
+
+  - id: AC-004
+    when: The todo input is empty
+    then: The Add button is disabled and no request is sent
+    steps:
+      - navigate: /
+      - assert: "[data-testid='todo-input']" contains ""
+      - assert: "[data-testid='todo-add-button']" is disabled
+
+  - id: AC-005
+    when: The full system is composed via Docker
+    then: Shell loads MFE, MFE communicates with both APIs, add flow works end-to-end
+    steps:
+      - navigate: /
+      - wait: "[data-testid='app-shell']" is visible
+      - wait: "[data-testid='todo-list']" is visible
+      - type: "[data-testid='todo-input']" value "End-to-end test"
+      - click: "[data-testid='todo-add-button']"
+      - wait: "[data-testid='todo-list']" contains "End-to-end test"
