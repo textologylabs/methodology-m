@@ -196,9 +196,11 @@ tag:
 The scaffold creates placeholder scripts. The implementation step
 replaces them with real commands.
 
+**Backend repos (role: backend):**
 ```
 {
   "scripts": {
+    "start": "node src/server.js",
     "build": "echo 'no build step configured'",
     "test": "echo 'no tests configured' && exit 0",
     "snapshot": "echo 'snapshot: not yet implemented'",
@@ -206,6 +208,25 @@ replaces them with real commands.
   }
 }
 ```
+
+**Frontend repos (role: frontend, frontend-host):**
+```
+{
+  "scripts": {
+    "start": "webpack serve --mode development",
+    "build": "webpack --mode production",
+    "test": "echo 'no tests configured' && exit 0",
+    "snapshot": "echo 'snapshot: not yet implemented'",
+    "tag": "echo 'auto-tag: not yet implemented'"
+  }
+}
+```
+
+The `start` script is required for local compose — the root repo's
+`start-all.sh` calls each component's start script. Backend repos
+get a Node server start; frontend repos get webpack dev server.
+Implementation may refine these but the scaffold must provide
+working defaults.
 
 ### Lifecycle phase contract
 
@@ -391,6 +412,7 @@ The .gitlab-ci.yml uses lifecycle phases delegated to package.json scripts:
 
 | Phase | Script | When |
 |-------|--------|------|
+| start | npm start | Local development (compose) |
 | install | npm ci | Every pipeline |
 | build | npm run build | Every pipeline |
 | test | npm test | Every pipeline |

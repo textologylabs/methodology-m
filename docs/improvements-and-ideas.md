@@ -904,3 +904,112 @@ compose/integration mechanism is another plugin category.
   related but distinct from unit CAT framework)
 - Story Zero wizard (I-001) should ask about compose strategy during
   bootstrap
+
+---
+
+## I-015: Project templates — pluggable scaffolding blueprints per component role
+
+**Category:** M Power capability / architecture
+**Priority:** Important (reduces scaffold-to-implementation gap)
+**Discovered:** 2026-04-05, during I-005 fix session — realised scaffold
+generates minimal placeholders that always need the same boilerplate added
+
+### Problem
+
+The `scaffold-repo` capability generates a minimal seed (placeholder
+scripts, empty app structure). Every implementation then follows the same
+pattern for a given role: Express + CORS + server.js/app.js split for
+APIs, React + webpack + Module Federation for MFEs, etc. This boilerplate
+is repeated every time and is predictable from the component role.
+
+Projects like `create-react-app`, `create-next-app`, and `express-generator`
+solved this years ago — you pick a template and get a working starting
+point, not an empty shell.
+
+### Proposal
+
+Introduce **project templates** as a pluggable layer in M Power, backed
+by a centralised **M config repo** per organisation.
+
+**M config repo** — when a company adopts Methodology M, they set up a
+single config repo that acts as the organisation's registry of blessed
+stacks and conventions. This repo contains (among other things) a
+template catalogue: a mapping of short keys to git URLs.
+
+```
+# m-config/templates.yaml
+templates:
+  node-api: https://gitlab.com/acme/m-templates/node-api.git
+  react-mfe: https://gitlab.com/acme/m-templates/react-mfe.git
+  react-shell: https://gitlab.com/acme/m-templates/react-shell.git
+  fastify-api: https://gitlab.com/acme/m-templates/fastify-api.git
+  next-mfe: https://gitlab.com/acme/m-templates/next-mfe.git
+```
+
+Each template is a standalone git repo containing a complete seed for
+a specific component role + tech stack combination. Templates can be
+versioned via tags — the URL can include a ref.
+
+**Project-level usage** — `project.yaml` references template keys with
+optional version pinning (like npm dependencies). The config repo maps
+keys to URLs; the project controls which version it wants:
+
+```
+# project.yaml
+templates:
+  backend: node-api@1.2.0
+  frontend: react-mfe@2.0.0
+  frontend-host: react-shell
+```
+
+Unpinned keys (e.g. `react-shell`) resolve to the latest/default branch.
+Pinned keys (e.g. `node-api@1.2.0`) resolve to that tag in the template
+repo. This keeps the catalogue simple (just key→URL) while giving
+projects full control over when they upgrade.
+
+**Resolution chain:**
+1. `scaffold-repo` reads the component's role from the sub-task
+2. Looks up the role in `project.yaml` → gets a template key
+3. Resolves the key via the M config repo's `templates.yaml` → gets a URL
+4. Clones the template, seeds the managed repo with its contents
+5. Falls back to minimal placeholders if no template is declared
+
+**Template content** — each template repo provides:
+- `package.json` with real dependencies and scripts (not placeholders)
+- Source file structure (app.js, server.js, index.js, etc.)
+- Test setup (vitest config, testing library setup, etc.)
+- Webpack/build config where applicable
+- `.gitignore` tailored to the stack
+- Optionally: a `template.yaml` manifest describing what the template
+  provides and any parameters it accepts
+
+### Template vs implementation
+
+Templates provide the **structural starting point** — the framework,
+build tooling, test setup, and conventions. Implementation provides
+the **business logic** — the actual endpoints, components, and
+behaviour described in the sub-task.
+
+The line is: if you'd copy-paste it from the last project, it's a
+template concern. If it comes from the sub-task acceptance criteria,
+it's an implementation concern.
+
+### Relationship to I-009 (plugin architecture)
+
+Templates are a specific instance of the plugin concept. Where I-009
+talks about abstracting CI platforms and test frameworks, templates
+abstract the initial project structure. They're complementary:
+- Plugins define **how things run** (CI, test runner, compose)
+- Templates define **what gets generated** (source structure, deps, config)
+
+### Dependencies
+
+- I-001 (Story Zero wizard — should ask about templates during bootstrap)
+- I-009 (plugin architecture — templates are a plugin category)
+- I-003 (configurable test framework — template includes test setup)
+- `scaffold-repo` capability doc needs a `template` parameter
+- Needs an M config repo concept defined — the org-level registry that
+  holds template catalogue, default conventions, and shared config.
+  This is a new artefact type in the methodology: one per company,
+  referenced by all projects.
+
