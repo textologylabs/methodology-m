@@ -51,3 +51,9 @@ Enough to reconstruct the environment without reading every file.]
 - Only write the bridge when the user explicitly says `bridge` — do NOT
   update it proactively during the session. It is a one-off end-of-session
   snapshot, not a living document.
+- The bridge has exactly TWO uses: (1) writing it when the user says
+  `bridge` at end of day, (2) reading it at the START of the next day's
+  first session. That's it. Do NOT suggest reading or writing the bridge
+  at any other time. Do NOT use it as a mid-session context restore when
+  starting a new chat within the same day. If the user needs a mid-session
+  handoff, they will provide an opener prompt — not the bridge.

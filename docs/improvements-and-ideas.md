@@ -1309,3 +1309,91 @@ Also updated scaffold-repo capability doc to:
 - Generate dependency-aware env vars (one per API dependency, from topology)
 - Generate API stubs for frontend repos with API dependencies
 - Include shared-state pattern for read/write stub pairs
+
+---
+
+## I-015: Rename "shadow integration" to "ahead-of-time integration"
+
+**Category:** Terminology
+**Priority:** Important (affects all docs, slides, demo script)
+**Discovered:** 2026-04-06, during demo rehearsal
+
+### Problem
+
+"Shadow integration" sounds sneaky — like something running behind the
+scenes that you shouldn't trust. The mechanism is the opposite: it's
+transparent, deliberate, and the core confidence signal in M.
+
+### Proposal
+
+Rename to **ahead-of-time integration** (AOT integration). This says
+exactly what it is: testing the post-merge composition before anyone
+hits the merge button. The system composes all story branches into the
+speculative post-merge state and runs the full acceptance suite against
+it — ahead of time.
+
+### What needs updating
+
+- methodology-m.md (all references to "shadow")
+- Demo slides (especially slide 6: "Shadow integration" → "Ahead-of-time integration")
+- Demo runbook (docs/demo-runbook.md)
+- CI job names (`shadow:compose` → `aot:compose`, `shadow:integration-test` → `aot:integration-test`, etc.)
+- M Power capability docs (wire-orchestration, scaffold-repo)
+- Workshop steering
+- Root repo CI pipeline on GitLab
+
+### Timing
+
+After the demo. The rename touches too many files to risk before Friday.
+Use "ahead-of-time integration" in the slides and narration; leave the
+CI job names as `shadow:*` for now and rename in a cleanup pass.
+
+
+---
+
+## I-016: wire-orchestration must generate fan-out status reporting
+
+**Category:** M Power capability fix (fix-forward)
+**Priority:** Critical (core orchestration behaviour)
+**Discovered:** 2026-04-06, during demo rehearsal — AOT integration only
+reported status to the triggering repo, leaving other story MRs red
+
+### Problem
+
+The `wire-orchestration` capability generated `shadow:report-status` and
+`shadow:report-failure` CI jobs that only pushed commit status back to
+`$SOURCE_PROJECT_ID` — the repo whose webhook triggered the pipeline.
+Other repos with open MRs for the same story never received the status.
+
+This broke the core M promise: when the HEAD component arrives and AOT
+integration passes, ALL story MRs should go green simultaneously.
+
+### What was fixed live
+
+1. Created `scripts/report-shadow-status.sh` — iterates all managed repos
+   in the topology, finds open MRs matching the story ID, and pushes
+   commit status to each one.
+2. Updated `shadow:integration` job to export `STORY_ID` via dotenv
+   artifact so report-status jobs can access it.
+3. Both `shadow:report-status` and `shadow:report-failure` now call the
+   shared script with `success` or `failed` argument.
+
+### What needs updating in M Power
+
+The `wire-orchestration` capability doc must:
+
+1. Generate `scripts/report-shadow-status.sh` (or equivalent) as part of
+   root repo scaffolding — parameterised with the managed repo list from
+   the topology
+2. Generate the CI report jobs calling the shared script instead of
+   inline single-repo curl
+3. Include the dotenv artifact on `shadow:integration` for STORY_ID
+4. Document that status fan-out is how the cascade works — it's not
+   optional, it's the mechanism that makes AOT integration visible
+
+### Also fix
+
+The `scaffold-repo` capability doc should mention that managed repos
+will receive external commit statuses from the root repo's AOT pipeline,
+and that `only_allow_merge_if_pipeline_succeeds` gates on these.
+
