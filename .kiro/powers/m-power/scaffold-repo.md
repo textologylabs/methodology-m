@@ -56,6 +56,22 @@ Push all seed files in a single commit using `gitlab push_files`:
 - `pats/<sub-task-id>.stub` — PAT stub file extracted from the sub-task
 - `.kiro/steering/m-managed-repo.md` — M development guide (see Steering Template)
 
+**For frontend repos with API dependencies (role: frontend, frontend-host):**
+
+- `pats/stubs/<api-name>.js` — API stub servers for PAT validation (see API Stubs below)
+
+The webpack config and Dockerfile must declare one env var per API
+dependency, derived from the topology in project.yaml:
+
+| Dependency role | Env var | Default |
+|----------------|---------|---------|
+| api-read | `API_READ_URL` | `http://localhost:3002` |
+| api-write | `API_WRITE_URL` | `http://localhost:3003` |
+| (general pattern) | `<ROLE_UPPER>_URL` | `http://localhost:<port>` |
+
+Ports follow the convention: shell=3000, MFE=3001, then backends in
+project.yaml order starting at 3002.
+
 **Important:** Because the repo was created without `initialize_with_readme`
 (Step 2), all files are new and `push_files` works cleanly. If any files
 already exist (e.g. re-running scaffold on a partially seeded repo), use
@@ -264,6 +280,103 @@ repo clones the managed repo at the snapshot tag to compose the system.
 On merge to main, the `tag` phase creates an annotated semver tag.
 Version bumping strategy is determined by the project — the scaffold
 provides the hook, the implementation decides the logic.
+
+## API Stubs for Frontend Repos
+
+When scaffolding a frontend component (role: frontend or frontend-host)
+that depends on API components, generate stub servers in `pats/stubs/`.
+These stubs enable PAT validation without running real API services.
+
+### Generation rules
+
+1. Read the API sub-task files to extract the endpoint contracts
+   (routes, methods, request/response shapes)
+2. Generate one stub file per API dependency in `pats/stubs/`
+3. Stubs use Express with CORS enabled
+4. Read stubs return mock data matching the contract
+5. Write stubs accept and store data in memory
+6. Read and write stubs sharing the same story must share state
+   (same in-memory array, via require/import)
+
+### Shared state pattern
+
+When a story involves both a read and write API, the stubs must share
+an in-memory data store so that writes are visible to subsequent reads.
+Pattern:
+
+- `pats/stubs/api-read.js` — exports the shared data array, starts
+  the read server as a side effect
+- `pats/stubs/api-write.js` — requires api-read to get the shared
+  array reference, starts the write server
+
+Running `node pats/stubs/api-write.js` starts both servers (api-read
+is loaded via require, which triggers its listen call).
+
+### Stub template (read API)
+
+```
+const express = require('express')
+const cors = require('cors')
+
+const app = express()
+app.use(cors())
+
+const <collection> = []
+
+app.get('/<resource>', (req, res) => {
+  res.json(<collection>)
+})
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' })
+})
+
+const PORT = process.env.STUB_PORT || <read-port>
+const server = app.listen(PORT, () => {
+  console.log('<api-name> stub on port ' + PORT)
+})
+
+module.exports = { app, <collection>, server }
+```
+
+### Stub template (write API)
+
+```
+const express = require('express')
+const cors = require('cors')
+const { <collection> } = require('./api-read')
+
+const app = express()
+app.use(cors())
+app.use(express.json())
+
+let nextId = 1
+
+app.post('/<resource>', (req, res) => {
+  const { <field> } = req.body || {}
+  if (!<field> || !<field>.trim()) {
+    return res.status(400).json({ error: '<Field> is required' })
+  }
+  const item = { id: nextId++, <field>: <field>.trim() }
+  <collection>.push(item)
+  res.status(201).json(item)
+})
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' })
+})
+
+const PORT = process.env.STUB_WRITE_PORT || <write-port>
+app.listen(PORT, () => {
+  console.log('<api-name> stub on port ' + PORT)
+})
+```
+
+### Dependencies
+
+Add `express` and `cors` as devDependencies in the frontend repo's
+`package.json` if not already present (they're needed for stubs only,
+not for the frontend build).
 
 ## Notes
 

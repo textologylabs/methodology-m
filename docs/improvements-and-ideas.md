@@ -1260,49 +1260,11 @@ the root repo's story branch to pick up story-specific tests.
 
 ---
 
-## I-021: Scaffold must generate dependency-aware env vars from topology
-
-**Category:** Scaffold template / M Power capability
-**Priority:** Important (affects every frontend repo)
-**Discovered:** 2026-04-06, during TODOM-001c MFE implementation
-
-### Problem
-
-The MFE was scaffolded with a single `API_URL` env var pointing to
-api-read. But TODOM-001 requires the MFE to talk to both api-read
-(GET /todos) and api-write (POST /todos). The webpack DefinePlugin
-and Dockerfile had to be manually updated to support `API_READ_URL`
-and `API_WRITE_URL`.
-
-This information already exists in the topology — `project.yaml`
-declares all components and their roles. The scaffold should read
-the topology and generate one env var per dependency.
-
-### Proposal
-
-When `scaffold-repo` creates a frontend component, it should:
-
-1. Read `project.yaml` to find all components the frontend depends on
-2. Generate env vars in webpack config and Dockerfile for each dependency:
-   - `API_READ_URL` for api-read dependency
-   - `API_WRITE_URL` for api-write dependency
-   - Pattern: `<ROLE>_URL` or `<COMPONENT_NAME>_URL`
-3. Set sensible defaults based on the port convention (shell=3000,
-   MFE=3001, api-read=3002, api-write=3003)
-
-### Dependencies
-
-- Needs `project.yaml` to declare component dependencies (currently
-  it only lists components and versions, not inter-component deps)
-- Ties into I-009 (plugin architecture — env var generation is a
-  scaffold plugin concern)
-
----
-
-## I-022: PAT validation loop must be explicit in managed repo steering
+## I-021: PAT validation loop must be explicit in managed repo steering
 
 **Category:** Steering / developer workflow
 **Priority:** Critical (methodology integrity)
+**Status:** ✅ Resolved (2026-04-06) — steering template updated in scaffold-repo capability doc and all live managed repos
 **Discovered:** 2026-04-06, during TODOM-001c implementation — agent
 implemented the component and declared "done" without validating
 against PATs in a browser
@@ -1329,78 +1291,21 @@ Chrome DevTools MCP, etc.).
 
 ### Resolution
 
-Update the managed repo steering (`.kiro/steering/m-managed-repo.md`)
-to make the PAT validation loop explicit in the Development Workflow
-section. The key additions:
+Updated the managed repo steering (`.kiro/steering/m-managed-repo.md`)
+and the scaffold-repo capability template to make the PAT validation
+loop explicit in the Development Workflow section:
 
 1. Implementation IS PAT validation — they are the same activity
 2. Never declare implementation complete without demonstrating PAT
    satisfaction using appropriate tools
-3. For frontend components: open in a browser, verify visually,
-   check data-testid attributes
+3. For frontend components: open in browser, verify visually, check
+   data-testid attributes
 4. For API components: curl the endpoints, verify responses match
    the contract
 5. Use API stubs (in `pats/stubs/`) to test frontend components
    against their dependency contracts
 
-### What needs to change
-
-- Managed repo steering template in `scaffold-repo` capability
-- Existing steering files on live repos (todo-m-mfe, todo-m-api-read,
-  todo-m-api-write)
-
----
-
-## I-023: Scaffold must generate API stubs for frontend dependency contracts
-
-**Category:** Scaffold template / M Power capability
-**Priority:** Important (affects every frontend repo)
-**Discovered:** 2026-04-06, during TODOM-001c PAT validation — agent
-tried to skip API round-trip testing because "no API running"
-
-### Problem
-
-Frontend components depend on APIs for PAT validation. Without stubs,
-the developer either skips the round-trip validation ("can't test
-without the real API") or manually creates stub servers. Both are
-wrong — the first violates M's validation loop, the second is
-boilerplate that should be automated.
-
-The API contract is already defined in the sub-task files. The stubs
-can be generated from that contract.
-
-### Proposal
-
-During `scaffold-repo` or `decompose-story`, when a frontend sub-task
-has API dependencies:
-
-1. Generate stub servers in `pats/stubs/<api-name>.js` for each
-   dependency
-2. Stubs implement the contract endpoints from the API sub-tasks:
-   - GET endpoints return sensible mock data
-   - POST endpoints accept and store data in memory
-   - Shared in-memory state between read/write stubs (same process
-     or shared array reference)
-3. Include `express` and `cors` as devDependencies
-4. Document the stub startup in the sub-task file or README
-
-### Stub design pattern
-
-For a read+write API pair sharing state:
-
-```
-pats/stubs/
-  api-read.js    ← GET /todos returns in-memory array, exports { todos }
-  api-write.js   ← POST /todos pushes to shared array, requires api-read
-```
-
-Running `node pats/stubs/api-write.js` starts both servers (api-read
-is required as a dependency, starts as side effect).
-
-### Dependencies
-
-- Ties into I-006 (original stub generation proposal — this refines it
-  with the shared-state pattern discovered during implementation)
-- Ties into I-022 (PAT validation loop — stubs enable the loop)
-- The sub-task file must describe the API contract clearly enough for
-  stub generation
+Also updated scaffold-repo capability doc to:
+- Generate dependency-aware env vars (one per API dependency, from topology)
+- Generate API stubs for frontend repos with API dependencies
+- Include shared-state pattern for read/write stub pairs
