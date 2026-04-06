@@ -1,0 +1,442 @@
+From 34af48002fccd2ffaacdb7979143d71121bb4adc Mon Sep 17 00:00:00 2001
+From: Johnny Jarecsni <johnny.jarecsni@icloud.com>
+Date: Sun, 5 Apr 2026 16:44:20 +0100
+Subject: [PATCH 1/3] =?UTF-8?q?=E2=9C=85=20add=20TODOM-001=20story-level?=
+ =?UTF-8?q?=20integration=20tests?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Adds scripts/integration-tests/TODOM-001.sh which verifies:
+- GET /todos returns JSON array (AC-001)
+- POST /todos creates a todo and round-trips through read API (AC-003)
+- POST /todos rejects empty/missing title with 400 (AC-004)
+- Shell serves HTML with app-shell marker (AC-005)
+- MFE remoteEntry.js is accessible (AC-005)
+
+This converts the structural failure (no test file) to a logical
+failure — tests exist but will fail until the MFE is implemented
+and all components are composed.
+---
+ scripts/integration-tests/TODOM-001.sh | 102 +++++++++++++++++++++++++
+ 1 file changed, 102 insertions(+)
+ create mode 100755 scripts/integration-tests/TODOM-001.sh
+
+diff --git a/scripts/integration-tests/TODOM-001.sh b/scripts/integration-tests/TODOM-001.sh
+new file mode 100755
+index 0000000..b9d84bd
+--- /dev/null
++++ b/scripts/integration-tests/TODOM-001.sh
+@@ -0,0 +1,102 @@
++#!/bin/sh
++# TODOM-001 — Story-level integration tests
++# Verifies: view todos, add a todo, round-trip through both APIs
++#
++# Called by integration-test.sh after compose health checks pass.
++# Inherits: DOCKER_GATEWAY, check() function is NOT available here —
++# this script runs standalone via `sh`, so we define our own checks.
++
++set -eu
++
++DOCKER_GATEWAY="${DOCKER_GATEWAY:-docker}"
++FAILURES=0
++
++check() {
++  local DESCRIPTION="$1"
++  local URL="$2"
++  local EXPECTED="$3"
++  local METHOD="${4:-GET}"
++
++  echo -n "  Testing: ${DESCRIPTION}... "
++
++  if [ "$METHOD" = "POST" ]; then
++    RESPONSE=$(curl -sf -X POST -H "Content-Type: application/json" -d "$5" "$URL" 2>&1) || RESPONSE=""
++  else
++    RESPONSE=$(curl -sf "$URL" 2>&1) || RESPONSE=""
++  fi
++
++  if echo "$RESPONSE" | grep -q "$EXPECTED"; then
++    echo "✓"
++  else
++    echo "✗ FAILED"
++    echo "    Expected to find: ${EXPECTED}"
++    echo "    URL: ${URL}"
++    if [ -n "$RESPONSE" ]; then
++      echo "    Got: $(echo "$RESPONSE" | head -5)"
++    else
++      echo "    Got: (no response or connection refused)"
++    fi
++    FAILURES=$((FAILURES + 1))
++  fi
++}
++
++check_status() {
++  local DESCRIPTION="$1"
++  local URL="$2"
++  local EXPECTED_STATUS="$3"
++  local DATA="$4"
++
++  echo -n "  Testing: ${DESCRIPTION}... "
++
++  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
++    -H "Content-Type: application/json" -d "$DATA" "$URL" 2>&1) || STATUS="000"
++
++  if [ "$STATUS" = "$EXPECTED_STATUS" ]; then
++    echo "✓ (HTTP ${STATUS})"
++  else
++    echo "✗ FAILED"
++    echo "    Expected HTTP: ${EXPECTED_STATUS}"
++    echo "    Got HTTP: ${STATUS}"
++    FAILURES=$((FAILURES + 1))
++  fi
++}
++
++# AC-001: Todo list is displayed (API returns array)
++check "GET /todos returns JSON array" \
++  "http://${DOCKER_GATEWAY}:3002/todos" \
++  "\["
++
++# AC-003: User can add a new todo (round-trip)
++UNIQUE_TITLE="integration-test-$(date +%s)"
++
++check "POST /todos creates a todo" \
++  "http://${DOCKER_GATEWAY}:3003/todos" \
++  "$UNIQUE_TITLE" \
++  "POST" \
++  "{\"title\":\"${UNIQUE_TITLE}\"}"
++
++check "GET /todos includes the new todo (round-trip)" \
++  "http://${DOCKER_GATEWAY}:3002/todos" \
++  "$UNIQUE_TITLE"
++
++# AC-004: Validation rejects empty title
++check_status "POST /todos with empty title returns 400" \
++  "http://${DOCKER_GATEWAY}:3003/todos" \
++  "400" \
++  '{"title":""}'
++
++check_status "POST /todos with missing title returns 400" \
++  "http://${DOCKER_GATEWAY}:3003/todos" \
++  "400" \
++  '{}'
++
++# AC-005: Shell composes MFE (check that shell serves content)
++check "Shell serves HTML with app-shell" \
++  "http://${DOCKER_GATEWAY}:3000" \
++  "app-shell"
++
++check "MFE remoteEntry is accessible" \
++  "http://${DOCKER_GATEWAY}:3001/remoteEntry.js" \
++  "todoMfe"
++
++exit $FAILURES
+-- 
+2.49.0
+
+
+From a53b5f709d428d7e5b52b970a9e29c3632c18d94 Mon Sep 17 00:00:00 2001
+From: Johnny Jarecsni <johnny.jarecsni@icloud.com>
+Date: Sun, 5 Apr 2026 16:56:35 +0100
+Subject: [PATCH 2/3] =?UTF-8?q?=E2=9C=A8=20add=20HEAD=20component=20gate?=
+ =?UTF-8?q?=20to=20structural=20check?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The PAT yaml now declares a 'head' field identifying which component
+drives integration for the story. The structural gate checks two things:
+
+1. Integration test file exists (as before)
+2. HEAD component has an open MR for the story
+
+Supporting MRs (e.g. APIs) are expected to fail structurally until the
+HEAD component (e.g. MFE) raises its MR. This makes the failure signal
+explicit rather than relying on test file existence alone.
+
+- resolve-story-branches.sh reads head from PAT yaml, exports HEAD_HAS_MR
+- integration-test.sh checks HEAD gate before running story tests
+- TODOM-001.pat.yaml added with head: todo-m-mfe
+---
+ pats/TODOM-001.pat.yaml           | 53 +++++++++++++++++++++++++++++++
+ scripts/integration-test.sh       | 26 +++++++++++----
+ scripts/resolve-story-branches.sh | 24 ++++++++++++++
+ 3 files changed, 96 insertions(+), 7 deletions(-)
+ create mode 100644 pats/TODOM-001.pat.yaml
+
+diff --git a/pats/TODOM-001.pat.yaml b/pats/TODOM-001.pat.yaml
+new file mode 100644
+index 0000000..29fb901
+--- /dev/null
++++ b/pats/TODOM-001.pat.yaml
+@@ -0,0 +1,53 @@
++story: TODOM-001
++version: 1
++head: todo-m-mfe
++
++acceptance:
++  - id: AC-001
++    when: User opens the app with existing todos
++    then: A list of todos is displayed with a count
++    steps:
++      - navigate: /
++      - wait: "[data-testid='todo-list']" is visible
++      - assert: "[data-testid='todo-item']" count > 0
++      - assert: "[data-testid='todo-count']" is visible
++
++  - id: AC-002
++    when: User opens the app with no todos
++    then: An empty state message is shown and the add form is visible
++    steps:
++      - navigate: /
++      - wait: "[data-testid='todo-empty-state']" is visible
++      - assert: "[data-testid='todo-empty-state']" contains "No todos yet"
++      - assert: "[data-testid='todo-input']" is visible
++      - assert: "[data-testid='todo-add-button']" is visible
++
++  - id: AC-003
++    when: User types a title and clicks Add
++    then: The new todo appears in the list and the input is cleared
++    steps:
++      - navigate: /
++      - type: "[data-testid='todo-input']" value "Buy milk"
++      - click: "[data-testid='todo-add-button']"
++      - wait: "[data-testid='todo-item']" count > 0
++      - assert: "[data-testid='todo-list']" contains "Buy milk"
++      - assert: "[data-testid='todo-input']" contains ""
++
++  - id: AC-004
++    when: The todo input is empty
++    then: The Add button is disabled and no request is sent
++    steps:
++      - navigate: /
++      - assert: "[data-testid='todo-input']" contains ""
++      - assert: "[data-testid='todo-add-button']" is disabled
++
++  - id: AC-005
++    when: The full system is composed via Docker
++    then: Shell loads MFE, MFE communicates with both APIs, add flow works end-to-end
++    steps:
++      - navigate: /
++      - wait: "[data-testid='app-shell']" is visible
++      - wait: "[data-testid='todo-list']" is visible
++      - type: "[data-testid='todo-input']" value "End-to-end test"
++      - click: "[data-testid='todo-add-button']"
++      - wait: "[data-testid='todo-list']" contains "End-to-end test"
+diff --git a/scripts/integration-test.sh b/scripts/integration-test.sh
+index fb9c5e6..eff6876 100755
+--- a/scripts/integration-test.sh
++++ b/scripts/integration-test.sh
+@@ -72,22 +72,34 @@ check "API write health" \
+ echo ""
+ 
+ # --- Structural check: every in-flight story must have integration tests ---
+-# STORY_ID is set by resolve-story-branches.sh (exported to env)
++# --- and the HEAD component must have an open MR ---
++# STORY_ID, HEAD_COMPONENT, HEAD_HAS_MR are set by resolve-story-branches.sh
+ STORY_ID="${STORY_ID:-}"
++HEAD_COMPONENT="${HEAD_COMPONENT:-}"
++HEAD_HAS_MR="${HEAD_HAS_MR:-false}"
++
+ if [ -n "${STORY_ID}" ] && [ "${STORY_ID}" != "TODOM-000" ]; then
+   STORY_TEST_FILE="scripts/integration-tests/${STORY_ID}.sh"
+-  if [ -f "${STORY_TEST_FILE}" ]; then
++
++  # Gate 1: Integration test file must exist
++  if [ ! -f "${STORY_TEST_FILE}" ]; then
++    echo "✗ STRUCTURAL FAILURE: Story ${STORY_ID} has open MRs but no integration tests"
++    echo "  Expected: ${STORY_TEST_FILE}"
++    echo "  Add story-level integration tests before shadow integration can pass."
++    FAILURES=$((FAILURES + 1))
++  # Gate 2: HEAD component must have an open MR
++  elif [ -n "${HEAD_COMPONENT}" ] && [ "${HEAD_HAS_MR}" != "true" ]; then
++    echo "✗ STRUCTURAL FAILURE: HEAD component ${HEAD_COMPONENT} has no MR for ${STORY_ID}"
++    echo "  The HEAD component drives integration — shadow cannot pass without it."
++    echo "  Supporting MRs are expected to fail until HEAD is present."
++    FAILURES=$((FAILURES + 1))
++  else
+     echo "${STORY_ID} — Story-level tests:"
+     sh "${STORY_TEST_FILE}"
+     STORY_EXIT=$?
+     if [ "${STORY_EXIT}" -ne 0 ]; then
+       FAILURES=$((FAILURES + STORY_EXIT))
+     fi
+-  else
+-    echo "✗ STRUCTURAL FAILURE: Story ${STORY_ID} has open MRs but no integration tests"
+-    echo "  Expected: ${STORY_TEST_FILE}"
+-    echo "  Add story-level integration tests before shadow integration can pass."
+-    FAILURES=$((FAILURES + 1))
+   fi
+ fi
+ 
+diff --git a/scripts/resolve-story-branches.sh b/scripts/resolve-story-branches.sh
+index 26e23ac..997b744 100755
+--- a/scripts/resolve-story-branches.sh
++++ b/scripts/resolve-story-branches.sh
+@@ -107,5 +107,29 @@ if [ "${BRANCH_ROOT}" != "main" ]; then
+   echo "  ✓ root repo files updated from ${BRANCH_ROOT}"
+ fi
+ 
++# --- Step 5: Resolve HEAD component ---
++# The PAT yaml declares which component is the integration HEAD for this story.
++# If HEAD hasn't raised an MR yet, shadow integration should fail structurally.
++HEAD_COMPONENT=""
++HEAD_HAS_MR="false"
++
++if [ -n "${STORY_ID}" ]; then
++  PAT_FILE="pats/${STORY_ID}.pat.yaml"
++  if [ -f "${PAT_FILE}" ]; then
++    HEAD_COMPONENT=$(grep -E '^head:' "${PAT_FILE}" | sed 's/^head:[[:space:]]*//' || true)
++  fi
++
++  if [ -n "${HEAD_COMPONENT}" ]; then
++    HEAD_BRANCH=$(resolve_branch "${GROUP}/${HEAD_COMPONENT}")
++    if [ "${HEAD_BRANCH}" != "main" ]; then
++      HEAD_HAS_MR="true"
++    fi
++    echo ""
++    echo "HEAD component: ${HEAD_COMPONENT} (MR: ${HEAD_HAS_MR}, branch: ${HEAD_BRANCH})"
++  fi
++fi
++
++export HEAD_COMPONENT HEAD_HAS_MR
++
+ echo ""
+ echo "Branch resolution complete."
+-- 
+2.49.0
+
+
+From 79c253dbbfc93f3f2b42417625d4131af0d9eed9 Mon Sep 17 00:00:00 2001
+From: Johnny Jarecsni <johnny.jarecsni@icloud.com>
+Date: Sun, 5 Apr 2026 17:05:59 +0100
+Subject: [PATCH 3/3] =?UTF-8?q?=F0=9F=90=9B=20move=20HEAD=20resolution=20i?=
+ =?UTF-8?q?nto=20integration-test.sh?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+resolve-story-branches.sh can't update itself mid-flight — the shell
+has already sourced the old version before the bootstrap replaces it.
+Moving HEAD resolution into integration-test.sh fixes this because
+the test script runs AFTER bootstrap, so it's always the fresh version.
+
+The HEAD check now reads the PAT yaml and queries GitLab directly
+from within the test runner.
+---
+ scripts/integration-test.sh       | 56 +++++++++++++++++++++++--------
+ scripts/resolve-story-branches.sh | 24 -------------
+ 2 files changed, 42 insertions(+), 38 deletions(-)
+
+diff --git a/scripts/integration-test.sh b/scripts/integration-test.sh
+index eff6876..debdfcb 100755
+--- a/scripts/integration-test.sh
++++ b/scripts/integration-test.sh
+@@ -73,10 +73,8 @@ echo ""
+ 
+ # --- Structural check: every in-flight story must have integration tests ---
+ # --- and the HEAD component must have an open MR ---
+-# STORY_ID, HEAD_COMPONENT, HEAD_HAS_MR are set by resolve-story-branches.sh
++# STORY_ID is set by resolve-story-branches.sh (exported to env)
+ STORY_ID="${STORY_ID:-}"
+-HEAD_COMPONENT="${HEAD_COMPONENT:-}"
+-HEAD_HAS_MR="${HEAD_HAS_MR:-false}"
+ 
+ if [ -n "${STORY_ID}" ] && [ "${STORY_ID}" != "TODOM-000" ]; then
+   STORY_TEST_FILE="scripts/integration-tests/${STORY_ID}.sh"
+@@ -87,18 +85,48 @@ if [ -n "${STORY_ID}" ] && [ "${STORY_ID}" != "TODOM-000" ]; then
+     echo "  Expected: ${STORY_TEST_FILE}"
+     echo "  Add story-level integration tests before shadow integration can pass."
+     FAILURES=$((FAILURES + 1))
+-  # Gate 2: HEAD component must have an open MR
+-  elif [ -n "${HEAD_COMPONENT}" ] && [ "${HEAD_HAS_MR}" != "true" ]; then
+-    echo "✗ STRUCTURAL FAILURE: HEAD component ${HEAD_COMPONENT} has no MR for ${STORY_ID}"
+-    echo "  The HEAD component drives integration — shadow cannot pass without it."
+-    echo "  Supporting MRs are expected to fail until HEAD is present."
+-    FAILURES=$((FAILURES + 1))
+   else
+-    echo "${STORY_ID} — Story-level tests:"
+-    sh "${STORY_TEST_FILE}"
+-    STORY_EXIT=$?
+-    if [ "${STORY_EXIT}" -ne 0 ]; then
+-      FAILURES=$((FAILURES + STORY_EXIT))
++    # Gate 2: HEAD component must have an open MR
++    # Resolve HEAD from the PAT yaml (which was bootstrapped from the story branch)
++    HEAD_COMPONENT=""
++    HEAD_HAS_MR="false"
++    PAT_FILE="pats/${STORY_ID}.pat.yaml"
++
++    if [ -f "${PAT_FILE}" ]; then
++      HEAD_COMPONENT=$(grep -E '^head:' "${PAT_FILE}" | sed 's/^head:[[:space:]]*//' || true)
++    fi
++
++    if [ -n "${HEAD_COMPONENT}" ]; then
++      # Check if HEAD component has an open MR for this story
++      GITLAB_URL="${GITLAB_URL:-https://gitlab.com}"
++      TOKEN="${M_GROUP_TOKEN:-${CI_JOB_TOKEN:-}}"
++      GROUP="${GROUP:-}"
++      ENCODED_HEAD=$(echo "${GROUP}/${HEAD_COMPONENT}" | sed 's|/|%2F|g')
++
++      if [ -n "${TOKEN}" ] && [ -n "${GROUP}" ]; then
++        HEAD_MR_JSON=$(curl -sf --header "PRIVATE-TOKEN: ${TOKEN}" \
++          "${GITLAB_URL}/api/v4/projects/${ENCODED_HEAD}/merge_requests?state=opened&per_page=20" 2>/dev/null || echo "[]")
++        HEAD_BRANCH=$(echo "${HEAD_MR_JSON}" | grep -oE '"source_branch":"[^"]*'"${STORY_ID}"'[^"]*"' | head -1 | sed 's/"source_branch":"//;s/"//')
++        if [ -n "${HEAD_BRANCH}" ]; then
++          HEAD_HAS_MR="true"
++        fi
++      fi
++
++      echo "HEAD component: ${HEAD_COMPONENT} (MR present: ${HEAD_HAS_MR})"
++    fi
++
++    if [ -n "${HEAD_COMPONENT}" ] && [ "${HEAD_HAS_MR}" != "true" ]; then
++      echo "✗ STRUCTURAL FAILURE: HEAD component ${HEAD_COMPONENT} has no MR for ${STORY_ID}"
++      echo "  The HEAD component drives integration — shadow cannot pass without it."
++      echo "  Supporting MRs are expected to fail until HEAD is present."
++      FAILURES=$((FAILURES + 1))
++    else
++      echo "${STORY_ID} — Story-level tests:"
++      sh "${STORY_TEST_FILE}"
++      STORY_EXIT=$?
++      if [ "${STORY_EXIT}" -ne 0 ]; then
++        FAILURES=$((FAILURES + STORY_EXIT))
++      fi
+     fi
+   fi
+ fi
+diff --git a/scripts/resolve-story-branches.sh b/scripts/resolve-story-branches.sh
+index 997b744..26e23ac 100755
+--- a/scripts/resolve-story-branches.sh
++++ b/scripts/resolve-story-branches.sh
+@@ -107,29 +107,5 @@ if [ "${BRANCH_ROOT}" != "main" ]; then
+   echo "  ✓ root repo files updated from ${BRANCH_ROOT}"
+ fi
+ 
+-# --- Step 5: Resolve HEAD component ---
+-# The PAT yaml declares which component is the integration HEAD for this story.
+-# If HEAD hasn't raised an MR yet, shadow integration should fail structurally.
+-HEAD_COMPONENT=""
+-HEAD_HAS_MR="false"
+-
+-if [ -n "${STORY_ID}" ]; then
+-  PAT_FILE="pats/${STORY_ID}.pat.yaml"
+-  if [ -f "${PAT_FILE}" ]; then
+-    HEAD_COMPONENT=$(grep -E '^head:' "${PAT_FILE}" | sed 's/^head:[[:space:]]*//' || true)
+-  fi
+-
+-  if [ -n "${HEAD_COMPONENT}" ]; then
+-    HEAD_BRANCH=$(resolve_branch "${GROUP}/${HEAD_COMPONENT}")
+-    if [ "${HEAD_BRANCH}" != "main" ]; then
+-      HEAD_HAS_MR="true"
+-    fi
+-    echo ""
+-    echo "HEAD component: ${HEAD_COMPONENT} (MR: ${HEAD_HAS_MR}, branch: ${HEAD_BRANCH})"
+-  fi
+-fi
+-
+-export HEAD_COMPONENT HEAD_HAS_MR
+-
+ echo ""
+ echo "Branch resolution complete."
+-- 
+2.49.0
+
