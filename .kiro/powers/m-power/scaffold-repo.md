@@ -436,8 +436,18 @@ The typical cycle for implementing a sub-task:
 
 1. Read the sub-task file in jira/ — understand the contract
 2. Create a feature branch from main
-3. Implement the functionality described in the sub-task
-4. Transform PAT stubs into acceptance tests
+3. Implement towards the PATs — this is a continuous validation loop:
+   - Write code that addresses the acceptance criteria
+   - Validate against PATs as you go using appropriate tools:
+     - **Frontend:** open in browser, verify visually, check data-testid
+       attributes, test interactions (use Chrome DevTools MCP if available)
+     - **API:** curl the endpoints, verify responses match the contract
+   - Use API stubs in `pats/stubs/` to test against dependency contracts
+     without needing real services running
+   - A passing build is NOT PAT validation — you must demonstrate that
+     the implementation satisfies the acceptance criteria
+   - Never declare implementation complete without this demonstration
+4. Transform PAT stubs into acceptance tests (CATs)
 5. Run npm test — all acceptance tests must pass
 6. Commit, push, open MR with sub-task ID in the title
 7. CI runs: install → build → test → snapshot

@@ -85,6 +85,20 @@ one for reading, one for writing. Four repos, four components."
 declares every component and its current version. Right now everything
 is at v0.1.0 — that's Story Zero, the infrastructure baseline."
 
+🦊 Show `stories/TODOM-000.yaml` (readiness tracker).
+
+🎯 "The readiness tracker shows which components have been validated
+for which story, and at what version. All high-water marks are at
+v0.1.0 — Story Zero is complete across the board."
+
+🌐 Open the app in the browser (Docker Compose or pre-started).
+
+👀 The Hello app — shell composing the MFE, which shows the Hello
+component with the API message.
+
+🎯 "This is what Story Zero built. A working composed system — but
+it doesn't do anything useful yet. That's what Story 1 is for."
+
 ---
 
 ### D2: How Story 0 was built (quick walkthrough)
@@ -175,38 +189,32 @@ Every data-testid, every behaviour, every edge case is specified in
 the sub-task. The AI doesn't guess what to build — the PAT tells it.
 This is what we mean by PAT-driven development."
 
-👀 The Todo component code appears in the editor.
+🎯 "Implementation and PAT validation are the same thing in M. You
+implement towards the contract, you check your work against it as
+you go. It's a loop, not two separate phases."
 
----
-
-### D5: Validate against PATs locally
-
-📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
-
-🎯 "Next step: validate. Before we write any tests, we check that the
-implementation actually satisfies the PATs. In M, this is a visual
-check — does it look right, does it behave right?"
-
-🖥️ Start the dev server (or use a pre-started one).
-
-🌐 Open the MFE in the browser. Show:
-- Todo list renders (or empty state if no API running)
-- Input and button are present
-- data-testid attributes visible in DevTools
-
-🎯 "The component renders, the structure matches the PAT contract.
-In a real workflow you'd also run the APIs locally and test the full
-flow. For the demo, we'll let shadow integration do that."
+👀 The Todo component code appears in the editor. Kiro validates
+against the PATs as part of implementation — checking the component
+renders, the data-testid attributes are present, the behaviour
+matches the contract.
 
 **(Skip this step if tight on time — go straight to D7)**
 
 ---
 
-### D6: Compile PATs into CATs
+### D5: Compile PATs into CATs
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
-💬 `Compile the PAT stubs into runnable tests for TODOM-001c.`
+� Quick side-by-side: open the PAT stub (pseudocode in the sub-task)
+next to the compiled CAT (real test code). Let the audience see the
+transformation.
+
+🎯 "On the left, the PAT — pseudocode describing the expected behaviour.
+On the right, the CAT — a real runnable test compiled from that PAT.
+Same contract, different form."
+
+�💬 `Compile the PAT stubs into runnable tests for TODOM-001c.`
 
 👻 Kiro generates:
 - `pats/TODOM-001c.spec.jsx` — unit CATs (vitest + Testing Library)
@@ -219,7 +227,7 @@ uses vitest and Testing Library. An API would use supertest."
 
 ---
 
-### D7: Run CATs — repo-level confidence
+### D6: Run CATs — repo-level confidence
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
@@ -233,7 +241,7 @@ what shadow integration is for."
 
 ---
 
-### D8: Commit, push, raise MR — trigger shadow integration
+### D7: Commit, push, raise MR — trigger shadow integration
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
@@ -251,7 +259,7 @@ we just wrote. But the interesting pipeline is on the root repo."
 
 ---
 
-### D9: Watch shadow integration — the payoff
+### D8: Watch shadow integration — the payoff
 
 🦊 Navigate to `todo-m-root` → CI/CD → Pipelines. Find the triggered
 pipeline (source: trigger).
@@ -282,7 +290,7 @@ works. The shell composes the MFE. This is end-to-end confidence."
 
 ---
 
-### D10: The cascade — API MRs go green
+### D9: The cascade — API MRs go green
 
 🦊 Navigate back to the MR list. Show all MRs.
 
@@ -297,7 +305,7 @@ ready to integrate?' — the system tells you."
 
 ---
 
-### D11: Merge
+### D10: Merge
 
 🦊 Merge the MRs. (Order: root first, then APIs, then MFE — or cascade
 if implemented.)
@@ -311,7 +319,7 @@ single-click merge of HEAD triggering the rest.
 
 ---
 
-### D12: The running app
+### D11: The running app
 
 🌐 Open the app in the browser (Docker Compose).
 
@@ -320,10 +328,30 @@ single-click merge of HEAD triggering the rest.
 - Type a title, click Add
 - New todo appears in the list
 
+🎯 "Remember the Hello app we saw at the start? Same URL, same shell,
+same composition. But now it's a real feature — built, tested, and
+integrated across four repos."
+
 🎯 "From story to running software. Every step traceable: story →
 sub-tasks → PATs → implementation → CATs → shadow integration →
 merge. No guesswork. No 'hey, is your MR ready?' messages. The
 system orchestrates itself."
+
+---
+
+### D12: Replayability (closing moment)
+
+🖥️ Run the rewind script:
+```
+GITLAB_TOKEN=$M_GROUP_TOKEN sh workshop/scripts/demo-rewind.sh
+```
+
+👀 All repos reset, MRs recreated, API MRs go red again.
+
+🎯 "Everything you just saw? Reset in 30 seconds. The whole workshop
+is replayable — rewind to the tag, apply the patches, and you're
+back to the starting state. This is how M stays honest: if you can't
+replay it, you didn't capture it."
 
 ---
 
@@ -343,17 +371,20 @@ system orchestrates itself."
 | Section | Target | Notes |
 |---------|--------|-------|
 | Part 1: Slides | 10 min | Keep it tight, no tangents |
-| D1–D3: Orientation | 3 min | Quick tour, set the scene |
-| D4: Implement | 2.5 min | Kiro reads contract + implements, presenter narrates |
-| D5: Validate locally | 1 min | Skip if tight on time |
-| D6–D7: CATs | 1 min | Compile + run, quick |
-| D8: Push MR | 30 sec | Mechanical |
-| D9: Watch pipeline | 2 min | The money shot — narrate the log |
-| D10: Cascade green | 30 sec | Show the MR list, red → green |
-| D11: Merge | 30 sec | Click merge |
-| D12: Running app | 1 min | The finale |
+| D1: Topology + before app | 2 min | project.yaml, readiness tracker, Hello app |
+| D2: Story 0 walkthrough | 1 min | Quick — decomposition, PATs |
+| D3: Story 1 + HEAD failure | 2 min | The red MRs, the structural failure log |
+| D4: Implement | 3 min | Kiro reads contract + implements + validates |
+| D5: PAT → CAT side-by-side | 30 sec | Visual transformation moment |
+| D6: Run CATs | 30 sec | npm test, green, move on |
+| D7: Push MR | 30 sec | Mechanical |
+| D8: Watch pipeline | 2 min | The money shot — narrate the log |
+| D9: Cascade green | 30 sec | Show the MR list, red → green |
+| D10: Merge | 30 sec | Click merge |
+| D11: Running app (after) | 1 min | Before/after callback |
+| D12: Rewind | 30 sec | Replayability — the closing punch |
 | Questions | 5 min | Buffer |
-| **Total** | **~22 min** | Trim D5 if over time |
+| **Total** | **~25 min** | Tight but doable |
 
 ---
 
