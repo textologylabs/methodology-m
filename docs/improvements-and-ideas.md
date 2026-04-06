@@ -1397,3 +1397,76 @@ The `scaffold-repo` capability doc should mention that managed repos
 will receive external commit statuses from the root repo's AOT pipeline,
 and that `only_allow_merge_if_pipeline_succeeds` gates on these.
 
+
+---
+
+## I-017: Project template catalogue in the central M config repo
+
+**Category:** Architecture / M Power capability
+**Priority:** Important (affects scaffolding and org-level standardisation)
+**Discovered:** 2026-04-06, during demo slide preparation
+
+### Problem
+
+When M scaffolds a new repo (`scaffold-repo`), it generates files from
+hardcoded patterns in the capability doc. There's no mechanism for
+organisations to define their own standard templates — CI configs,
+Dockerfiles, test setups, linting configs, etc. Every new repo starts
+from the same generic scaffold regardless of the organisation's
+engineering standards.
+
+### Proposal
+
+The central M config repo (the root repo or a dedicated config repo)
+holds a **project template catalogue** — pre-configured combinations
+of plugins, CI configs, Dockerfiles, and scaffolding for common stacks.
+
+When M bootstraps a new managed repo, it:
+
+1. Reads the component's role and type from `project.yaml`
+2. Resolves the template from the catalogue (e.g. `node-api`, `react-mfe`,
+   `python-service`)
+3. Pulls the template and generates the repo from it
+4. Applies any project-level overrides from `project.yaml`
+
+### Template structure
+
+```
+templates/
+  node-api/
+    Dockerfile
+    .gitlab-ci.yml
+    package.json.tmpl
+    src/app.js.tmpl
+    vitest.config.js
+  react-mfe/
+    Dockerfile
+    .gitlab-ci.yml
+    webpack.config.js.tmpl
+    cypress.config.js
+    package.json.tmpl
+  python-api/
+    Dockerfile
+    .gitlab-ci.yml
+    requirements.txt.tmpl
+    pytest.ini
+```
+
+### Key properties
+
+- **Versioned** — templates are tagged, repos record which template
+  version they were generated from
+- **Composable** — a template can extend a base template (e.g.
+  `node-api-graphql` extends `node-api`)
+- **Organisation-specific** — each org maintains their own catalogue
+  reflecting their engineering standards
+- **Executable standards** — the template catalogue IS the org's
+  engineering standards, not a wiki page nobody reads
+
+### Impact
+
+Teams stop reinventing scaffolding. New repos start from a proven
+template that embodies the org's standards. The `scaffold-repo`
+capability becomes template-aware, and the template catalogue becomes
+the plug-and-play mechanism for the plugin architecture (I-009).
+

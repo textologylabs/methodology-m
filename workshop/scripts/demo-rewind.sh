@@ -1,14 +1,18 @@
 #!/bin/sh
-# demo-rewind.sh — Reset all repos to pre-demo state for TODOM-001
+# demo-rewind.sh — Reset managed repos to pre-demo state for TODOM-001
 #
-# Rewinds to story-zero-complete, applies patches to recreate the
-# API and root feature branches, pushes them, and raises MRs.
+# Rewinds API repos and MFE to story-zero-complete, applies patches to
+# recreate the API feature branches, pushes them, and raises MRs.
+#
+# The ROOT REPO IS NOT TOUCHED — its main already has the full
+# orchestration infrastructure (AOT integration, fan-out, cascade merge,
+# integration tests). Rewinding it would destroy all of that.
 #
 # Run from: methodology-m repo root
 # Requires: git, curl, jq
 # Env: GITLAB_TOKEN (group PAT with api scope)
 #
-# Usage: sh workshop/scripts/demo-rewind.sh
+# Usage: GITLAB_TOKEN=$M_GROUP_TOKEN sh workshop/scripts/demo-rewind.sh
 
 set -eu
 
@@ -88,18 +92,19 @@ echo "════════════════════════�
 echo "  Demo Rewind — TODOM-001"
 echo "═══════════════════════════════════════════════════"
 echo ""
+echo "  Root repo: UNTOUCHED (main has full orchestration)"
+echo ""
 
-# ─── Phase 1: Close existing MRs ───────────────────────
+# ─── Phase 1: Close existing MRs on managed repos ─────
 echo "Phase 1: Closing open MRs..."
-close_open_mrs "${GROUP}/todo-m-root"
 close_open_mrs "${GROUP}/todo-m-mfe"
 close_open_mrs "${GROUP}/todo-m-api-read"
 close_open_mrs "${GROUP}/todo-m-api-write"
 echo ""
 
-# ─── Phase 2: Force-reset all repos to story-zero-complete ───
-echo "Phase 2: Rewinding repos to story-zero-complete..."
-for REPO in todo-m-root todo-m-mfe todo-m-api-read todo-m-api-write; do
+# ─── Phase 2: Reset managed repos to story-zero-complete ───
+echo "Phase 2: Rewinding managed repos to story-zero-complete..."
+for REPO in todo-m-mfe todo-m-api-read todo-m-api-write; do
   REPO_DIR="${CLONE_BASE}/${REPO}"
   echo "  ${REPO}..."
 
@@ -116,7 +121,7 @@ for REPO in todo-m-root todo-m-mfe todo-m-api-read todo-m-api-write; do
 done
 echo ""
 
-# ─── Phase 3: Apply patches and create feature branches ───
+# ─── Phase 3: Apply patches and create API feature branches ───
 echo "Phase 3: Applying patches..."
 
 # API Read
@@ -137,18 +142,9 @@ git -C "${REPO_DIR}" am --keep-non-patch < "${PATCHES}/api-write-TODOM-001.patch
 git -C "${REPO_DIR}" push --force -u origin feat/TODOM-001-add-todo
 echo "    ✓ branch created and pushed"
 
-# Root
-echo "  todo-m-root..."
-REPO_DIR="${CLONE_BASE}/todo-m-root"
-git -C "${REPO_DIR}" branch -D feat/TODOM-001-integration-tests 2>/dev/null || true
-git -C "${REPO_DIR}" checkout -b feat/TODOM-001-integration-tests
-git -C "${REPO_DIR}" am --keep-non-patch < "${PATCHES}/root-TODOM-001.patch"
-git -C "${REPO_DIR}" push --force -u origin feat/TODOM-001-integration-tests
-echo "    ✓ branch created and pushed"
-
 echo ""
 
-# ─── Phase 4: Raise MRs ───────────────────────────────
+# ─── Phase 4: Raise API MRs ──────────────────────────
 echo "Phase 4: Raising MRs..."
 raise_mr "${GROUP}/todo-m-api-read" \
   "feat/TODOM-001-todo-list" \
@@ -158,13 +154,9 @@ raise_mr "${GROUP}/todo-m-api-write" \
   "feat/TODOM-001-add-todo" \
   "✨ TODOM-001b: POST /todos with SQLite persistence"
 
-raise_mr "${GROUP}/todo-m-root" \
-  "feat/TODOM-001-integration-tests" \
-  "feat: TODOM-001 story-level integration tests"
-
 echo ""
 
-# ─── Phase 5: Reset MFE to main (no feature branch) ───
+# ─── Phase 5: Ensure MFE is clean on main ────────────
 echo "Phase 5: Ensuring MFE is clean on main..."
 REPO_DIR="${CLONE_BASE}/todo-m-mfe"
 git -C "${REPO_DIR}" checkout main 2>/dev/null
@@ -175,10 +167,10 @@ echo "════════════════════════�
 echo "  Rewind complete!"
 echo ""
 echo "  State:"
-echo "    - All repos at story-zero-complete"
-echo "    - API MRs open (will fail — HEAD missing)"
-echo "    - Root MR open (green — own pipeline only)"
-echo "    - MFE clean on main (no TODOM-001 branch)"
+echo "    - Root repo: UNCHANGED (main has orchestration)"
+echo "    - API repos: reset to story-zero-complete"
+echo "    - API MRs: open (will fail — HEAD missing)"
+echo "    - MFE: clean on main (no TODOM-001 branch)"
 echo ""
 echo "  Wait 2-3 min for pipelines to settle, then"
 echo "  verify API MRs show HEAD structural failure."
