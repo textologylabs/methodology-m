@@ -1470,3 +1470,311 @@ template that embodies the org's standards. The `scaffold-repo`
 capability becomes template-aware, and the template catalogue becomes
 the plug-and-play mechanism for the plugin architecture (I-009).
 
+
+---
+
+## I-018: Two-tier config: M Core + Org Config
+
+**Category:** Architecture / distribution model
+**Priority:** Critical (adoption enabler)
+**Discovered:** 2026-04-06, during post-demo planning
+
+### Problem
+
+M needs to come with batteries included. A user who installs M should
+have a working project in minutes with zero configuration. At the same
+time, organisations need to customise: their CI platform, their test
+frameworks, their project templates, their engineering standards.
+
+Currently the plugin architecture (I-009) and template catalogue (I-017)
+describe what's pluggable but not where the configuration lives or how
+it's distributed.
+
+### Proposal: two config repos
+
+**M Core Config** — ships with M. The reference defaults.
+
+- GitLab CI templates (reference CI plugin)
+- Cypress + vitest + supertest CAT compilation (reference CAT plugins)
+- Express stub generation (reference stub plugin)
+- Docker Compose deployment templates (reference deployment plugin)
+- Standard PAT schema
+- Standard project templates (node-api, react-mfe, python-api, etc.)
+- Standard orchestration scripts (AOT integration, cascade merge, etc.)
+
+This is what you get out of the box. Install M, bootstrap a project,
+everything works. No configuration required.
+
+**Org Config** — optional, per-organisation overlay.
+
+- Override CI templates for GitHub Actions, Bitbucket Pipelines, etc.
+- Swap test frameworks (Playwright instead of Cypress, etc.)
+- Add organisation-specific project templates
+- Point story management at Jira, Linear, etc.
+- Custom engineering standards (linting, formatting, security policies)
+- Organisation-specific orchestration customisations
+
+If the org config doesn't exist, M Core works fine. If it does, it
+takes precedence over M Core for any overlapping configuration.
+
+### Resolution chain
+
+```
+Repo-level override → Org Config → M Core Config → built-in fallback
+```
+
+This is the same three-tier resolution from I-009, made concrete:
+
+1. **Repo-level** — a managed repo declares its own tooling (highest
+   priority, for exceptions)
+2. **Org Config** — the organisation's standards (the normal case)
+3. **M Core Config** — the reference defaults (batteries included)
+4. **Built-in fallback** — hardcoded in M Power capabilities (last
+   resort, should rarely be needed)
+
+### What this enables
+
+- "Install M, bootstrap a project, working in 5 minutes" — M Core
+  provides everything needed
+- "Customise for your org" — create an Org Config, override what you
+  need, leave the rest at M Core defaults
+- "Evolve independently" — M Core updates don't break Org Config
+  overrides. Org Config updates don't require M Core changes.
+- Template catalogue lives in Org Config (or M Core if using defaults)
+- Plugin catalogue lives in Org Config (or M Core if using defaults)
+
+### Demo talking point
+
+"Everything you just saw? You can have it running on your project by
+end of day. M comes with batteries included — install the power, run
+the bootstrap, you're up. When you're ready to customise for your
+organisation, create your org config and override what you need."
+
+### Open questions
+
+- Where do these repos physically live? GitHub? npm? A Kiro Power
+  bundle that includes M Core Config?
+- How does the M Power resolve the Org Config location? Environment
+  variable? `.kiro/m-config.yaml`? Convention-based discovery?
+- Versioning strategy: M Core Config versions independently from the
+  M Power. Org Config versions independently from both. How do we
+  handle compatibility?
+
+
+---
+
+## I-019: Installation and onboarding flows — greenfield vs existing M org
+
+**Category:** Adoption / user experience
+**Priority:** Critical (first-contact experience)
+**Discovered:** 2026-04-06, during post-demo planning
+
+### Problem
+
+The experience of adopting M differs fundamentally depending on whether
+the organisation has used M before. We need two distinct onboarding
+flows, both frictionless.
+
+### Flow 1: Greenfield — first M project in the org
+
+The org has never used M. No Org Config exists. Everything is new.
+
+**Steps (conceptual):**
+
+1. Install M Power (Kiro power, npm package, or however we distribute)
+2. M detects: no Org Config found
+3. Offers two paths:
+   - **Quick start** — use M Core defaults, skip org setup, go straight
+     to project bootstrap. Good for evaluation, demos, small teams.
+   - **Org setup first** — create Org Config repo, choose plugins,
+     set up template catalogue, configure story management integration.
+     Good for enterprise adoption.
+4. Either way, the next step is project bootstrap:
+   - "Create an M-type project called X with components Y, Z..."
+   - M scaffolds everything from M Core (or Org Config if set up)
+   - Story Zero is generated and ready to execute
+5. First project is running. The org now has M.
+
+**Key principle:** Quick start must work with ZERO configuration. The
+user answers project questions (name, components, topology) and gets
+a working project. Plugin choices default to M Core. Org Config can
+be created later and retroactively applied.
+
+### Flow 2: Existing M org — adding another project
+
+The org already has M. Org Config exists. Templates are defined.
+At least one M-type project is running.
+
+**Steps (conceptual):**
+
+1. Install M Power (if not already installed — may be org-standard)
+2. M detects: Org Config found at [configured location]
+3. Loads org templates, plugins, standards
+4. Project bootstrap:
+   - "Create an M-type project called X with components Y, Z..."
+   - M scaffolds from Org Config templates (falling back to M Core)
+   - Org CI templates, org linting rules, org Docker base images —
+     all applied automatically
+   - Story Zero generated with org-standard patterns
+5. New project is running, consistent with existing M projects
+
+**Key difference:** In Flow 2, the new project inherits the org's
+engineering standards automatically. No manual configuration. No
+"copy the CI config from the other project." The Org Config IS the
+standard, and every new project gets it by default.
+
+### What this means for the M Power
+
+The M Power bootstrap capability needs to:
+
+1. Detect whether an Org Config exists (convention or explicit config)
+2. If yes: load it, merge with M Core, present org templates
+3. If no: offer quick start vs org setup
+4. In both cases: ask project-level questions, scaffold, generate
+   Story Zero
+5. Record which config versions were used (for reproducibility)
+
+### Onboarding beyond the first project
+
+Once an org has M, onboarding a new team to an existing project is
+different again:
+
+- Developer installs M Power
+- Opens the project repo
+- M Power reads project.yaml, detects M-type project
+- Steering files guide the developer through the M workflow
+- Ecosystem Briefing agent shows current project state
+- Developer picks up a sub-task and starts implementing
+
+No bootstrap needed. The project already exists. The developer just
+needs the power installed and the repo cloned.
+
+### Open questions
+
+- How does M Power discover the Org Config? Git URL in a global
+  config file? Environment variable? Kiro workspace setting?
+- Can Org Config be private (enterprise) while M Core is public?
+- Should there be an `m init-org` command separate from `m init-project`?
+- How do we handle M Core version upgrades across existing projects?
+  (e.g. new AOT integration features — do existing projects get them
+  automatically or opt in?)
+
+
+---
+
+## I-020: Technical mechanics of installing M and bootstrapping into a project
+
+**Category:** Distribution / installation mechanics
+**Priority:** Critical (the "how do I actually get this" question)
+**Discovered:** 2026-04-06, during post-demo planning
+
+### Problem
+
+"Install M" is hand-wavy. What does the user actually do? What gets
+installed where? What's the artifact? What's the runtime? We need
+concrete answers.
+
+### The layers that need installing
+
+1. **M Power** — the Kiro Power that provides the AI capabilities
+   (decomposition, PAT generation, CAT compilation, scaffolding).
+   This is the thinking layer.
+
+2. **M Core Config** — the reference defaults (CI templates, project
+   templates, orchestration scripts, PAT schema). This is the
+   batteries-included layer.
+
+3. **M CLI / bootstrap tooling** — whatever runs the scaffolding.
+   Could be the M Power itself (via Kiro chat), a standalone CLI
+   (`npx create-m-project`), or both.
+
+4. **Org Config** — optional, per-organisation. Not "installed" —
+   created by the org and pointed to.
+
+### Option A: Pure Kiro Power
+
+Everything lives in the M Power. User installs it via Kiro's power
+management. M Core Config is bundled inside the power (or fetched
+on first use).
+
+```
+Kiro → Install M Power → "Create an M-type project..."
+  → Power reads M Core Config (bundled)
+  → Power reads Org Config (if configured)
+  → Power scaffolds repos, CI, Story Zero
+```
+
+Pros: single install point, integrated with Kiro, AI-native.
+Cons: requires Kiro, can't bootstrap from a plain terminal.
+
+### Option B: CLI + Power
+
+A standalone CLI for bootstrapping, plus the Kiro Power for ongoing
+development. The CLI handles the mechanical scaffolding; the Power
+handles the AI-assisted phases.
+
+```
+npx create-m-project → scaffolds repos, CI, Story Zero
+  → CLI reads M Core Config (npm package or git repo)
+  → CLI reads Org Config (if configured)
+  → Repos created with .kiro/ folder, steering, hooks
+  → Developer opens in Kiro → M Power activates automatically
+```
+
+Pros: works without Kiro for bootstrapping, familiar npm pattern.
+Cons: two things to maintain, potential version drift.
+
+### Option C: Hybrid — Power with CLI escape hatch
+
+The M Power is the primary interface. But it can also export a CLI
+command for environments where Kiro isn't available (CI, scripts,
+automation).
+
+```
+Primary: Kiro + M Power (interactive, AI-assisted)
+Escape:  npx m-power scaffold (headless, deterministic)
+```
+
+### What "bootstrapping M into a project" means concretely
+
+Regardless of the installation mechanism, bootstrapping produces:
+
+**For a new project (greenfield):**
+- Root repo on VCS (GitLab/GitHub) with:
+  - project.yaml (topology manifest)
+  - packages/shell/ (embedded shell stub)
+  - .kiro/ (steering, hooks, agents)
+  - scripts/ (orchestration: AOT, cascade, integration tests)
+  - .gitlab-ci.yml (or equivalent for chosen CI)
+  - pats/ (empty, ready for Story Zero PATs)
+  - stories/ (empty, ready for readiness trackers)
+- Managed repos on VCS (one per referenced component) with:
+  - Scaffolded from project template (M Core or Org)
+  - .kiro/ (steering for managed repo workflow)
+  - .gitlab-ci.yml (lifecycle pipeline)
+  - pats/ (empty, ready for repo-level PATs)
+- Webhooks wired between managed repos and root
+- Branch protection configured
+- Pipeline-must-succeed enabled
+- Story Zero generated and ready to execute
+
+**For an existing project (adopting M):**
+- Root repo wrapper created around existing repos
+- project.yaml generated from existing topology
+- Existing repos get .kiro/ folders, steering, hooks
+- Webhooks wired
+- Orchestration scripts added to root
+- Story Zero adapted to validate existing infrastructure
+- Existing tests mapped to PAT structure where possible
+
+### What needs designing
+
+- The M Core Config format and distribution (npm package? git repo?
+  embedded in the power?)
+- The Org Config discovery mechanism
+- The bootstrap questionnaire (what questions, what order, what
+  defaults)
+- The "adopt M into existing project" flow (harder than greenfield)
+- Version management: how does a project track which M version it
+  was bootstrapped from, and how does it upgrade?
+
