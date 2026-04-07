@@ -1998,3 +1998,60 @@ enough to review. Each entry has a clear action statement.
 - Should the CLI also handle Org Config (I-018) or is that separate?
 - npm scope: `@methodology-m/cli` or just `methodology-m`?
 - Should consuming projects pin to exact versions or use ranges?
+
+
+---
+
+## I-030: Standalone and follow-up MRs — non-story and multi-MR-per-story support
+
+**Category:** Orchestration / methodology
+**Priority:** Important (affects real-world usage)
+**Discovered:** 2026-04-07, during demo rehearsal
+
+### Problem
+
+M currently assumes every MR on a managed repo is part of a story (branch
+name contains a story ID like `TODOM-001`). Every MR triggers AOT
+integration, fan-out, and cascade merge. There's no support for:
+
+1. **Standalone MRs** — refactors, dependency updates, bug fixes that
+   aren't tied to any story. A developer should be able to raise a
+   normal MR that goes through repo-level CI only, with no AOT trigger,
+   no fan-out, no cascade.
+
+2. **Follow-up MRs under the same story** — a developer finishes their
+   sub-task, MR is merged via cascade, then wants to raise a follow-up
+   MR (polish, tech debt, additional tests) under the same story ID.
+   The current model treats this as a new story MR and triggers the
+   full AOT cycle again, which may not be appropriate.
+
+### Requirements
+
+- MRs with no story ID in the branch name should skip AOT entirely.
+  The webhook fires (it's on all MR events), but the root repo pipeline
+  should detect "no story branch" and exit cleanly.
+- MRs with a story ID that has already been merged (story complete)
+  should either be treated as standalone or trigger a lighter validation.
+- The developer should be able to choose: "this is a story MR" vs
+  "this is a standalone MR" — possibly via branch naming convention
+  (e.g. `feat/TODOM-001-*` = story, `fix/*` or `chore/*` = standalone).
+- Follow-up MRs under a completed story should not block other repos
+  or trigger cascade merge — they're independent changes that happen
+  to reference the same story for traceability.
+
+### Design considerations
+
+- The detect-trigger script already extracts story ID from branch name.
+  If no story ID found, it could set `TRIGGER_EVENT=standalone` and
+  skip all AOT/cascade jobs.
+- For follow-up MRs: check if the story's readiness tracker shows
+  "complete" — if so, treat as standalone with traceability.
+- The cascade merge script needs to understand that not all story MRs
+  are part of the same merge transaction — only the first set (before
+  story completion) are atomic.
+
+### Dependencies
+
+- detect-trigger.sh needs a "no story" path
+- wire-orchestration capability doc needs updating
+- Methodology paper should document the standalone MR concept
