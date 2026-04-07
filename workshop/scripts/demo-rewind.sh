@@ -12,7 +12,7 @@
 # Requires: git, curl, jq
 # Env: GITLAB_TOKEN (group PAT with api scope)
 #
-# Usage: GITLAB_TOKEN=$M_GROUP_TOKEN sh workshop/scripts/demo-rewind.sh
+# Usage: GITLAB_TOKEN=$(security find-generic-password -s "M_GROUP_TOKEN" -w) sh workshop/scripts/demo-rewind.sh
 
 set -eu
 
@@ -21,10 +21,12 @@ API="${GITLAB_URL}/api/v4"
 GROUP="methodology-m/todo-m-workshop"
 CLONE_BASE="ref-projects/todo-m-workshop/pass1"
 PATCHES="workshop/patches"
+MANAGED_REPOS="todo-m-mfe todo-m-api-read todo-m-api-write"
 
 # Require GITLAB_TOKEN
 if [ -z "${GITLAB_TOKEN:-}" ]; then
   echo "ERROR: Set GITLAB_TOKEN env var (group PAT with api scope)"
+  echo "  Hint: GITLAB_TOKEN=\$(security find-generic-password -s \"M_GROUP_TOKEN\" -w) sh $0"
   exit 1
 fi
 
@@ -50,6 +52,25 @@ close_open_mrs() {
       --data "state_event=close" > /dev/null 2>&1
     echo "    Closed MR !${IID}"
   done
+}
+
+# Helper: unprotect main branch on a project
+unprotect_main() {
+  local PROJECT_PATH="$1"
+  local ENCODED=$(encode "$PROJECT_PATH")
+  curl -sf --request DELETE \
+    --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+    "${API}/projects/${ENCODED}/protected_branches/main" > /dev/null 2>&1 || true
+}
+
+# Helper: re-protect main branch (push=no one, merge=maintainers)
+protect_main() {
+  local PROJECT_PATH="$1"
+  local ENCODED=$(encode "$PROJECT_PATH")
+  curl -sf --request POST \
+    --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+    "${API}/projects/${ENCODED}/protected_branches" \
+    --data "name=main&push_access_level=0&merge_access_level=40&allow_force_push=false" > /dev/null 2>&1
 }
 
 # Helper: delete remote feature branches matching a pattern
@@ -97,14 +118,22 @@ echo ""
 
 # ─── Phase 1: Close existing MRs on managed repos ─────
 echo "Phase 1: Closing open MRs..."
-close_open_mrs "${GROUP}/todo-m-mfe"
-close_open_mrs "${GROUP}/todo-m-api-read"
-close_open_mrs "${GROUP}/todo-m-api-write"
+for REPO in ${MANAGED_REPOS}; do
+  close_open_mrs "${GROUP}/${REPO}"
+done
 echo ""
 
-# ─── Phase 2: Reset managed repos to story-zero-complete ───
-echo "Phase 2: Rewinding managed repos to story-zero-complete..."
-for REPO in todo-m-mfe todo-m-api-read todo-m-api-write; do
+# ─── Phase 2: Unprotect main branches for force-push ──
+echo "Phase 2: Temporarily unprotecting main branches..."
+for REPO in ${MANAGED_REPOS}; do
+  unprotect_main "${GROUP}/${REPO}"
+  echo "  ✓ ${REPO} main unprotected"
+done
+echo ""
+
+# ─── Phase 3: Reset managed repos to story-zero-complete ───
+echo "Phase 3: Rewinding managed repos to story-zero-complete..."
+for REPO in ${MANAGED_REPOS}; do
   REPO_DIR="${CLONE_BASE}/${REPO}"
   echo "  ${REPO}..."
 
@@ -121,15 +150,23 @@ for REPO in todo-m-mfe todo-m-api-read todo-m-api-write; do
 done
 echo ""
 
-# ─── Phase 3: Apply patches and create API feature branches ───
-echo "Phase 3: Applying patches..."
+# ─── Phase 4: Re-protect main branches ────────────────
+echo "Phase 4: Re-protecting main branches..."
+for REPO in ${MANAGED_REPOS}; do
+  protect_main "${GROUP}/${REPO}"
+  echo "  ✓ ${REPO} main protected (push=no one, merge=maintainers)"
+done
+echo ""
+
+# ─── Phase 5: Apply patches and create API feature branches ───
+echo "Phase 5: Applying patches..."
 
 # API Read
 echo "  todo-m-api-read..."
 REPO_DIR="${CLONE_BASE}/todo-m-api-read"
 git -C "${REPO_DIR}" branch -D feat/TODOM-001-todo-list 2>/dev/null || true
 git -C "${REPO_DIR}" checkout -b feat/TODOM-001-todo-list
-git -C "${REPO_DIR}" am --keep-non-patch < "${PATCHES}/api-read-TODOM-001.patch"
+git -C "${REPO_DIR}" am < "${PATCHES}/api-read-TODOM-001.patch"
 git -C "${REPO_DIR}" push --force -u origin feat/TODOM-001-todo-list
 echo "    ✓ branch created and pushed"
 
@@ -138,14 +175,14 @@ echo "  todo-m-api-write..."
 REPO_DIR="${CLONE_BASE}/todo-m-api-write"
 git -C "${REPO_DIR}" branch -D feat/TODOM-001-add-todo 2>/dev/null || true
 git -C "${REPO_DIR}" checkout -b feat/TODOM-001-add-todo
-git -C "${REPO_DIR}" am --keep-non-patch < "${PATCHES}/api-write-TODOM-001.patch"
+git -C "${REPO_DIR}" am < "${PATCHES}/api-write-TODOM-001.patch"
 git -C "${REPO_DIR}" push --force -u origin feat/TODOM-001-add-todo
 echo "    ✓ branch created and pushed"
 
 echo ""
 
-# ─── Phase 4: Raise API MRs ──────────────────────────
-echo "Phase 4: Raising MRs..."
+# ─── Phase 6: Raise API MRs ──────────────────────────
+echo "Phase 6: Raising MRs..."
 raise_mr "${GROUP}/todo-m-api-read" \
   "feat/TODOM-001-todo-list" \
   "✨ TODOM-001a: GET /todos with SQLite persistence"
@@ -156,8 +193,8 @@ raise_mr "${GROUP}/todo-m-api-write" \
 
 echo ""
 
-# ─── Phase 5: Ensure MFE is clean on main ────────────
-echo "Phase 5: Ensuring MFE is clean on main..."
+# ─── Phase 7: Ensure MFE is clean on main ────────────
+echo "Phase 7: Ensuring MFE is clean on main..."
 REPO_DIR="${CLONE_BASE}/todo-m-mfe"
 git -C "${REPO_DIR}" checkout main 2>/dev/null
 echo "  ✓ todo-m-mfe on main, no TODOM-001 branch"

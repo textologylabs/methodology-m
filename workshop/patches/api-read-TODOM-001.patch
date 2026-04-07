@@ -1,8 +1,8 @@
-From 74aeb7e4edea4d802ab2cf9f89f9beb79c961ddd Mon Sep 17 00:00:00 2001
+From 3319e272421e16cb67f7f3fd7566b1e7d3cfab35 Mon Sep 17 00:00:00 2001
 From: Johnny Jarecsni <johnny.jarecsni@icloud.com>
 Date: Sun, 5 Apr 2026 15:44:17 +0100
-Subject: [PATCH 1/4] =?UTF-8?q?=E2=9C=A8=20add=20GET=20/todos=20endpoint?=
- =?UTF-8?q?=20with=20SQLite=20persistence=20(TODOM-001a)?=
+Subject: [PATCH] =?UTF-8?q?=E2=9C=A8=20add=20GET=20/todos=20endpoint=20wit?=
+ =?UTF-8?q?h=20SQLite=20persistence=20(TODOM-001a)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -746,45 +746,6 @@ index 0000000..b8f35f7
 +`)
 +
 +module.exports = db
--- 
-2.49.0
-
-
-From da748c970cdf539f1cb10931b67d558d2fe382b2 Mon Sep 17 00:00:00 2001
-From: Johnny Jarecsni <johnny.jarecsni@icloud.com>
-Date: Sun, 5 Apr 2026 16:28:26 +0100
-Subject: [PATCH 2/4] =?UTF-8?q?=F0=9F=94=84=20retrigger=20shadow=20integra?=
- =?UTF-8?q?tion?=
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
--- 
-2.49.0
-
-
-From 9159a0ab90ba0b5e3976e17f63e94cf9a19e631f Mon Sep 17 00:00:00 2001
-From: Johnny Jarecsni <johnny.jarecsni@icloud.com>
-Date: Sun, 5 Apr 2026 16:57:22 +0100
-Subject: [PATCH 3/4] =?UTF-8?q?=F0=9F=94=81=20retrigger=20pipeline=20?=
- =?UTF-8?q?=E2=80=94=20test=20HEAD=20structural=20gate?=
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
--- 
-2.49.0
-
-
-From d4bfeaee548b194a4248ae2db0f8d197a7dca592 Mon Sep 17 00:00:00 2001
-From: Johnny Jarecsni <johnny.jarecsni@icloud.com>
-Date: Sun, 5 Apr 2026 17:06:14 +0100
-Subject: [PATCH 4/4] =?UTF-8?q?=F0=9F=94=81=20retrigger=20pipeline=20?=
- =?UTF-8?q?=E2=80=94=20test=20HEAD=20gate=20fix?=
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
 -- 
 2.49.0
 

@@ -107,6 +107,24 @@ Create `pats/<sub-task-id>.spec.js` alongside the stub file.
 - For MFE tests: render the component and assert on DOM output
 - For shell tests: use Cypress to navigate and assert
 
+### Step 5a — Handle PAT supersession (replaces/removes)
+
+Before writing the new spec, check the sub-task file for `replaces`
+or `removes` declarations in the acceptance criteria.
+
+**For `replaces`:** Find the existing test file for the superseded AC
+(e.g. `pats/TODOM-000b.cy.js` if replacing `TODOM-000b/AC-001`).
+Update or rewrite the affected test(s) in that file to match the new
+behaviour. Do NOT leave old assertions that test superseded behaviour
+— they will fail in CI.
+
+**For `removes`:** Find the existing test file and delete the test(s)
+for the removed AC. If the entire file becomes empty, delete the file.
+
+**This is not optional.** If the sub-task declares supersession and
+you skip this step, old tests will fail in CI. The test suite must
+always reflect the current active PAT set — not the historical one.
+
 **For backend API repos (supertest pattern):**
 ```
 import request from 'supertest'

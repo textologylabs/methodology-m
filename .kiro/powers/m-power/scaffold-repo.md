@@ -511,13 +511,37 @@ When asked to "generate acceptance tests" or "transform PAT stubs":
 
 1. Read the stub file to understand the contract
 2. Read the sub-task file for additional context
-3. Choose the appropriate test framework based on the component role:
-   - Backend API → supertest + vitest (HTTP contract testing)
-   - Frontend MFE → vitest + Testing Library (component testing, mocked API)
-   - Root repo / shell → Cypress (story-level, composed system)
-4. Write the spec file alongside the stub (same directory, .spec.js extension)
-5. Ensure tests import the app directly (not via a running server) for speed
-   and reliability — separate app.js from server.js for this reason
+3. Check `package.json` `"test"` script and any test config files
+   (e.g. `cypress.config.js`, `vitest.config.js`) to determine the
+   repo's acceptance test framework. Do NOT guess from the component
+   role — use what the repo is actually configured to run.
+4. **PATs are user-level acceptance criteria.** For frontend components,
+   PAT→CAT compilation MUST produce browser-based tests (Cypress,
+   Playwright, etc.) that verify behaviour through the real UI — not
+   vitest/jsdom unit tests. Unit tests are optional developer-level
+   tests, not PAT compilations.
+   - Frontend (any role) → Cypress or configured browser test framework
+   - Backend API → supertest + vitest (HTTP contract testing against
+     the real app, not mocked)
+5. Write the spec file alongside the stub (same directory, matching the
+   configured spec pattern — e.g. *.cy.js for Cypress)
+
+## API Stubs and CI Coupling
+
+API stubs in `pats/stubs/` enable testing without real API services.
+They run both locally (for PAT validation) and in CI (for acceptance tests).
+
+**CRITICAL — stubs and CI are coupled:**
+
+- Every stub file in `pats/stubs/api-*.js` MUST be started in the CI
+  test job. If you add or modify a stub, you MUST update `.gitlab-ci.yml`
+  to start it and wait on its health endpoint.
+- Every stub MUST expose a `GET /health` endpoint so CI can `wait-on` it.
+- Stubs sharing the same resource (e.g. read + write on todos) MUST share
+  state via `pats/stubs/shared-state.js`. Stateless stubs cannot validate
+  write→read round-trips.
+- Before raising an MR, verify that `.gitlab-ci.yml` test job starts ALL
+  stubs in `pats/stubs/` and waits on ALL their health endpoints.
 
 ## CI Pipeline
 
@@ -551,20 +575,43 @@ The typical cycle for implementing a sub-task:
 2. Create a feature branch from main
 3. Implement towards the PATs — this is a continuous validation loop:
    - Write code that addresses the acceptance criteria
+   - **UX fidelity rule:** if the sub-task includes a UX Reference section
+     with screenshots or mockups, the implementation must visually match
+     the design — layout, colours, shadows, rounded corners, spacing,
+     typography weight. Not pixel-perfect, but recognisably the same
+     design. Use the screenshots as your visual target. When no UX
+     reference exists, minimal functional styling is acceptable.
    - Validate against PATs as you go using appropriate tools:
      - **Frontend:** open in browser, verify visually, check data-testid
        attributes, test interactions (use Chrome DevTools MCP if available)
      - **API:** curl the endpoints, verify responses match the contract
    - Use API stubs in `pats/stubs/` to test against dependency contracts
      without needing real services running
+   - **Shared-state rule:** if the sub-task involves both reading and
+     writing the same resource (e.g. GET /todos and POST /todos), the
+     stubs MUST share state. A write through the write stub must be
+     visible to a subsequent read through the read stub. Stateless stubs
+     that return hardcoded data CANNOT validate write→read round-trips.
+     Check `pats/stubs/` for a shared-state module — if one doesn't
+     exist and the story requires it, create one before validating.
+   - **Round-trip validation rule:** any acceptance criterion that says
+     "new item appears in the list" or "data persists after action"
+     MUST be validated end-to-end: perform the write action in the UI,
+     then verify the result appears via the read path. If the item
+     doesn't appear, the PAT is NOT satisfied — do not hand-wave with
+     "the stub is stateless." Fix the stubs.
    - A passing build is NOT PAT validation — you must demonstrate that
      the implementation satisfies the acceptance criteria
    - Never declare implementation complete without this demonstration
-4. Transform PAT stubs into acceptance tests (CATs)
-5. Run npm test — all acceptance tests must pass
-6. Commit, push, open MR with sub-task ID in the title
-7. CI runs: install → build → test → snapshot
-8. Wait for story-level integration (managed by root repo)
+4. Compile PAT stubs into acceptance tests (CATs) using the repo's
+   configured test framework (check package.json and test config files)
+5. Run npm test locally — all acceptance tests must pass
+6. **Verify CI readiness:** check `.gitlab-ci.yml` test job starts all
+   stubs in `pats/stubs/` and waits on all health endpoints. If you
+   added or changed stubs, update the CI config.
+7. Commit, push, open MR with sub-task ID in the title
+8. CI runs: install → build → test → snapshot
+9. Wait for story-level integration (managed by root repo)
 
 ## Code Conventions
 

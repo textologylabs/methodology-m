@@ -1,4 +1,4 @@
-#!/bin/bash
+ #!/bin/bash
 # m-rewind.sh — Rewind all repos in an M-type project to a checkpoint tag
 #
 # Usage:

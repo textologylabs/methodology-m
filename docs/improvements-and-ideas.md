@@ -1998,3 +1998,145 @@ enough to review. Each entry has a clear action statement.
 - Should the CLI also handle Org Config (I-018) or is that separate?
 - npm scope: `@methodology-m/cli` or just `methodology-m`?
 - Should consuming projects pin to exact versions or use ranges?
+
+
+---
+
+## I-030: Standalone and follow-up MRs — non-story and multi-MR-per-story support
+
+**Category:** Orchestration / methodology
+**Priority:** Important (affects real-world usage)
+**Discovered:** 2026-04-07, during demo rehearsal
+
+### Problem
+
+M currently assumes every MR on a managed repo is part of a story (branch
+name contains a story ID like `TODOM-001`). Every MR triggers AOT
+integration, fan-out, and cascade merge. There's no support for:
+
+1. **Standalone MRs** — refactors, dependency updates, bug fixes that
+   aren't tied to any story. A developer should be able to raise a
+   normal MR that goes through repo-level CI only, with no AOT trigger,
+   no fan-out, no cascade.
+
+2. **Follow-up MRs under the same story** — a developer finishes their
+   sub-task, MR is merged via cascade, then wants to raise a follow-up
+   MR (polish, tech debt, additional tests) under the same story ID.
+   The current model treats this as a new story MR and triggers the
+   full AOT cycle again, which may not be appropriate.
+
+### Requirements
+
+- MRs with no story ID in the branch name should skip AOT entirely.
+  The webhook fires (it's on all MR events), but the root repo pipeline
+  should detect "no story branch" and exit cleanly.
+- MRs with a story ID that has already been merged (story complete)
+  should either be treated as standalone or trigger a lighter validation.
+- The developer should be able to choose: "this is a story MR" vs
+  "this is a standalone MR" — possibly via branch naming convention
+  (e.g. `feat/TODOM-001-*` = story, `fix/*` or `chore/*` = standalone).
+- Follow-up MRs under a completed story should not block other repos
+  or trigger cascade merge — they're independent changes that happen
+  to reference the same story for traceability.
+
+### Design considerations
+
+- The detect-trigger script already extracts story ID from branch name.
+  If no story ID found, it could set `TRIGGER_EVENT=standalone` and
+  skip all AOT/cascade jobs.
+- For follow-up MRs: check if the story's readiness tracker shows
+  "complete" — if so, treat as standalone with traceability.
+- The cascade merge script needs to understand that not all story MRs
+  are part of the same merge transaction — only the first set (before
+  story completion) are atomic.
+
+### Dependencies
+
+- detect-trigger.sh needs a "no story" path
+- wire-orchestration capability doc needs updating
+- Methodology paper should document the standalone MR concept
+
+
+---
+
+## I-031: Race condition — stale green status allows merge during story integrity change
+
+**Category:** Orchestration / implementation detail
+**Priority:** Nice to have (theoretical in small teams, real in large ones)
+**Status:** ✅ Resolved (2026-04-07) — instant status invalidation pushes pending to all story MRs before AOT runs
+**Discovered:** 2026-04-07, during demo rehearsal
+
+### Problem
+
+When a story MR is closed (or a constituent disappears), AOT re-runs and
+pushes failure status to remaining MRs. But there's a window (~2 minutes)
+between the close event and the new failure status arriving. During that
+window, the remaining MRs still have a stale green `shadow-integration`
+commit status and could theoretically be merged.
+
+GitLab commit statuses are point-in-time snapshots, not live gates. The
+platform doesn't know the status is stale.
+
+### Options considered
+
+1. **Cascade merge only** — never merge individual MRs. The cascade
+   script checks integrity at merge time. But GitLab can't enforce
+   "only merge via cascade" at the platform level.
+
+2. **Pre-merge webhook** — not available on GitLab free tier.
+
+3. **Merge via API only** — set `merge_access_level: 0` (no human can
+   merge). Only the cascade merge script, running with a project access
+   token, can merge MRs. Humans approve but don't click merge. This is
+   watertight but changes the branch protection model significantly.
+
+### Recommendation
+
+Option 3 is the correct long-term answer for production M deployments.
+For the reference implementation and demo, the race window is acceptable
+(single presenter, cascade merge is the intended flow).
+
+### Dependencies
+
+- Branch protection model (scaffold-repo capability)
+- Cascade merge script (needs to be the sole merge actor)
+- Project access tokens (Premium+ for per-repo tokens, or group PAT)
+
+
+---
+
+## I-032: Pipeline failure webhook — immediate invalidation when repo tests fail
+
+**Category:** Orchestration / water-tightness
+**Priority:** Nice to have (closes timing gap)
+**Discovered:** 2026-04-07, during demo rehearsal
+
+### Problem
+
+When a managed repo's pipeline fails (e.g. MFE Cypress tests break),
+the other story MRs keep their stale green `shadow-integration` status
+until the next AOT trigger. AOT only triggers on MR events (open, close,
+update), not on pipeline status changes.
+
+The aggregated check (I-031 resolution) handles this when AOT does run —
+it downgrades on explicit pipeline failure. But there's a window between
+"MFE pipeline fails" and "next AOT trigger" where API MRs look green.
+
+### Proposal
+
+Add `pipeline_events: true` to managed repo webhooks. When a pipeline
+fails, the webhook fires, root repo triggers, invalidation runs (all
+MRs go pending), then AOT re-evaluates.
+
+### What needs changing
+
+- Webhook config on managed repos (add pipeline_events)
+- detect-trigger.sh needs to handle pipeline events (currently only MR events)
+- wire-orchestration capability doc needs updating
+- Need to filter: only trigger on pipeline failure, not on every pipeline event
+  (otherwise every successful pipeline triggers unnecessary AOT runs)
+
+### Dependencies
+
+- wire-orchestration capability doc
+- scaffold-repo webhook setup
