@@ -1312,7 +1312,7 @@ Also updated scaffold-repo capability doc to:
 
 ---
 
-## I-015: Rename "shadow integration" to "ahead-of-time integration"
+## I-022: Rename "shadow integration" to "ahead-of-time integration"
 
 **Category:** Terminology
 **Priority:** Important (affects all docs, slides, demo script)
@@ -1351,7 +1351,7 @@ CI job names as `shadow:*` for now and rename in a cleanup pass.
 
 ---
 
-## I-016: wire-orchestration must generate fan-out status reporting
+## I-023: wire-orchestration must generate fan-out status reporting
 
 **Category:** M Power capability fix (fix-forward)
 **Priority:** Critical (core orchestration behaviour)
@@ -1400,7 +1400,7 @@ and that `only_allow_merge_if_pipeline_succeeds` gates on these.
 
 ---
 
-## I-017: Project template catalogue in the central M config repo
+## I-024: Project template catalogue in the central M config repo
 
 **Category:** Architecture / M Power capability
 **Priority:** Important (affects scaffolding and org-level standardisation)
@@ -1473,7 +1473,7 @@ the plug-and-play mechanism for the plugin architecture (I-009).
 
 ---
 
-## I-018: Two-tier config: M Core + Org Config
+## I-025: Two-tier config: M Core + Org Config
 
 **Category:** Architecture / distribution model
 **Priority:** Critical (adoption enabler)
@@ -1563,7 +1563,7 @@ organisation, create your org config and override what you need."
 
 ---
 
-## I-019: Installation and onboarding flows — greenfield vs existing M org
+## I-026: Installation and onboarding flows — greenfield vs existing M org
 
 **Category:** Adoption / user experience
 **Priority:** Critical (first-contact experience)
@@ -1662,7 +1662,7 @@ needs the power installed and the repo cloned.
 
 ---
 
-## I-020: Technical mechanics of installing M and bootstrapping into a project
+## I-027: Technical mechanics of installing M and bootstrapping into a project
 
 **Category:** Distribution / installation mechanics
 **Priority:** Critical (the "how do I actually get this" question)
@@ -1778,3 +1778,223 @@ Regardless of the installation mechanism, bootstrapping produces:
 - Version management: how does a project track which M version it
   was bootstrapped from, and how does it upgrade?
 
+
+
+---
+
+## I-028: Repo reorganisation — separate distributable M from workshop artefacts
+
+**Category:** Repository structure / distribution
+**Priority:** Important (prerequisite for versioning and CLI)
+**Discovered:** 2026-04-07, during distribution model discussion
+
+### Problem
+
+The methodology-m repo mixes two concerns:
+
+1. **Distributable M** — the methodology document, M Power capabilities,
+   generic steering files, and (future) CLI. These are what consumers
+   of M need.
+2. **Workshop artefacts** — demo scripts, slides prompts, Jira
+   emulation, patches, rewind scripts, ref-project clones, workshop
+   steering. These exist to showcase M, not to be distributed.
+
+Currently these are interleaved: workshop docs in `docs/`, workshop
+scripts in `scripts/`, workshop steering in `.kiro/steering/`, and
+ref-projects at the repo root. This makes it unclear what ships as
+"M" and what's just the demo.
+
+### Proposed structure
+
+```
+methodology-m/
+├── methodology-m.md              ← core document (root)
+├── README.md
+├── LICENSE
+├── package.json                  ← for CLI (@methodology-m/cli)
+├── CHANGELOG.md                  ← human changelog
+├── CHANGELOG-AI.md               ← AI-targeted migration changelog
+│
+├── powers/                       ← distributable M Power
+│   └── m-power/
+│       ├── POWER.md
+│       ├── power.json
+│       └── capabilities/*.md
+│
+├── steering/                     ← M-generic steering (distributable)
+│   └── (steering that applies to all M consumers)
+│
+├── cli/                          ← CLI source
+│   └── (init, update, diff commands)
+│
+├── docs/                         ← methodology-level docs only
+│   ├── methodology.md
+│   ├── project-yaml-design.md
+│   └── improvements-and-ideas.md
+│
+├── workshop/                     ← everything workshop-specific
+│   ├── README.md
+│   ├── workshop-script.md
+│   ├── docs/
+│   │   ├── demo-day-plan.md
+│   │   ├── demo-high-level.md
+│   │   ├── demo-runbook.md
+│   │   ├── slides-prompt.md
+│   │   ├── design-notes.md
+│   │   ├── presentation-ideas.md
+│   │   └── incident-todo-mfe-hello-testid.md
+│   ├── jira/
+│   ├── workspace/
+│   ├── patches/
+│   ├── scripts/
+│   │   ├── demo-rewind.sh
+│   │   ├── m-checkpoint.sh
+│   │   └── m-rewind.sh
+│   ├── ref-projects/
+│   │   └── todo-m-workshop/
+│   └── steering/
+│       └── workshop.md
+│
+└── .kiro/
+    ├── steering/
+    │   ├── hemingway-bridge.md   ← personal workflow (stays)
+    │   └── powers-first.md       ← personal workflow (stays)
+    └── powers/
+        └── m-power -> ../../powers/m-power  (symlink)
+```
+
+### Key moves
+
+- `powers/m-power/` at repo root becomes the canonical location;
+  `.kiro/powers/m-power` becomes a symlink so Kiro still finds it
+- `workshop-script.md` moves from root into `workshop/`
+- `scripts/` at root (m-checkpoint.sh, m-rewind.sh) moves to
+  `workshop/scripts/` — these are workshop-specific
+- `ref-projects/` moves into `workshop/` — clones only exist for
+  the workshop
+- `.kiro/steering/workshop.md` moves to `workshop/steering/` — it's
+  workshop context, not M-generic
+- `docs/` at root keeps only methodology-level docs; workshop docs
+  move to `workshop/docs/`
+- Personal steering files (hemingway-bridge.md, powers-first.md)
+  stay in `.kiro/steering/` — they're workflow conventions, not M
+
+### Dependencies
+
+- I-029 (versioning and CLI)
+- Should be done before first version tag so v1.0.0 has the clean
+  structure
+
+---
+
+## I-029: Version M as an npm package with AI-targeted changelog and CLI
+
+**Category:** Distribution / versioning
+**Priority:** Important (enables cross-project synchronisation)
+**Discovered:** 2026-04-07, during distribution model discussion
+
+### Problem
+
+Methodology M has no version number, no changelog, and no distribution
+mechanism. When M is adopted by another project (e.g. Outpost), there's
+no way to track which version of M that project is using, what changed
+between versions, or how to update.
+
+### Proposal
+
+Version M as an npm package (`@methodology-m/cli`) with semver and an
+AI-targeted changelog. The package distributes:
+
+- The M Power (capabilities, POWER.md)
+- M-generic steering files
+- The methodology document
+- A CLI for installation and updates
+
+### The CLI
+
+```
+npx @methodology-m/cli init       # scaffolds .kiro/powers, steering
+npx @methodology-m/cli update     # pulls latest M files, shows diff
+npx @methodology-m/cli diff       # shows what changed since installed version
+npx @methodology-m/cli changelog  # shows AI-targeted changelog
+```
+
+The CLI manages the "Kiro face" of M in the consuming project — it
+writes/updates files under `.kiro/` (powers, steering) and leaves the
+project's own files untouched.
+
+### The Janus model (dual-face projects)
+
+Consuming projects like Outpost have two faces:
+
+1. **Native face** — the project's own steering files, conventions,
+   and agent configuration (e.g. Outpost's `steering/commander.md`,
+   `steering/implementer.md`). This is what agents read day-to-day.
+
+2. **M face** — the canonical M files installed by the CLI into
+   `.kiro/`. Present in the repo as a reference, not directly consumed
+   by the project's agents.
+
+The update flow:
+
+1. M bumps to v1.1.0
+2. In consuming project: `npx @methodology-m/cli update`
+3. CLI pulls new M files into `.kiro/` — clean overwrite (reference)
+4. `git diff` shows what changed in the M face
+5. Ask the AI: "M was updated to 1.1.0. Migrate relevant changes
+   into our steering files."
+6. AI reads both faces, proposes edits to the native face
+7. Review, commit
+
+### AI-targeted changelog format
+
+```
+## [1.1.0] - 2026-04-15
+
+### For AI agents updating from 1.0.x
+
+STEERING CHANGED: m-managed-repo.md
+- PAT validation loop now requires browser verification for frontend
+  components before declaring implementation complete
+- Action: find your managed repo steering equivalent and add explicit
+  PAT validation step to the development workflow
+
+CAPABILITY ADDED: generate-integration-tests.md
+- New capability for generating story-level integration test scripts
+- Action: no migration needed, new capability only
+
+METHODOLOGY CHANGED: methodology-m.md Section 4
+- "Shadow integration" renamed to "ahead-of-time integration" (AOT)
+- Action: find-and-replace "shadow integration" with "ahead-of-time
+  integration" in all steering files and documentation
+```
+
+Structured enough for an AI to parse and act on. Human-readable
+enough to review. Each entry has a clear action statement.
+
+### What ships in the npm package
+
+```
+@methodology-m/cli
+├── cli/                    ← CLI commands (init, update, diff)
+├── dist/
+│   ├── methodology-m.md    ← core document
+│   ├── powers/
+│   │   └── m-power/        ← capabilities, POWER.md
+│   └── steering/           ← M-generic steering files
+├── CHANGELOG.md            ← human changelog
+├── CHANGELOG-AI.md         ← AI-targeted changelog
+└── package.json
+```
+
+### Dependencies
+
+- I-028 (repo reorganisation — clean separation of distributable vs
+  workshop before packaging)
+- Needs the M Power capabilities to be stable enough for a v1.0.0 tag
+
+### Open questions
+
+- Should the CLI also handle Org Config (I-018) or is that separate?
+- npm scope: `@methodology-m/cli` or just `methodology-m`?
+- Should consuming projects pin to exact versions or use ranges?
