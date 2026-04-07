@@ -526,6 +526,23 @@ When asked to "generate acceptance tests" or "transform PAT stubs":
 5. Write the spec file alongside the stub (same directory, matching the
    configured spec pattern — e.g. *.cy.js for Cypress)
 
+## API Stubs and CI Coupling
+
+API stubs in `pats/stubs/` enable testing without real API services.
+They run both locally (for PAT validation) and in CI (for acceptance tests).
+
+**CRITICAL — stubs and CI are coupled:**
+
+- Every stub file in `pats/stubs/api-*.js` MUST be started in the CI
+  test job. If you add or modify a stub, you MUST update `.gitlab-ci.yml`
+  to start it and wait on its health endpoint.
+- Every stub MUST expose a `GET /health` endpoint so CI can `wait-on` it.
+- Stubs sharing the same resource (e.g. read + write on todos) MUST share
+  state via `pats/stubs/shared-state.js`. Stateless stubs cannot validate
+  write→read round-trips.
+- Before raising an MR, verify that `.gitlab-ci.yml` test job starts ALL
+  stubs in `pats/stubs/` and waits on ALL their health endpoints.
+
 ## CI Pipeline
 
 The .gitlab-ci.yml uses lifecycle phases delegated to package.json scripts:
@@ -580,11 +597,15 @@ The typical cycle for implementing a sub-task:
    - A passing build is NOT PAT validation — you must demonstrate that
      the implementation satisfies the acceptance criteria
    - Never declare implementation complete without this demonstration
-4. Transform PAT stubs into acceptance tests (CATs)
-5. Run npm test — all acceptance tests must pass
-6. Commit, push, open MR with sub-task ID in the title
-7. CI runs: install → build → test → snapshot
-8. Wait for story-level integration (managed by root repo)
+4. Compile PAT stubs into acceptance tests (CATs) using the repo's
+   configured test framework (check package.json and test config files)
+5. Run npm test locally — all acceptance tests must pass
+6. **Verify CI readiness:** check `.gitlab-ci.yml` test job starts all
+   stubs in `pats/stubs/` and waits on all health endpoints. If you
+   added or changed stubs, update the CI config.
+7. Commit, push, open MR with sub-task ID in the title
+8. CI runs: install → build → test → snapshot
+9. Wait for story-level integration (managed by root repo)
 
 ## Code Conventions
 
