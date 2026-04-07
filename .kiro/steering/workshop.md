@@ -56,6 +56,14 @@ Workshop artefacts (stories, PATs, sub-tasks in `workshop/workspace/jira/`)
 are authored and stored here. They also get pushed to the GitLab repos as
 part of the workshop flow (e.g. into `jira/` folders in the root repo).
 
+**CRITICAL — Jira emulation rule:** When implementing a sub-task, ALWAYS
+read the sub-task file from `workshop/jira/` in this repo (the Jira
+emulation). NEVER rely on `jira/` folders in the GitLab repos — those
+are pass1 artefacts that may be stale or missing after a rewind. The
+canonical source for all stories and sub-tasks is this repo's
+`workshop/jira/` folder. This applies regardless of whether the managed
+repo's local clone has a `jira/` folder.
+
 **GitLab repos** under `methodology-m/todo-m-workshop/` — the actual application:
 
 - `todo-m-root` — shell code, project.yaml, story-level Cypress, readiness trackers, CI pipelines

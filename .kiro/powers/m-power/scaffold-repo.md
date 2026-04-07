@@ -557,6 +557,19 @@ The typical cycle for implementing a sub-task:
      - **API:** curl the endpoints, verify responses match the contract
    - Use API stubs in `pats/stubs/` to test against dependency contracts
      without needing real services running
+   - **Shared-state rule:** if the sub-task involves both reading and
+     writing the same resource (e.g. GET /todos and POST /todos), the
+     stubs MUST share state. A write through the write stub must be
+     visible to a subsequent read through the read stub. Stateless stubs
+     that return hardcoded data CANNOT validate write→read round-trips.
+     Check `pats/stubs/` for a shared-state module — if one doesn't
+     exist and the story requires it, create one before validating.
+   - **Round-trip validation rule:** any acceptance criterion that says
+     "new item appears in the list" or "data persists after action"
+     MUST be validated end-to-end: perform the write action in the UI,
+     then verify the result appears via the read path. If the item
+     doesn't appear, the PAT is NOT satisfied — do not hand-wave with
+     "the stub is stateless." Fix the stubs.
    - A passing build is NOT PAT validation — you must demonstrate that
      the implementation satisfies the acceptance criteria
    - Never declare implementation complete without this demonstration

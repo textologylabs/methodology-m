@@ -1,6 +1,7 @@
 # Ephemeral working state
 .kiro/hemingway-bridge.md
 .kiro/drills/
+.kiro/walkthroughs/
 
 # Cloned application repos (each has its own git remote)
 ref-projects/
