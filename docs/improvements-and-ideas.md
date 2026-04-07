@@ -2063,6 +2063,7 @@ integration, fan-out, and cascade merge. There's no support for:
 
 **Category:** Orchestration / implementation detail
 **Priority:** Nice to have (theoretical in small teams, real in large ones)
+**Status:** ✅ Resolved (2026-04-07) — instant status invalidation pushes pending to all story MRs before AOT runs
 **Discovered:** 2026-04-07, during demo rehearsal
 
 ### Problem
