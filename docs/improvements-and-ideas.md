@@ -2055,3 +2055,48 @@ integration, fan-out, and cascade merge. There's no support for:
 - detect-trigger.sh needs a "no story" path
 - wire-orchestration capability doc needs updating
 - Methodology paper should document the standalone MR concept
+
+
+---
+
+## I-031: Race condition — stale green status allows merge during story integrity change
+
+**Category:** Orchestration / implementation detail
+**Priority:** Nice to have (theoretical in small teams, real in large ones)
+**Discovered:** 2026-04-07, during demo rehearsal
+
+### Problem
+
+When a story MR is closed (or a constituent disappears), AOT re-runs and
+pushes failure status to remaining MRs. But there's a window (~2 minutes)
+between the close event and the new failure status arriving. During that
+window, the remaining MRs still have a stale green `shadow-integration`
+commit status and could theoretically be merged.
+
+GitLab commit statuses are point-in-time snapshots, not live gates. The
+platform doesn't know the status is stale.
+
+### Options considered
+
+1. **Cascade merge only** — never merge individual MRs. The cascade
+   script checks integrity at merge time. But GitLab can't enforce
+   "only merge via cascade" at the platform level.
+
+2. **Pre-merge webhook** — not available on GitLab free tier.
+
+3. **Merge via API only** — set `merge_access_level: 0` (no human can
+   merge). Only the cascade merge script, running with a project access
+   token, can merge MRs. Humans approve but don't click merge. This is
+   watertight but changes the branch protection model significantly.
+
+### Recommendation
+
+Option 3 is the correct long-term answer for production M deployments.
+For the reference implementation and demo, the race window is acceptable
+(single presenter, cascade merge is the intended flow).
+
+### Dependencies
+
+- Branch protection model (scaffold-repo capability)
+- Cascade merge script (needs to be the sole merge actor)
+- Project access tokens (Premium+ for per-repo tokens, or group PAT)
