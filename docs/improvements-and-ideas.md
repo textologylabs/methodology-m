@@ -2101,3 +2101,42 @@ For the reference implementation and demo, the race window is acceptable
 - Branch protection model (scaffold-repo capability)
 - Cascade merge script (needs to be the sole merge actor)
 - Project access tokens (Premium+ for per-repo tokens, or group PAT)
+
+
+---
+
+## I-032: Pipeline failure webhook — immediate invalidation when repo tests fail
+
+**Category:** Orchestration / water-tightness
+**Priority:** Nice to have (closes timing gap)
+**Discovered:** 2026-04-07, during demo rehearsal
+
+### Problem
+
+When a managed repo's pipeline fails (e.g. MFE Cypress tests break),
+the other story MRs keep their stale green `shadow-integration` status
+until the next AOT trigger. AOT only triggers on MR events (open, close,
+update), not on pipeline status changes.
+
+The aggregated check (I-031 resolution) handles this when AOT does run —
+it downgrades on explicit pipeline failure. But there's a window between
+"MFE pipeline fails" and "next AOT trigger" where API MRs look green.
+
+### Proposal
+
+Add `pipeline_events: true` to managed repo webhooks. When a pipeline
+fails, the webhook fires, root repo triggers, invalidation runs (all
+MRs go pending), then AOT re-evaluates.
+
+### What needs changing
+
+- Webhook config on managed repos (add pipeline_events)
+- detect-trigger.sh needs to handle pipeline events (currently only MR events)
+- wire-orchestration capability doc needs updating
+- Need to filter: only trigger on pipeline failure, not on every pipeline event
+  (otherwise every successful pipeline triggers unnecessary AOT runs)
+
+### Dependencies
+
+- wire-orchestration capability doc
+- scaffold-repo webhook setup
