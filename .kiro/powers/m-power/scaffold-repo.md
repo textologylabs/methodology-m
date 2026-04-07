@@ -511,13 +511,20 @@ When asked to "generate acceptance tests" or "transform PAT stubs":
 
 1. Read the stub file to understand the contract
 2. Read the sub-task file for additional context
-3. Choose the appropriate test framework based on the component role:
-   - Backend API → supertest + vitest (HTTP contract testing)
-   - Frontend MFE → vitest + Testing Library (component testing, mocked API)
-   - Root repo / shell → Cypress (story-level, composed system)
-4. Write the spec file alongside the stub (same directory, .spec.js extension)
-5. Ensure tests import the app directly (not via a running server) for speed
-   and reliability — separate app.js from server.js for this reason
+3. Check `package.json` `"test"` script and any test config files
+   (e.g. `cypress.config.js`, `vitest.config.js`) to determine the
+   repo's acceptance test framework. Do NOT guess from the component
+   role — use what the repo is actually configured to run.
+4. **PATs are user-level acceptance criteria.** For frontend components,
+   PAT→CAT compilation MUST produce browser-based tests (Cypress,
+   Playwright, etc.) that verify behaviour through the real UI — not
+   vitest/jsdom unit tests. Unit tests are optional developer-level
+   tests, not PAT compilations.
+   - Frontend (any role) → Cypress or configured browser test framework
+   - Backend API → supertest + vitest (HTTP contract testing against
+     the real app, not mocked)
+5. Write the spec file alongside the stub (same directory, matching the
+   configured spec pattern — e.g. *.cy.js for Cypress)
 
 ## CI Pipeline
 
