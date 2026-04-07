@@ -575,6 +575,12 @@ The typical cycle for implementing a sub-task:
 2. Create a feature branch from main
 3. Implement towards the PATs — this is a continuous validation loop:
    - Write code that addresses the acceptance criteria
+   - **UX fidelity rule:** if the sub-task includes a UX Reference section
+     with screenshots or mockups, the implementation must visually match
+     the design — layout, colours, shadows, rounded corners, spacing,
+     typography weight. Not pixel-perfect, but recognisably the same
+     design. Use the screenshots as your visual target. When no UX
+     reference exists, minimal functional styling is acceptable.
    - Validate against PATs as you go using appropriate tools:
      - **Frontend:** open in browser, verify visually, check data-testid
        attributes, test interactions (use Chrome DevTools MCP if available)
