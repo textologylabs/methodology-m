@@ -30,7 +30,7 @@ see the change. The completed state persists across page reloads.
    - Existing todos without a completed field default to false
 
 4. Progress summary is displayed
-   - Shows "2 of 5 complete" (or "0 of 3 complete")
+   - Shows "3 items · 1 completed" (or "3 items · all done" when all complete)
    - Updates when a todo is toggled
    - Has `data-testid="todo-progress"`
 
@@ -40,9 +40,18 @@ see the change. The completed state persists across page reloads.
 
 ## UX Reference
 
-- Checkbox to the left of each todo title
-- Completed todos: checked box + strike-through text + muted colour
-- Progress summary below the heading, next to the item count
+See `some-completed.png` and `all-completed.png` in the story folder.
+
+Key design elements:
+- Subtitle below "Todo M" heading: "3 items · 1 completed" format
+- When all complete: "3 items · all done"
+- Checkbox to the left of each todo title (dark filled with white tick
+  when checked, light rounded square when unchecked)
+- Completed todos: checked box + strike-through text + muted grey colour
+- Each item separated by a subtle horizontal divider line
+- Progress summary replaces the simple item count from TODOM-001
+  (was "3 items", now "3 items · 1 completed")
+- Add form unchanged from TODOM-001 (input + Add button at bottom)
 
 ## Components Affected
 
