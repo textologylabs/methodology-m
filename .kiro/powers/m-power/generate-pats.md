@@ -54,6 +54,39 @@ Rules for generation:
 - `steps` may reference technical details (URLs, selectors) as these are
   the concrete validation mechanism
 
+### Step 2a — Detect PAT conflicts with existing stories
+
+Before finalising the PAT draft, scan existing PAT files in the workspace
+(or root repo `pats/` folder) for conflicts with the new story's ACs.
+
+A conflict exists when:
+- A new AC changes behaviour that an existing AC asserts (e.g. "renders
+  Hello" → "renders Todo list")
+- A new AC removes a feature that an existing AC validates
+- A new AC changes the UI structure that existing ACs depend on (e.g.
+  different data-testid attributes, different page layout)
+
+For each conflict, add a `replaces` or `removes` declaration to the
+new AC:
+
+```
+  - id: AC-001
+    when: user opens the app
+    then: todo list is displayed with item count
+    replaces: TODOM-000/AC-001    # was: MFE renders Hello component
+    steps:
+      ...
+```
+
+- `replaces: <story-id>/AC-<id>` — the new AC supersedes the old one.
+  The old AC's compiled test should be updated or replaced.
+- `removes: <story-id>/AC-<id>` — the old AC is no longer valid and
+  its compiled test should be deleted.
+
+**This step is critical for test suite integrity.** Without it, old
+compiled tests (CATs) will fail when new stories change behaviour,
+causing CI failures that look like bugs but are actually stale tests.
+
 ### Step 3 — Present for review
 
 Show the generated PAT to the user. Wait for confirmation or changes.

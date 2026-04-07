@@ -36,6 +36,20 @@ Read the PAT file. Extract:
 Reason about which PATs (from the pat.yaml `acceptance` entries) each component
 is responsible for, then present the proposed mapping to the user.
 
+**PAT supersession:** If any PAT in the new story declares `replaces` or
+`removes` against an existing PAT from a previous story, include this in
+the mapping presentation:
+
+```
+  <component-name> (sub-task: <story-id>a)
+    - <PAT description>
+    - <PAT description> [replaces TODOM-000/AC-001]
+```
+
+The sub-task file for that component must include the supersession info
+in its acceptance criteria so the CAT compilation step knows which
+existing tests to update or remove.
+
 **Mandatory root repo sub-task:** Every story MUST include a sub-task for the
 root repo, regardless of whether the shell code changes. The root repo owns
 story-level integration tests — the gate that validates the composed system
@@ -136,12 +150,27 @@ One file per component. Each contains:
    - <detail>
    - <detail>
 
+2. <PAT title> [replaces <old-story-id>/<old-sub-task-id> AC-N]
+   - <detail>
+   - Supersedes: <old-sub-task-id> AC-N (<brief description of what changed>)
+
 ...
 
 ## PAT Stubs
 
 <Test skeletons — one per PAT, framework determined by project config>
 ```
+
+When a PAT declares `replaces` or `removes`, the sub-task file must
+include this in the acceptance criteria section. This tells the
+implementing agent:
+
+- **replaces:** the old test for this AC must be updated or replaced
+  when compiling CATs. The old `.cy.js` or `.spec.js` file should be
+  modified to test the new behaviour, or the old test removed and a
+  new one written.
+- **removes:** the old test should be deleted entirely. The feature
+  it tested no longer exists.
 
 ## Root repo sub-task format
 
