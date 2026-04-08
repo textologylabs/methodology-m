@@ -2140,3 +2140,106 @@ MRs go pending), then AOT re-evaluates.
 
 - wire-orchestration capability doc
 - scaffold-repo webhook setup
+
+
+---
+
+## I-033: ~90s invalidation window on MR close — inherent GitLab.com Free tier limitation
+
+**Category:** Orchestration / water-tightness
+**Priority:** Accepted limitation (documented)
+**Discovered:** 2026-04-08, during close-MR test of story integrity gate
+
+### Problem
+
+When a story MR is closed, the remaining sibling MRs retain their stale
+green `shadow-integration` commit status for ~90 seconds while the root
+pipeline's invalidation chain runs (webhook → detect-trigger ~40s →
+invalidate-status ~45s). During this window, a sibling MR is technically
+mergeable.
+
+### Why it can't be closed on GitLab.com Free/Premium
+
+Three mechanisms were investigated:
+
+1. **External status checks** — GitLab Ultimate only. These start in
+   `pending` by default and block merge until explicitly passed. Would
+   eliminate the window entirely, but requires Ultimate tier.
+
+2. **Server-side pre-receive hooks** — Self-managed GitLab only. Could
+   reject the merge commit push by calling the root API to check story
+   integrity. Not available on GitLab.com SaaS.
+
+3. **Pessimistic invalidation (push pending on every commit)** — each
+   managed repo's CI pushes `pending` for `shadow-integration` as its
+   first job. Eliminates stale green for the push-new-code case, but
+   does NOT help with the close-MR case (no new commit is pushed to
+   sibling branches when a different MR is closed).
+
+The ~90s is the irreducible latency of webhook delivery + shared runner
+allocation + script execution. No architectural change on Free tier can
+eliminate it.
+
+### Risk assessment
+
+Low. For this window to be exploited:
+
+- All story MRs must have been green (story was proven working moments ago)
+- Someone must click merge on a sibling MR within ~90s of the close event
+- The close event itself is the anomaly — the code was valid
+
+If a merge does slip through, the damage is limited: the merged code was
+integration-tested and green. The story is incomplete (missing component),
+but the merged code itself is sound. Worst case: revert one merge.
+
+### Mitigations in place
+
+- `shadow:invalidate-status` pushes `pending` to all story MRs as the
+  first orchestration job after detect-trigger (sequenced before integration)
+- `shadow:integration` integrity gate catches the missing MR and fails
+- `shadow:report-failure` fans out `failed` to all remaining story MRs
+- Cascade merge checks story completeness before merging siblings
+
+### Resolution path
+
+If the window becomes unacceptable:
+- Upgrade to GitLab Ultimate and use external status checks
+- Or deploy self-managed GitLab with a pre-receive hook
+- Or accept the ~90s window as a known limitation (current choice)
+
+
+---
+
+## I-034: MR reopen events don't trigger root AOT pipeline
+
+**Category:** Orchestration / webhook gap
+**Priority:** Nice to have
+**Discovered:** 2026-04-08, during close/reopen test cycle
+
+### Problem
+
+Reopening a managed repo MR does not fire the webhook that triggers the
+root AOT pipeline. The `merge_requests_events` webhook fires on open,
+update, merge, and close — but GitLab either doesn't fire on reopen, or
+the trigger token setup doesn't match the reopen event payload.
+
+This means after a close→reopen cycle, the MR sits with stale commit
+statuses (whatever the last AOT run pushed). A manual retrigger (push a
+no-op commit) is needed to kick off a fresh AOT evaluation.
+
+### Impact
+
+Low in normal workflow — MRs are rarely closed and reopened. But it's a
+gap during testing and demo rehearsals where close/reopen is used to
+exercise the integrity gate.
+
+### Proposal
+
+Investigate whether:
+1. GitLab fires `merge_requests_events` on reopen (check webhook logs)
+2. The root repo's trigger token setup filters out reopen actions
+3. `detect-trigger-event.sh` handles the reopen payload correctly
+
+If GitLab does fire the webhook but the trigger setup drops it, fix the
+trigger configuration. If GitLab doesn't fire on reopen, document it as
+a platform limitation and keep the retrigger-commit workaround.
