@@ -20,10 +20,9 @@ Theory only. The live demo proves everything the slides claim.
 4. Key concepts: stories, PATs, sub-tasks, components
 5. The development cycle: implement → validate → integrate
 6. Ahead-of-time integration: speculative post-merge composition
-7. Structural vs logical failure
-8. HEAD component: who drives integration
-9. The merge transaction: cascade merge
-10. Summary / transition to live demo
+7. Incomplete vs complete story — when can integration run?
+8. The merge transaction: cascade merge
+9. Summary / transition to live demo
 
 ---
 
@@ -66,10 +65,10 @@ SDLC phase: a developer picks up a sub-task and implements it.
 
 SDLC phase: integration and landing. The system coordinates itself.
 
-- Show the open MRs — APIs red (HEAD structural failure)
+- Show the open MRs — APIs red (incomplete story — MFE missing)
 - Triggered pipeline on root repo — AOT integration composing all
   four components from their story branches
-- HEAD gate opens: "MR present: true"
+- Story completeness check passes: all 4 components present
 - All story-level tests pass against the composed system
 - Fan-out: success status pushed to ALL story MRs simultaneously
 - The red API MRs go green — "not a single line of code changed"

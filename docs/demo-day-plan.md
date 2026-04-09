@@ -12,19 +12,19 @@ to slides and methodology paper.
 
 The live demo centrepiece. Build the Todo component replacing Hello,
 wired to api-read (GET /todos) and api-write (POST /todos). Push
-the MR — this is the HEAD component arriving.
+the MR — this is the last missing component arriving.
 
 ### 2. Verify the full integration cascade
 
 Once the MFE MR is raised:
-- Shadow integration should go green on all repos (HEAD is present,
+- AOT integration should go green on all repos (all components present,
   integration tests pass, APIs + MFE all composed)
-- Verify the HEAD gate message disappears and tests actually run
+- Verify the completeness check passes and tests actually run
 - Confirm the API MRs flip from red to green
 
 ### 3. Merge flow
 
-Explore whether merging the HEAD MR can trigger a cascade merge of
+Explore whether merging any story MR can trigger a cascade merge of
 all story MRs. If feasible, implement it — that's a powerful demo
 moment. If not, manual merge is fine for Friday.
 
@@ -47,9 +47,8 @@ Identify rough edges. Fix anything that breaks.
 
 ### 6. Update the methodology paper
 
-Refresh methodology-m.md with the latest concepts: HEAD component,
-structural vs logical failure, eager shadow integration, PAT-driven
-development.
+Refresh methodology-m.md with the latest concepts: story completeness,
+AOT integration, cascade merge, PAT-driven development.
 
 ### 7. Generate slides
 
@@ -62,6 +61,6 @@ before generating.
 
 - **First half (~10 min)**: Slides explaining Methodology M
 - **Second half (~10 min)**: Live demo showing M in action
-  - Starting state: API MRs open, failing (HEAD missing)
+  - Starting state: API MRs open, failing (MFE missing)
   - Live: implement MFE, push, watch integration go green
   - Merge, show running app in Docker Compose

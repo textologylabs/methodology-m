@@ -1,7 +1,12 @@
 # Demo Runbook — Methodology M (Friday 11 April 2026)
 
-**Duration:** ~20 minutes (10 min slides + 10 min live demo)
+**Duration:** ~25 minutes (8 min slides + 17 min live demo)
 **Format:** Slides first (theory), then live demo (practice)
+**Principle:** The demo follows the SDLC logical flow from left to right.
+Each act is a phase of the lifecycle. The work items may differ between
+acts — that doesn't matter. What matters is the audience sees the full
+pipeline: story → decompose → PATs → implement → validate → integrate →
+merge → running software.
 
 ---
 
@@ -38,16 +43,16 @@ from saved patches so they appear as "already in progress" for the demo.
 
 TODO: checklist — what should be true before the demo starts:
 - All repos at story-zero-complete tag
-- API MRs open and failing (HEAD structural failure)
+- API MRs open and failing (incomplete story — MFE MR missing)
 - MFE has no MR yet
-- Root repo MR !9 open with integration tests + HEAD gate
+- Root repo MR !9 open with integration tests
 - Docker images buildable
 
 ---
 
-# Part 1: Slides — Methodology M Theory (~10 min)
+# Part 1: Slides — What is M? (~8 min)
 
-10 slides. Content TBD — focused session needed.
+Theory only. The live demo proves everything the slides claim.
 
 Slide topics (rough):
 1. Title / intro
@@ -55,19 +60,18 @@ Slide topics (rough):
 3. What is Methodology M?
 4. Key concepts: stories, PATs, sub-tasks, components
 5. The development cycle: implement → validate → integrate
-6. Shadow integration: speculative post-merge composition
-7. Structural vs logical failure
-8. HEAD component: who drives integration
-9. The merge transaction: atomic multi-repo merge
-10. Summary / transition to live demo
+6. Ahead-of-time integration: speculative post-merge composition
+7. Incomplete vs complete story — when can integration run?
+8. The merge transaction: cascade merge
+9. Summary / transition to live demo
 
 ---
 
 # Part 2: Live Demo
 
-## Act 1: Orientation — What exists already (~3 min)
+## Act 1: The Landscape — What exists already (~2 min)
 
-Walk the audience through the project and Story 0, then set up Story 1.
+Set the scene. Show the project topology and the running app.
 
 ---
 
@@ -101,69 +105,119 @@ it doesn't do anything useful yet. That's what Story 1 is for."
 
 ---
 
-### D2: How Story 0 was built (quick walkthrough)
+## Act 2: Story Decomposition + PATs — live (~4 min)
 
-🦊 Open `jira/TODOM-000.md` in the root repo.
-
-🎯 "Every feature starts as a story. This one bootstrapped the entire
-system — repos, CI pipelines, orchestration wiring. Let me show you
-how it was decomposed."
-
-🦊 Show `jira/TODOM-000a.md` through `TODOM-000d.md` (quick scroll).
-
-🎯 "The story was decomposed into sub-tasks — one per component. Each
-sub-task has its own acceptance criteria expressed as PATs — Preliminary
-Acceptance Tests. These are the contract the developer implements against."
-
-🦊 Show `pats/TODOM-000.pat.yaml`.
-
-🎯 "PATs are machine-readable. They define what 'done' looks like at the
-story level. During development, they get compiled into real runnable
-tests — we call those CATs, Compiled Acceptance Tests."
+SDLC phase: a new story arrives, gets decomposed, PATs generated.
+This is the planning phase of M — the audience sees it happen live.
 
 ---
 
-### D3: Story 1 — where we are now
+### D2: A new story arrives — TODOM-002
+
+🦊 Open `TODOM-002.md` in the workshop artefacts (or show it in the IDE).
+
+🎯 "A new story just landed: 'Mark todos as complete.' Checkboxes,
+strike-through styling, a progress summary. It touches all four
+components — the read API needs to return a completed field, the
+write API needs a PATCH endpoint, the MFE needs checkbox UI, and
+the root needs integration tests for the round-trip."
+
+🎯 "In a traditional setup, someone writes a Jira ticket, developers
+interpret it differently, and you find out at integration time that
+the API returns a different shape than the frontend expects. M
+prevents that. Let's decompose this story."
+
+---
+
+### D3: Decompose into sub-tasks
+
+💬 `Decompose TODOM-002 into sub-tasks.`
+
+👻 Kiro reads the story and project.yaml, identifies the four affected
+components, and generates sub-task files — one per component:
+- `TODOM-002a.md` — todo-m-root (integration tests, PAT yaml)
+- `TODOM-002b.md` — todo-m-mfe (checkbox UI, progress summary)
+- `TODOM-002c.md` — todo-m-api-read (return completed field)
+- `TODOM-002d.md` — todo-m-api-write (PATCH endpoint)
+
+🎯 (While Kiro works) "M reads the topology from project.yaml and
+decomposes the story into one sub-task per affected component. Each
+sub-task gets its own acceptance criteria, data-testid attributes,
+API contracts. The developers don't interpret the story — they
+implement against a contract."
+
+📝 Open one of the generated sub-task files (e.g. TODOM-002b — the MFE).
+
+👀 The audience sees: clear acceptance criteria, specific data-testid
+values, API endpoint contracts, expected behaviour for edge cases.
+
+🎯 "This isn't a vague ticket. It's a spec. Every data-testid, every
+endpoint, every edge case — specified before a line of code is written."
+
+---
+
+### D4: Generate PAT stubs
+
+💬 `Generate PAT stubs for TODOM-002.`
+
+👻 Kiro generates pseudocode test stubs for each component — the PAT
+contract in executable-ish form.
+
+📝 Open a PAT stub file. Show the pseudocode.
+
+🎯 "PATs are pseudocode tests — they describe the expected behaviour
+without committing to a test framework. When a developer picks up
+their sub-task, these stubs get compiled into real runnable tests
+using whatever framework the repo uses. Vitest for the MFE, supertest
+for the APIs. The contract stays the same; the executable form adapts."
+
+🎯 "The BA owns the story. M decomposes it into contracts. Now let's
+see what happens when a developer picks one up."
+
+---
+
+## Act 3: PAT-Driven Implementation (~4 min)
+
+SDLC phase: a developer picks up a sub-task and implements it.
+We switch to Story 1 here — it's already been through decomposition
+and the APIs are already implemented. The MFE is the missing piece.
+
+---
+
+### D5: Story 1 — where we are now
 
 🦊 Show `TODOM-001` story (from the workshop artefacts or root repo).
 
-🎯 "Story 1 is the first real feature: view and add todos. It was
-decomposed into four sub-tasks — one for each component. The API
-team has already implemented their parts."
+🎯 "Story 1 went through the same decomposition process you just saw.
+View and add todos — four sub-tasks, four components. The API team
+has already implemented their parts. Let's see where things stand."
 
 🦊 Open the MR list. Show the 3 open MRs — 2 API (red), 1 root (green).
 
 🎯 "Two API MRs are open. They pass their own repo-level tests. But
-look — they're red. Shadow integration is blocking them. Let's see why."
+look — they're red. AOT integration is blocking them. Let's see why."
 
-🦊 Click into one of the failed shadow pipelines on the root repo.
-Navigate to the `shadow:integration` job log. Find the HEAD failure message.
+🦊 Click into one of the failed AOT pipelines on the root repo.
+Navigate to the `shadow:integration` job log. Find the failure message.
 
 👀 The audience sees:
 ```
-HEAD component: todo-m-mfe (MR present: false)
-✗ STRUCTURAL FAILURE: HEAD component todo-m-mfe has no MR for TODOM-001
-  The HEAD component drives integration — shadow cannot pass without it.
-  Supporting MRs are expected to fail until HEAD is present.
+Story TODOM-001: 3 of 4 components present (todo-m-mfe missing)
+✗ INCOMPLETE STORY: not all components have MRs for TODOM-001
+  AOT integration requires all affected components to participate.
+  Missing: todo-m-mfe
 ```
 
-🎯 "The PAT yaml declares the MFE as the HEAD component — it's the one
-that drives the user-facing integration. Until the HEAD shows up, there's
-nothing meaningful to test end-to-end. The system knows this. It's not
-a bug — it's a structural failure. The topology is incomplete."
+🎯 "The story touches four components. Three have MRs — but the MFE
+is missing. AOT integration can't run a meaningful end-to-end test
+with a gap in the topology. Every component in a multi-part change
+is equal — the system won't proceed until they're all present."
 
-🎯 "So let's complete it."
-
----
-
-## Act 2: Implement the HEAD — following the M cycle (~7 min)
-
-From here we follow Methodology M strictly. Every step is a deliberate
-phase of the development cycle.
+🎯 "So let's fill the gap."
 
 ---
 
-### D4: Implement TODOM-001c
+### D6: Implement TODOM-001c
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
@@ -198,15 +252,15 @@ against the PATs as part of implementation — checking the component
 renders, the data-testid attributes are present, the behaviour
 matches the contract.
 
-**(Skip this step if tight on time — go straight to D7)**
+**(Skip this step if tight on time — go straight to D9)**
 
 ---
 
-### D5: Compile PATs into CATs
+### D7: Compile PATs into CATs
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
-� Quick side-by-side: open the PAT stub (pseudocode in the sub-task)
+📝 Quick side-by-side: open the PAT stub (pseudocode in the sub-task)
 next to the compiled CAT (real test code). Let the audience see the
 transformation.
 
@@ -214,7 +268,7 @@ transformation.
 On the right, the CAT — a real runnable test compiled from that PAT.
 Same contract, different form."
 
-�💬 `Compile the PAT stubs into runnable tests for TODOM-001c.`
+💬 `Compile the PAT stubs into runnable tests for TODOM-001c.`
 
 👻 Kiro generates:
 - `pats/TODOM-001c.spec.jsx` — unit CATs (vitest + Testing Library)
@@ -227,7 +281,7 @@ uses vitest and Testing Library. An API would use supertest."
 
 ---
 
-### D6: Run CATs — repo-level confidence
+### D8: Run CATs — repo-level confidence
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
@@ -237,18 +291,18 @@ uses vitest and Testing Library. An API would use supertest."
 
 🎯 "Green at the repo level. The MFE satisfies its own contract. But
 we don't know yet if it works with the rest of the system. That's
-what shadow integration is for."
+what AOT integration is for."
 
 ---
 
-### D7: Commit, push, raise MR — trigger shadow integration
+### D9: Commit, push, raise MR — trigger AOT integration
 
 📂 `ref-projects/todo-m-workshop/pass1/todo-m-mfe`
 
 🖥️ Commit all changes, push to feature branch, raise MR on GitLab.
 
 🎯 "The moment this MR is created, a webhook fires. The root repo's
-shadow integration pipeline starts. It's going to compose all four
+AOT integration pipeline starts. It's going to compose all four
 components from their story branches — the speculative post-merge
 state. If this passes, we know the feature works end-to-end."
 
@@ -259,7 +313,13 @@ we just wrote. But the interesting pipeline is on the root repo."
 
 ---
 
-### D8: Watch shadow integration — the payoff
+## Act 4: AOT Integration + Cascade Merge (~5 min)
+
+SDLC phase: integration and landing. The system coordinates itself.
+
+---
+
+### D10: Watch AOT integration — the payoff
 
 🦊 Navigate to `todo-m-root` → CI/CD → Pipelines. Find the triggered
 pipeline (source: trigger).
@@ -272,15 +332,15 @@ the job log."
 👀 The audience sees (in order):
 1. Branch resolution — each repo resolved to its story branch
 2. Root repo self-bootstrap — pulls integration tests from story branch
-3. **HEAD component: todo-m-mfe (MR present: true)** ← the key moment
+3. **Story TODOM-001: 4 of 4 components present** ← the key moment
 4. Docker compose build — all 4 images
 5. Health checks — all 4 services healthy
 6. TODOM-000 baseline tests — all pass
 7. TODOM-001 story tests — GET /todos, POST /todos round-trip, validation, shell + MFE
 
-🎯 (At HEAD detection) "There it is — the HEAD component has arrived.
-Last time this said 'MR present: false' and failed structurally.
-Now the MFE is here, so the gate opens and the real tests run."
+🎯 (At completeness check) "There it is — all four components are
+present. Last time this said '3 of 4' and failed because the MFE
+was missing. Now the story is complete, so the real tests run."
 
 🎯 (At test results) "Every acceptance criterion from the story is
 verified against the composed system. API round-trip works. Validation
@@ -290,36 +350,42 @@ works. The shell composes the MFE. This is end-to-end confidence."
 
 ---
 
-### D9: The cascade — API MRs go green
+### D11: The cascade — API MRs go green
 
 🦊 Navigate back to the MR list. Show all MRs.
 
 👀 The API MRs that were red are now green.
 
-🎯 "The APIs didn't change. Not a single line of code. But the HEAD
-arrived, shadow integration passed, and the success status was pushed
-back to every MR in the story. Red to green, automatically."
+🎯 "The APIs didn't change. Not a single line of code. But the MFE
+arrived, the story became complete, AOT integration passed, and the
+success status was pushed back to every MR in the story. Red to
+green, automatically."
 
 🎯 "This is the core insight of Methodology M: you don't ask 'are we
 ready to integrate?' — the system tells you."
 
 ---
 
-### D10: Merge
+### D12: Merge
 
-🦊 Merge the MRs. (Order: root first, then APIs, then MFE — or cascade
-if implemented.)
+🦊 Merge any one MR → cascade automatically merges the rest.
+(Fallback: merge in sequence — root first, then APIs, then MFE.)
 
-🎯 "All gates are green. We merge. In a full M setup, this would be a
-merge transaction — atomic, all-or-nothing across all repos. For the
-demo, we'll merge them in sequence."
+🎯 "All gates are green. We merge. And when you commit to one piece,
+you commit to the whole story — cascade merge lands them all."
 
-TODO: determine if cascade merge is feasible. If so, replace with
-single-click merge of HEAD triggering the rest.
+TODO: determine if cascade merge is feasible for the demo. If not,
+merge in sequence and narrate the cascade concept.
 
 ---
 
-### D11: The running app
+## Act 5: The Running App (~2 min)
+
+SDLC phase: delivery. The payoff.
+
+---
+
+### D13: The running app
 
 🌐 Open the app in the browser (Docker Compose).
 
@@ -333,13 +399,13 @@ same composition. But now it's a real feature — built, tested, and
 integrated across four repos."
 
 🎯 "From story to running software. Every step traceable: story →
-sub-tasks → PATs → implementation → CATs → shadow integration →
-merge. No guesswork. No 'hey, is your MR ready?' messages. The
-system orchestrates itself."
+sub-tasks → PATs → implementation → CATs → AOT integration →
+cascade merge. No guesswork. No 'hey, is your MR ready?' messages.
+The system orchestrates itself."
 
 ---
 
-### D12: Replayability (closing moment)
+### D14: Replayability (closing moment)
 
 🖥️ Run the rewind script:
 ```
@@ -368,23 +434,30 @@ replay it, you didn't capture it."
 
 # Timing Notes
 
-| Section | Target | Notes |
-|---------|--------|-------|
-| Part 1: Slides | 10 min | Keep it tight, no tangents |
-| D1: Topology + before app | 2 min | project.yaml, readiness tracker, Hello app |
-| D2: Story 0 walkthrough | 1 min | Quick — decomposition, PATs |
-| D3: Story 1 + HEAD failure | 2 min | The red MRs, the structural failure log |
-| D4: Implement | 3 min | Kiro reads contract + implements + validates |
-| D5: PAT → CAT side-by-side | 30 sec | Visual transformation moment |
-| D6: Run CATs | 30 sec | npm test, green, move on |
-| D7: Push MR | 30 sec | Mechanical |
-| D8: Watch pipeline | 2 min | The money shot — narrate the log |
-| D9: Cascade green | 30 sec | Show the MR list, red → green |
-| D10: Merge | 30 sec | Click merge |
-| D11: Running app (after) | 1 min | Before/after callback |
-| D12: Rewind | 30 sec | Replayability — the closing punch |
-| Questions | 5 min | Buffer |
-| **Total** | **~25 min** | Tight but doable |
+| Section | Target | SDLC Phase | Notes |
+|---------|--------|------------|-------|
+| Part 1: Slides | 8 min | Theory | Keep it tight, no tangents |
+| **Act 1: Landscape** | | | |
+| D1: Topology + running app | 2 min | Context | project.yaml, readiness tracker, app |
+| **Act 2: Decomposition** | | | |
+| D2: New story — TODOM-002 | 1 min | Planning | Show the story, set up the problem |
+| D3: Decompose into sub-tasks | 2 min | Planning | Live M Power decomposition |
+| D4: Generate PAT stubs | 1 min | Planning | Pseudocode test contracts |
+| **Act 3: Implementation** | | | |
+| D5: Story 1 + incomplete story | 1.5 min | Development | Red MRs, missing component log |
+| D6: Implement TODOM-001c | 3 min | Development | Kiro reads contract + implements |
+| D7: PAT → CAT side-by-side | 30 sec | Development | Visual transformation moment |
+| D8: Run CATs | 30 sec | Development | npm test, green, move on |
+| D9: Push MR | 30 sec | Development | Mechanical |
+| **Act 4: AOT + Cascade** | | | |
+| D10: Watch pipeline | 2 min | Integration | The money shot — narrate the log |
+| D11: Cascade green | 30 sec | Integration | MR list, red → green |
+| D12: Merge | 30 sec | Integration | Cascade merge |
+| **Act 5: Running App** | | | |
+| D13: Running app (after) | 1 min | Delivery | Before/after callback |
+| D14: Rewind | 30 sec | Delivery | Replayability — the closing punch |
+| Q&A | 5 min | — | Buffer |
+| **Total** | **~30 min** | | Tight but doable |
 
 ---
 
@@ -398,3 +471,6 @@ replay it, you didn't capture it."
 - **Docker build fails:** Have a local compose already running as fallback.
 - **Tests fail unexpectedly:** Have the last successful pipeline URL
   bookmarked to show the audience what it looks like when it works.
+- **M Power decomposition fails or is slow:** Have pre-generated
+  TODOM-002 sub-task files ready. Show them as "here's what M produced"
+  if the live generation stalls.
