@@ -188,6 +188,16 @@ checks pass. Two failure modes ensure no story can slip through:
   failure output shows exactly which checks failed, so devs know
   who to talk to.
 
+- **Mergeability failure:** a constituent MR exists but is not
+  mergeable (e.g. failing pipeline, blocked by discussions, needs
+  approval). An unmergeable MR is functionally equivalent to a
+  missing MR — the story cannot proceed. The integrity check must
+  verify `detailed_merge_status` for each MR, not just its existence.
+  Acceptable statuses are `mergeable`, `checking` (pipeline in
+  progress), `approvable`, and `approved`. Anything else (e.g.
+  `ci_must_pass`, `blocked_status`, `not_approved`) means the MR
+  is not ready and the story is incomplete.
+
 The root repo always has a story branch for every story — even when
 the shell code doesn't change — because the integration tests are
 the root repo's contribution. The `decompose-story` capability
