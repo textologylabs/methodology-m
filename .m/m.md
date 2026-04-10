@@ -6,6 +6,8 @@ Methodology M is an AI-driven delivery method for distributed software systems w
 
 This directory (`.m/`) is the agent-neutral, machine-readable expression of the methodology. Any AI agent that can read markdown and call platform APIs can execute these capabilities. Agent-specific adapters (`.kiro/`, `.claude/`, etc.) provide thin wrappers for discovery — the intelligence lives here.
 
+**Path convention:** All paths in M documents are relative to the repo root, not to the file they appear in.
+
 ## Key Files
 
 - `methodology-m.md` — the full methodology specification (the paper)
