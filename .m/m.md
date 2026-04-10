@@ -25,7 +25,10 @@ Each capability is a standalone playbook. Read the full file before executing �
 
 1. User requests a capability (by name or by describing the intent)
 2. Agent reads the corresponding `.m/capabilities/<name>.md` — the FULL file
-3. Agent follows the steps exactly, using whatever platform tools are available (MCP servers, CLI tools, APIs)
+3. For any namespaced function call (e.g. `scm.create_repo(...)`):
+   a. Check `project.yaml` → `providers` to find the active provider
+   b. Read `.m/providers/<category>/<provider>.md` for the concrete implementation
+   c. Execute the platform-specific operation
 4. Agent produces the report described in the capability file
 
 No shortcuts. The capability files contain critical sequences (branch protection ordering, webhook flags, CI image requirements) that cannot be skipped.
@@ -40,15 +43,31 @@ Repo-level override  →  Project-level (project.yaml)  →  Org Config  →  M 
 
 See `methodology-m.md` Section 6a for the full strategy/plugin architecture. The capabilities define the *what*. The configuration hierarchy determines the *with what tools*.
 
+## Provider Namespaces
+
+Capabilities call platform operations via namespaced functions. Each
+namespace is backed by a provider selected in `project.yaml`.
+
+| Namespace | Category | Provider interface |
+|---|---|---|
+| `scm.*` | Source code management | [provider-interface.md](providers/provider-interface.md) |
+
+New namespaces (e.g. `test.cat.*`, `compose.*`) are added as the
+methodology evolves. See the provider interface doc for the full
+function contracts and the protocol for adding new namespaces/providers.
+
 ## Directory Structure
 
 ```
 .m/
-  m.md                  ← this file
-  capabilities/         ← standalone playbooks (the "how to do it")
-  steering/             ← persistent rules for agents working in M projects
-  roles/                ← specialist agent definitions (PAT Generator, Decomposer, etc.)
-  schemas/              ← PAT.yaml, readiness.yaml, project.yaml schemas
+  m.md                         ← this file
+  capabilities/                ← standalone playbooks (the "how to do it")
+  providers/
+    provider-interface.md      ← namespace contracts and resolution protocol
+    scm/gitlab.md              ← GitLab SCM provider (reference implementation)
+  steering/                    ← persistent rules for agents working in M projects
+  roles/                       ← specialist agent definitions
+  schemas/                     ← PAT.yaml, readiness.yaml, project.yaml schemas
 ```
 
 ## Relationship to Agent Runtimes
