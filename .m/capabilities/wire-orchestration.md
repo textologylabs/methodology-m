@@ -189,13 +189,19 @@ overridden for local testing (set to `localhost`).
 #### Integration test gate
 
 Shadow integration runs story-level integration tests after health
-checks pass. Two failure modes ensure no story can slip through:
+checks pass. Three failure modes ensure no story can slip through:
 
 - **Structural failure:** the integration test framework detects that
   a story is in-flight (open MRs with the story ID in branch names)
   but no integration test script exists at
   `scripts/integration-tests/<story-id>.sh`. This fails immediately
   with a clear message telling the team to add tests.
+
+- **Completeness failure:** the integrity check verifies that ALL
+  repos in the topology have open MRs for the story — managed repos
+  AND the root repo. The root repo delivers story-level integration
+  tests; without its MR the gate is meaningless. The repo list must
+  be derived from `project.yaml` components, not hardcoded.
 
 - **Logical failure:** the integration test script exists but fails
   because not all components have implemented their part yet. The
