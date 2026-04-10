@@ -8,7 +8,8 @@ distributed multi-repo software systems.
 - `methodology-m.md` — the full methodology specification (the paper)
 - `.m/m.md` — capability index and execution protocol
 - `.m/capabilities/` — standalone playbooks for each M capability
-- `.m/providers/scm/gitlab.md` — GitLab SCM provider (resolves `scm.*` calls)
+- `.m/providers/provider-interface.md` — namespace contracts and resolution protocol
+- `.m/providers/scm/gitlab.md` — GitLab SCM provider (reference implementation)
 - `.claude/skills/m-capabilities.md` — skill discovery and activation rules
 
 ## When Working in This Repo
@@ -23,9 +24,19 @@ When the user asks you to:
 - **Edit a provider** — modify `.m/providers/scm/<provider>.md`
 - **Discuss methodology concepts** — refer to `methodology-m.md`
 
-## Provider Function Convention
+## Provider Resolution Protocol
 
-Capabilities reference SCM operations as `scm.<function>(...)` calls.
-These are abstract — the concrete implementation lives in the active
-provider file. Always resolve function calls through the provider before
-executing.
+Capabilities call platform operations via namespaced functions (e.g.
+`scm.create_repo(...)`). When you encounter one:
+
+1. The namespace prefix (`scm`) identifies the provider category
+2. Check `project.yaml` → `providers` for the active provider (e.g. `scm: gitlab`)
+3. Read `.m/providers/<category>/<provider>.md` for the concrete implementation
+4. Execute the platform-specific operation documented there
+
+The formal function contracts — parameters, return values, invariants —
+live in `.m/providers/provider-interface.md`. Read this file to understand
+what namespaces exist and what each function promises.
+
+Current namespaces:
+- `scm.*` — source code management (repos, branches, webhooks, secrets)

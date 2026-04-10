@@ -31,17 +31,20 @@ intent), follow this protocol:
 
 ## Provider Resolution
 
-The active SCM provider is declared in `project.yaml`:
+Capabilities call platform operations via namespaced functions (e.g.
+`scm.create_repo(...)`). The active provider per namespace is declared
+in `project.yaml`:
 
 ```yaml
 providers:
   scm: gitlab
 ```
 
-Provider implementations live at `.m/providers/scm/<provider>.md`.
-When a capability calls `scm.create_repo(...)`, look up the function
-in the active provider file for the concrete API call, MCP tool, or
-CLI command to use.
+When you encounter a namespaced function call:
+
+1. Read `.m/providers/provider-interface.md` for the function contract
+2. Read `.m/providers/<namespace>/<provider>.md` for the concrete
+   implementation (API calls, MCP tools, gotchas)
 
 ## Configuration Hierarchy
 
