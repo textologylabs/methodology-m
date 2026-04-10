@@ -288,6 +288,43 @@ Body:
 
 ---
 
+## scm.create_branch
+
+Create a new branch from an existing ref.
+
+```
+MCP: gitlab
+Tool: mcp_gitlab_create_branch
+
+Parameters:
+  project_id: <project_id>
+  branch: <branch-name>
+  ref: <source-ref>           # branch name, tag, or SHA
+```
+
+---
+
+## scm.create_merge_request
+
+Create a merge request.
+
+```
+MCP: gitlab
+Tool: mcp_gitlab_create_merge_request
+
+Parameters:
+  project_id: <project_id>
+  source_branch: <source-branch>
+  target_branch: <target-branch>
+  title: <title>
+  description: <description>
+  remove_source_branch: true
+
+Returns: MR URL (from web_url field)
+```
+
+---
+
 ## CI-Specific Notes
 
 ### Pipeline configuration file

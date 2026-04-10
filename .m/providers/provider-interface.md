@@ -48,6 +48,8 @@ and commit status reporting.
 | `scm.create_webhook` | `repo`, `url`, `events{}`, `ssl_verify` | webhook ID | wire-orchestration |
 | `scm.store_ci_secret` | `repo`, `key`, `value`, `protected`, `masked` | — | wire-orchestration |
 | `scm.post_commit_status` | `repo`, `sha`, `state`, `name`, `description`, `target_url` | — | wire-orchestration (CI scripts) |
+| `scm.create_branch` | `repo`, `branch`, `ref` | — | decompose-story |
+| `scm.create_merge_request` | `repo`, `source_branch`, `target_branch`, `title`, `description?` | MR URL | decompose-story |
 
 #### Function Contracts
 
@@ -147,6 +149,22 @@ in job logs.
 Report a build/test status on a specific commit. Used by shadow
 integration to push results back to managed repo MRs. `state` is
 one of: `success`, `failed`, `pending`.
+
+---
+
+**`scm.create_branch(repo, branch, ref)`**
+
+Create a new branch from an existing ref (branch, tag, or SHA).
+Used by `decompose-story` to create the root repo's story branch
+for the integration gate.
+
+---
+
+**`scm.create_merge_request(repo, source_branch, target_branch, title, description?)`**
+
+Create a merge request / pull request. Returns the MR URL. Used by
+`decompose-story` to raise the root repo MR that establishes the
+integration gate from the moment the story is decomposed.
 
 ---
 

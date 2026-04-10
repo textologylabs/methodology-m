@@ -172,6 +172,65 @@ implementing agent:
 - **removes:** the old test should be deleted entirely. The feature
   it tested no longer exists.
 
+### Step 4 — Compile story PAT and raise root MR
+
+The root repo sub-task is not just documentation — its primary
+deliverables (Cypress spec + integration test script) are mechanically
+derivable from the story PAT. This step produces them and raises the
+root MR so that the integration gate exists from the moment the story
+is decomposed.
+
+#### 4a — Compile story PAT → Cypress spec
+
+Transform the story-level PAT YAML into `pats/<story-id>.cy.js` using
+this mapping:
+
+| PAT step | Cypress command |
+|---|---|
+| `navigate: /path` | `cy.visit('/path')` |
+| `wait: "[data-testid='X']" is visible` | `cy.get('[data-testid="X"]').should('be.visible')` |
+| `wait: "[data-testid='X']" contains "Y"` | `cy.get('[data-testid="X"]').should('contain', 'Y')` |
+| `assert: "[data-testid='X']" is visible` | `cy.get('[data-testid="X"]').should('be.visible')` |
+| `assert: "[data-testid='X']" contains "Y"` | `cy.get('[data-testid="X"]').should('contain', 'Y')` |
+| `assert: "[data-testid='X']" count > N` | `cy.get('[data-testid="X"]').should('have.length.greaterThan', N)` |
+| `assert: "[data-testid='X']" is disabled` | `cy.get('[data-testid="X"]').should('be.disabled')` |
+| `assert: "[data-testid='X']" contains ""` | `cy.get('[data-testid="X"]').should('have.value', '')` |
+| `click: "[data-testid='X']"` | `cy.get('[data-testid="X"]').click()` |
+| `type: "[data-testid='X']" value "Y"` | `cy.get('[data-testid="X"]').type('Y')` |
+
+Each AC becomes an `it()` block. The `when` field becomes the test
+description. Order ACs so that tests with data dependencies run in
+sequence (e.g. "add a todo" before "list shows todos").
+
+ACs that require mutually exclusive starting states (empty vs populated)
+should be ordered so the empty-state test runs first, then the add
+action, then the populated-state test — building state as they go.
+
+#### 4b — Create branch and commit
+
+```
+scm.create_branch(repo: <root-repo>, branch: "feat/<story-id>d-integration-gate", ref: "main")
+scm.push_files(repo: <root-repo>, branch: "feat/<story-id>d-integration-gate", files: [
+  { path: "pats/<story-id>.cy.js", content: <compiled-cypress-spec> }
+], commit_message: "✅ compile story PAT into Cypress spec for <story-id>")
+```
+
+#### 4c — Raise root MR
+
+```
+scm.create_merge_request(
+  repo: <root-repo>,
+  source_branch: "feat/<story-id>d-integration-gate",
+  target_branch: "main",
+  title: "<story-id>d: Story-level integration tests"
+)
+```
+
+The root MR exists from the moment the story is decomposed. Shadow
+integration will see it in the completeness check. The Cypress tests
+will fail until all components implement their parts — this is correct
+behaviour. The gate is red until the story is genuinely complete.
+
 ## Root repo sub-task format
 
 The root repo sub-task has a distinct structure because its primary
@@ -194,14 +253,15 @@ can merge until these tests pass against the composed system.
 
 ## Deliverables
 
-1. Integration test script: `scripts/integration-tests/<story-id>.sh`
-   - Curl-based checks against the composed system
-   - Verifies all story-level PATs are satisfied end-to-end
-   - Runs automatically during shadow integration
+1. Cypress spec: `pats/<story-id>.cy.js`
+   - Compiled from story PAT — auto-generated during decomposition
+   - Full browser-based acceptance tests against composed system
+   - Committed to root repo MR at decomposition time
 
-2. Cypress spec (optional): `pats/<story-id>.cy.js`
-   - Full browser-based acceptance tests
-   - Runs locally during development and in full CI
+2. Integration test script: `scripts/integration-tests/<story-id>.sh`
+   - Curl-based checks against the composed system
+   - Lightweight CI smoke test (runs without a browser)
+   - Runs automatically during shadow integration
 
 3. Compose config changes (if needed)
    - Shared volumes, new services, environment variables
