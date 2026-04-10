@@ -2243,3 +2243,449 @@ Investigate whether:
 If GitLab does fire the webhook but the trigger setup drops it, fix the
 trigger configuration. If GitLab doesn't fire on reopen, document it as
 a platform limitation and keep the retrigger-commit workaround.
+
+---
+
+## I-035: MR close fires duplicate root pipelines + detect-trigger treats close as open/update
+
+**Category:** Orchestration / webhook behaviour
+**Priority:** Nice to have (not a demo blocker)
+**Discovered:** 2026-04-10, closing MFE MR !7 triggered two identical root pipelines
+
+### Problem
+
+Two issues observed when closing the MFE MR:
+
+1. **Duplicate pipelines:** Closing one MR on the MFE repo triggered two
+   separate root repo pipelines (both from source project 79995516, both
+   seeing `MR state: closed`). The MFE has a single webhook with
+   `merge_requests_events: true`. GitLab appears to fire the webhook
+   twice for a single close action — possibly once for the close event
+   and once for a subsequent state update.
+
+2. **Close treated as open/update:** `detect-trigger-event.sh` sees
+   `MR state: closed` but routes it to the AOT integration path
+   (`→ This is an OPEN/UPDATE event`). A closed MR should be a no-op
+   or trigger status invalidation only — not a full shadow integration
+   run. The detect script doesn't distinguish close from open/update.
+
+### Impact
+
+Wastes CI minutes (two redundant shadow runs that both fail with
+"story incomplete"). Not a demo blocker since the demo doesn't involve
+closing MRs. But noisy during rehearsals and testing.
+
+### Proposal
+
+1. **detect-trigger-event.sh** — check the MR state from the API
+   response. If `state == closed` or `state == merged`, skip the AOT
+   integration path. Either exit early or route to a lightweight
+   invalidation-only path.
+
+2. **Duplicate webhook fires** — investigate GitLab webhook logs to
+   confirm whether this is a platform behaviour (two events per close)
+   or a configuration issue. If it's platform behaviour, the detect
+   script fix in (1) makes the duplicates harmless since both would
+   exit early.
+
+### Dependencies
+
+- Related to I-034 (MR reopen events) — both are about webhook event
+  handling edge cases in `detect-trigger-event.sh`
+
+---
+
+## I-036: project.yaml is declaration-only — runtime artefacts don't read it
+
+**Category:** Architecture / topology manifest
+**Priority:** Important (conceptual integrity)
+**Discovered:** 2026-04-10, auditing `tag` and `role` field usage
+
+### Problem
+
+`project.yaml` declares the topology: component names, roles, ports, tags,
+locations, compose strategy. But no runtime artefact reads it. Every script,
+CI pipeline, and docker-compose file that needs these values has them
+hardcoded as literal strings.
+
+Concrete examples:
+
+| Value | Declared in project.yaml | Hardcoded in |
+|-------|--------------------------|--------------|
+| Ports (3000–3003) | `port:` per component | docker-compose.yml, integration-test.sh, CI health checks |
+| Repo names | `location:` per component | integration-test.sh (`MANAGED_REPOS`), CI clone commands |
+| Repo paths | `location:` per component | CI `git clone` URLs |
+| Health endpoints | Derived from role + port | CI health check loops, compose health config |
+| Build contexts | Derived from location | docker-compose.yml `context:` |
+
+The `tag` field (topology version pin) is declared but never consumed —
+the merge transaction / auto-bump flow (I-004) that would read it doesn't
+exist yet.
+
+The `role` field is consumed by M Power capabilities at generation time
+(scaffold-repo uses it to decide backend vs frontend templates) but is
+never read at runtime by any script or pipeline.
+
+### Impact
+
+- **project.yaml is documentation, not configuration.** Changing a port
+  or adding a component in project.yaml has no effect unless you also
+  manually update docker-compose.yml, integration-test.sh, the CI
+  pipeline, and health check endpoints. The manifest and the reality
+  can drift silently.
+
+- **Violates single source of truth.** The methodology says project.yaml
+  is the topology manifest. But the actual topology is defined by the
+  sum of hardcoded values across multiple files. project.yaml is a
+  parallel declaration that nothing enforces.
+
+- **Blocks auto-bump.** The merge transaction needs to read `tag` from
+  project.yaml, update it, and commit. If nothing else reads tags,
+  the bump is cosmetic — it updates a field nobody consults.
+
+### Proposal
+
+Two paths, not mutually exclusive:
+
+**Path A: Generate from project.yaml (build-time)**
+
+M Power capabilities that produce runtime artefacts (docker-compose.yml,
+CI pipeline, integration-test.sh, health check config) should derive
+values from project.yaml rather than hardcoding them. When the topology
+changes, re-running the capability regenerates the artefacts. This is
+the current model — just applied more consistently.
+
+**Path B: Read project.yaml at runtime**
+
+Scripts read project.yaml directly (parse YAML, extract ports/names/paths).
+This makes project.yaml the live configuration. Requires a YAML parser
+available in CI (e.g. `yq`, or a small Node script). More dynamic but
+adds a runtime dependency.
+
+**Path A is simpler and aligns with how M already works** — powers
+generate artefacts from the manifest. The gap is that some artefacts
+(docker-compose, integration tests) were hand-written in pass1 instead
+of generated. Path B is more robust but heavier.
+
+### What needs to change
+
+Whichever path is chosen:
+
+1. `docker-compose.yml` — ports, build contexts, service names derived
+   from project.yaml components
+2. `integration-test.sh` — `MANAGED_REPOS` list, ports, health endpoints
+   derived from project.yaml
+3. `.gitlab-ci.yml` — clone URLs, health check endpoints derived from
+   project.yaml
+4. `wire-orchestration` capability — should generate these artefacts
+   from project.yaml, not hardcode them
+5. `tag` field — needs a consumer (merge transaction auto-bump, or
+   compose cloning at a specific tag for production builds)
+
+### Dependencies
+
+- I-004 (merge transaction / auto-tag / auto-bump — needs `tag` to be meaningful)
+- I-009 (plugin abstraction — compose strategy is a plugin, but it still
+  needs topology input from somewhere)
+- I-018 (compose strategy as plugin boundary — the plugin reads project.yaml)
+
+---
+
+## I-037: AC-to-PAT mapping should be 1:many, not 1:1
+
+**Category:** M Power capability / PAT schema
+**Priority:** Important (affects PAT expressiveness)
+**Discovered:** 2026-04-10, reviewing generate-pats capability
+
+### Problem
+
+The `generate-pats` capability says "Transform each acceptance criterion
+into a PAT entry" — implying a strict 1:1 mapping between ACs and PATs.
+The schema reinforces this with `AC-001`, `AC-002` etc., one per story AC.
+
+This works for coarse ACs like Story Zero ("shell renders", "MFE loads")
+but breaks down for feature stories where a single AC covers multiple
+distinct behaviours. For example:
+
+**AC:** "User can add a todo"
+
+This single criterion implies multiple testable behaviours:
+- Happy path: type text, click add, item appears in list
+- Validation: empty input, button disabled
+- Edge case: whitespace-only input rejected
+- Round-trip: added item persists after page refresh
+
+Forcing these into one PAT entry either makes the `when`/`then` vague
+("adding todos works correctly") or crams unrelated assertions into a
+single steps list, making the PAT hard to read and the compiled CAT
+hard to debug when one assertion fails.
+
+### Proposal
+
+Allow 1:many AC-to-PAT mapping. One acceptance criterion can yield
+multiple PAT entries, each with a focused `when`/`then` and steps.
+
+**ID scheme:** Use sub-IDs to preserve traceability:
+```
+- id: AC-003a
+  when: user types a title and clicks Add
+  then: new todo appears in the list
+  steps: ...
+
+- id: AC-003b
+  when: user clicks Add with empty input
+  then: nothing happens, button is disabled
+  steps: ...
+
+- id: AC-003c
+  when: user adds a todo and refreshes the page
+  then: the todo persists in the list
+  steps: ...
+```
+
+The `a`, `b`, `c` suffixes tie back to the parent AC (AC-003) while
+giving each behaviour its own identity for decomposition, CAT
+compilation, and failure reporting.
+
+### What needs to change
+
+1. **`generate-pats` capability doc** — change "Transform each AC into
+   a PAT entry" to "Transform each AC into one or more PAT entries."
+   Add guidance on when to split: distinct user actions, distinct
+   failure modes, distinct pre-conditions.
+2. **PAT.yaml schema** — document the sub-ID convention (`AC-NNNx`).
+3. **`decompose-story`** — the PAT-to-component mapping must handle
+   sub-IDs (all sub-PATs of one AC typically map to the same component,
+   but not necessarily).
+4. **`generate-acceptance-tests`** — each sub-PAT becomes its own
+   `it()` block in the compiled CAT, not a mega-test.
+
+### Impact
+
+More granular PATs mean more precise fitness functions for AI agents.
+An agent implementing "add todo" gets three distinct targets to converge
+on, not one vague one. Failure reporting is also clearer — "AC-003b
+failed" tells you the validation path is broken, not just "adding
+todos is broken."
+
+
+---
+
+## I-038: Sub-task PATs in YAML format — repo-scoped validation during implementation
+
+**Category:** Methodology / M Power capability
+**Priority:** High (closes the inner validation loop)
+**Discovered:** 2026-04-10, pre-demo review of sub-task structure
+
+### Problem
+
+Sub-tasks currently contain PAT *stubs* — pseudocode `describe`/`it`
+blocks with comments. These are not executable. During sub-task
+implementation, Kiro has no runnable contract to validate against.
+
+The story-level PAT (`TODOM-001.pat.yaml`) is the real contract, but
+it's cross-component and includes integration assertions that can't be
+verified in isolation (e.g. AC-005: "shell loads MFE, MFE communicates
+with both APIs"). Kiro implementing a single repo can't validate the
+full story PAT.
+
+This leaves a gap: the methodology's core promise is a self-validating
+approximation loop (implement → check against PAT → iterate), but at
+the sub-task level there's nothing concrete to check against. Kiro is
+effectively implementing on vibes and manual inspection.
+
+### Proposal
+
+Each sub-task gets its own `.pat.yaml` in the same format as the story
+PAT, scoped to what's verifiable in isolation for that repo.
+
+**Example:** `TODOM-001c.pat.yaml` for the MFE sub-task:
+
+```
+sub-task: TODOM-001c
+parent-story: TODOM-001
+component: todo-m-mfe
+version: 1
+
+acceptance:
+  - id: AC-001
+    when: Component renders with mock todo data
+    then: Todo list displays items with count
+    steps:
+      - render: Todo component with mocked API
+      - assert: "[data-testid='todo-list']" is visible
+      - assert: "[data-testid='todo-item']" count > 0
+      - assert: "[data-testid='todo-count']" is visible
+
+  - id: AC-002
+    when: Component renders with empty mock data
+    then: Empty state is displayed with add form
+    steps:
+      - render: Todo component with empty mock API
+      - assert: "[data-testid='todo-empty-state']" is visible
+      - assert: "[data-testid='todo-input']" is visible
+
+  - id: AC-004
+    when: Input field is empty
+    then: Add button is disabled
+    steps:
+      - render: Todo component
+      - assert: "[data-testid='todo-add-button']" is disabled
+```
+
+Note: AC-005 (full system composition) is absent — it's a story-level
+concern, not verifiable at the MFE repo level.
+
+### Derivation
+
+Sub-task PATs are mechanically derivable from the story PAT:
+
+1. Filter story PAT ACs to those mapped to this sub-task's component
+2. Replace system-level preconditions with repo-scoped equivalents
+   (e.g. "navigate to /" becomes "render component with mocked API")
+3. Drop ACs that require cross-component integration
+4. Output in identical YAML schema with `sub-task` and `component` fields
+
+The `decompose-story` power already knows which ACs map to which
+component. Generating sub-task PATs is a natural extension.
+
+### What changes
+
+1. **`decompose-story` capability** — after generating sub-task markdown
+   files, also generate `<sub-task-id>.pat.yaml` for each sub-task
+2. **Sub-task markdown template** — remove PAT stubs section, replace
+   with `PATs: see <sub-task-id>.pat.yaml` and list of AC IDs
+3. **Implementation steering** — Kiro reads the sub-task `.pat.yaml`
+   during implementation and validates against it (same loop as story
+   PAT, just repo-scoped)
+4. **PAT YAML schema** — document the `sub-task`, `parent-story`, and
+   `component` fields as optional extensions for sub-task PATs
+
+### Impact
+
+- Closes the inner validation loop: Kiro has a runnable contract at
+  every level (sub-task and story)
+- Single format across both levels — no new concepts
+- PAT stubs in markdown become unnecessary — less drift, single source
+  of truth
+- Sub-task PATs can seed repo-level CATs directly (same schema, just
+  compile to test framework)
+- The methodology's self-validating promise holds at every granularity
+
+
+---
+
+## I-039: Decomposition auto-establishes the AOT gate — compile story CATs and raise root MR
+
+**Category:** Methodology / M Power capability (critical)
+**Priority:** Critical (without this, AOT integration is structurally permissive)
+**Discovered:** 2026-04-10, investigating why all MRs went green despite incomplete story
+
+### Problem
+
+The current `decompose-story` capability generates sub-task files
+including a mandatory root repo sub-task (TODOM-001d style). But the
+root sub-task is just a markdown file describing what should be built.
+A human (or Kiro) must then manually:
+
+1. Compile the story PAT into a Cypress CAT
+2. Commit it to a root repo branch
+3. Raise an MR
+4. Ensure `integration-test.sh` checks for the root MR
+
+In practice, this step gets deferred or forgotten. When it does, the
+AOT (shadow) integration gate runs without real story-level tests.
+The gate passes on structural checks alone (are MRs present? do APIs
+respond?) — not on actual acceptance criteria validation.
+
+This was observed live: TODOM-001 had all three managed repo MRs open,
+shadow integration ran, all tests passed, and every MR became
+mergeable. But the integration tests were curl-based health checks,
+not the Cypress CATs that would validate the story PAT. The gate was
+green but meaningless.
+
+The root cause: TODOM-001d (root sub-task) was never implemented.
+Nobody compiled the story PAT into a Cypress spec. The methodology
+prescribed it, but nothing enforced it.
+
+### Proposal
+
+`decompose-story` should automatically establish the AOT gate as a
+side effect of decomposition. After generating sub-task files:
+
+1. **Compile story PAT → Cypress CAT** — mechanical transformation
+   from the PAT yaml into a runnable Cypress spec. The PAT steps
+   map directly to Cypress commands:
+   - `navigate: /` → `cy.visit('/')`
+   - `wait: "[data-testid='X']" is visible` → `cy.get('[data-testid="X"]').should('be.visible')`
+   - `assert: "[data-testid='X']" contains "Y"` → `cy.get('[data-testid="X"]').should('contain', 'Y')`
+   - `click: "[data-testid='X']"` → `cy.get('[data-testid="X"]').click()`
+   - `type: "[data-testid='X']" value "Y"` → `cy.get('[data-testid="X"]').type('Y')`
+
+2. **Commit to root repo branch** — create a feature branch
+   (e.g. `feat/<story-id>-integration-gate`), commit the Cypress
+   spec to `pats/<story-id>.cy.js`
+
+3. **Raise root MR** — automatically create the MR on the root repo.
+   This MR is the gate. It exists from the moment the story is
+   decomposed.
+
+4. **Update `integration-test.sh`** — add the root repo to
+   `MANAGED_REPOS` so the structural integrity check includes it
+   (one-time fix, see related issue below)
+
+### Outcome
+
+By the time a dev starts implementing the first managed repo sub-task,
+the gate is already live and failing:
+
+- Root MR exists with the Cypress CAT
+- Shadow integration runs the CAT against the composed system
+- Tests fail (nothing implemented yet) → all MRs blocked
+- As components land, tests progressively pass
+- All green → story is genuinely complete → merge transaction
+
+The root sub-task can never be "forgotten" because it's not a manual
+step anymore. It's a side effect of decomposition.
+
+### What changes
+
+1. **`decompose-story` capability** — add steps after sub-task file
+   generation:
+   - Compile story PAT into Cypress spec
+   - Create branch on root repo (via GitLab API)
+   - Commit Cypress spec + any compose config changes
+   - Raise MR on root repo
+   - Update readiness tracker with root sub-task
+
+2. **`generate-acceptance-tests` capability** — may be reused or
+   inlined. The PAT→Cypress compilation logic should be shared
+   between story-level CAT generation and repo-level CAT generation.
+
+3. **`integration-test.sh`** — add root repo to `MANAGED_REPOS`
+   so structural integrity includes the root MR. This is a one-time
+   fix to the existing script.
+
+4. **Root sub-task markdown** — still generated for documentation,
+   but its primary deliverable (the Cypress CAT) is already committed.
+   The sub-task file becomes a record of what was auto-generated,
+   not a todo for a human.
+
+### Related issues
+
+- **I-038** (sub-task PATs in YAML format) — complements this by
+  closing the inner validation loop. I-039 closes the outer loop.
+- **Integration test script gap** — `MANAGED_REPOS` doesn't include
+  `todo-m-root`. Simple fix: add it to the list. But with I-039,
+  the root MR is auto-raised so it will always be present.
+
+### Impact
+
+- AOT integration becomes a real gate from the moment a story is
+  decomposed — not after someone remembers to write the tests
+- Zero manual steps between decomposition and having a meaningful
+  integration gate
+- The methodology's promise of ahead-of-time integration validation
+  is structurally enforced, not just prescribed
+- Eliminates the class of bugs where "everything went green but
+  nothing was actually tested"

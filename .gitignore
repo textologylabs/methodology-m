@@ -9,3 +9,4 @@ ref-projects/
 # IDE workspace files
 *.code-workspace
 .vscode/
+.DS_Store

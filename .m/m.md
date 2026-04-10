@@ -1,0 +1,60 @@
+# Methodology M — Capability Index
+
+**Version:** 0.2.0
+
+Methodology M is an AI-driven delivery method for distributed software systems where a single user story spans multiple repos, multiple deployable units, and can only be verified in an integrated environment. The full specification lives in `methodology-m.md` at the repo root.
+
+This directory (`.m/`) is the agent-neutral, machine-readable expression of the methodology. Any AI agent that can read markdown and call platform APIs can execute these capabilities. Agent-specific adapters (`.kiro/`, `.claude/`, etc.) provide thin wrappers for discovery — the intelligence lives here.
+
+## Capabilities
+
+Each capability is a standalone playbook. Read the full file before executing — summaries below are for orientation only.
+
+| Capability | File | Description |
+|---|---|---|
+| `setup-workspace` | [setup-workspace.md](capabilities/setup-workspace.md) | Create a project workspace (group/org) on the SCM platform |
+| `bootstrap-root-repo` | [bootstrap-root-repo.md](capabilities/bootstrap-root-repo.md) | Create and seed the root repo with topology manifest and Story Zero |
+| `generate-pats` | [generate-pats.md](capabilities/generate-pats.md) | Transform story acceptance criteria into PAT.yaml format |
+| `decompose-story` | [decompose-story.md](capabilities/decompose-story.md) | Map story-level PATs to components, generate sub-tasks and readiness tracker |
+| `scaffold-repo` | [scaffold-repo.md](capabilities/scaffold-repo.md) | Create and configure a managed repo from a sub-task file |
+| `wire-orchestration` | [wire-orchestration.md](capabilities/wire-orchestration.md) | Connect managed repos to root repo orchestration (webhooks, CI, tokens) |
+| `generate-acceptance-tests` | [generate-acceptance-tests.md](capabilities/generate-acceptance-tests.md) | Compile PAT stubs into executable acceptance tests (CATs) |
+| `tag-release` | [tag-release.md](capabilities/tag-release.md) | Tag a managed repo at a version and update root repo topology |
+
+## Execution Protocol
+
+1. User requests a capability (by name or by describing the intent)
+2. Agent reads the corresponding `.m/capabilities/<name>.md` — the FULL file
+3. Agent follows the steps exactly, using whatever platform tools are available (MCP servers, CLI tools, APIs)
+4. Agent produces the report described in the capability file
+
+No shortcuts. The capability files contain critical sequences (branch protection ordering, webhook flags, CI image requirements) that cannot be skipped.
+
+## Configuration Resolution
+
+Capabilities that generate artefacts (CI configs, test setups, templates) resolve their choices through a four-tier hierarchy:
+
+```
+Repo-level override  →  Project-level (project.yaml)  →  Org Config  →  M Core Config
+```
+
+See `methodology-m.md` Section 6a for the full strategy/plugin architecture. The capabilities define the *what*. The configuration hierarchy determines the *with what tools*.
+
+## Directory Structure
+
+```
+.m/
+  m.md                  ← this file
+  capabilities/         ← standalone playbooks (the "how to do it")
+  steering/             ← persistent rules for agents working in M projects
+  roles/                ← specialist agent definitions (PAT Generator, Decomposer, etc.)
+  schemas/              ← PAT.yaml, readiness.yaml, project.yaml schemas
+```
+
+## Relationship to Agent Runtimes
+
+This directory is the canonical source. Agent-specific directories contain thin wrappers:
+
+- **Kiro** (`.kiro/powers/m-power/`) — a Power that bundles these capabilities with MCP servers and hooks
+- **Claude** (`.claude/skills/`) — skill wrappers that point here for execution
+- **Any SKILL.md-compatible agent** — can consume these files directly or via lightweight adapters
