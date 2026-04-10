@@ -1,10 +1,30 @@
-# Methodology M — Capability Index
+# Methodology M — Steering
 
 **Version:** 0.2.0
 
 Methodology M is an AI-driven delivery method for distributed software systems where a single user story spans multiple repos, multiple deployable units, and can only be verified in an integrated environment. The full specification lives in `methodology-m.md` at the repo root.
 
 This directory (`.m/`) is the agent-neutral, machine-readable expression of the methodology. Any AI agent that can read markdown and call platform APIs can execute these capabilities. Agent-specific adapters (`.kiro/`, `.claude/`, etc.) provide thin wrappers for discovery — the intelligence lives here.
+
+## Key Files
+
+- `methodology-m.md` — the full methodology specification (the paper)
+- `.m/m.md` — this file: steering, capabilities, execution protocol
+- `.m/capabilities/` — standalone playbooks for each M capability
+- `.m/providers/provider-interface.md` — namespace contracts and resolution protocol
+- `.m/providers/scm/gitlab.md` — GitLab SCM provider (reference implementation)
+
+## When Working in This Repo
+
+This is the methodology repo itself — not an M-type project. You are
+editing the methodology, its capabilities, and its provider implementations.
+
+When the user asks you to:
+- **Execute a capability** (e.g. "scaffold a repo") — read the capability
+  file and provider file, then execute
+- **Edit a capability** — modify `.m/capabilities/<name>.md`
+- **Edit a provider** — modify `.m/providers/scm/<provider>.md`
+- **Discuss methodology concepts** — refer to `methodology-m.md`
 
 ## Capabilities
 
