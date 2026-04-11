@@ -1,0 +1,27 @@
+{
+  "name": "methodology-m",
+  "version": "0.3.1",
+  "description": "CLI for distributing Methodology M into AI-driven software projects",
+  "type": "module",
+  "bin": {
+    "m": "./bin/m.mjs",
+    "methodology-m": "./bin/m.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "dist-m/",
+    "templates/"
+  ],
+  "scripts": {
+    "snapshot": "node scripts/snapshot-dist.mjs",
+    "prepublishOnly": "node scripts/snapshot-dist.mjs",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["methodology-m", "ai", "sdlc", "delivery", "multi-repo"],
+  "license": "MIT",
+  "author": "Textology Labs Ltd."
+}

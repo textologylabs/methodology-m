@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://methodology-m.dev/schemas/project.schema.json",
+  "title": "M project.yaml",
+  "description": "Schema for the topology manifest that lives at the root of every M-type root repo. Declares the project structure, components, providers, and configuration. Capabilities read this file to generate artefacts and resolve topology.",
+
+  "type": "object",
+  "required": ["project", "group", "components", "providers"],
+
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Project name. Used as a prefix for managed repo names (e.g. project 'todo-m' yields 'todo-m-api-read')."
+    },
+    "group": {
+      "type": "string",
+      "description": "Full SCM group/org path (e.g. 'methodology-m/todo-m-workshop'). Used by scaffold-repo and wire-orchestration to resolve repo locations."
+    },
+    "topology": {
+      "type": "string",
+      "description": "Topology mode. 'distributed' places each component in its own repo. 'monolith-first' embeds all components in packages/ within the root repo.",
+      "enum": ["distributed", "monolith-first"],
+      "default": "distributed"
+    },
+
+    "providers": {
+      "type": "object",
+      "description": "Active providers by namespace. Capabilities call namespaced functions (e.g. scm.create_repo); the provider selected here determines the concrete implementation. See .m/providers/ for available providers.",
+      "required": ["scm"],
+      "properties": {
+        "scm": {
+          "type": "string",
+          "description": "Source code management provider. Determines which .m/providers/scm/<provider>.md file is used.",
+          "examples": ["gitlab", "github"]
+        }
+      },
+      "additionalProperties": {
+        "type": "string",
+        "description": "Future provider namespaces (e.g. ci, test, compose, deploy)."
+      }
+    },
+
+    "components": {
+      "type": "array",
+      "description": "Component catalogue. Ordered list — port assignment follows component order when ports are not explicit. The shell (frontend-host) is conventionally first.",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/component" }
+    },
+
+    "templates": {
+      "type": "object",
+      "description": "Template overrides per component role. Keys are roles, values are template-key or template-key@version from the org config catalogue. Omit to use defaults.",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]+(\\@[\\w\\.]+)?$"
+      }
+    },
+
+    "pat-compilation": {
+      "type": "object",
+      "description": "Test framework per component role for PAT-to-CAT compilation. Omit to use M defaults (backend: supertest+vitest, frontend: cypress, frontend-host: cypress).",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+
+    "persistence": {
+      "type": "object",
+      "description": "Shared state mechanism between components. Affects scaffold-repo (wires dependencies) and docker-compose.yml (volumes/services).",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Persistence mechanism key from config catalogue.",
+          "examples": ["sqlite", "postgres", "dynamodb-local"]
+        },
+        "volume": {
+          "type": "string",
+          "description": "Docker volume name for shared state."
+        }
+      },
+      "required": ["type"]
+    },
+
+    "compose": {
+      "type": "object",
+      "description": "System-level assembly configuration for AOT integration and local development.",
+      "properties": {
+        "local": {
+          "type": "object",
+          "description": "Local development compose strategy.",
+          "properties": {
+            "strategy": { "type": "string", "examples": ["process", "docker-compose"] },
+            "script": { "type": "string" },
+            "stop": { "type": "string" }
+          }
+        },
+        "integration": {
+          "type": "object",
+          "description": "CI AOT integration compose strategy.",
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "description": "Compose strategy. Reference implementation is docker-compose.",
+              "examples": ["docker-compose", "kubernetes", "serverless"]
+            },
+            "file": { "type": "string", "description": "Compose file path relative to root repo." },
+            "build": { "type": "boolean", "description": "Whether to build images (true) or pull pre-built (false)." },
+            "health": {
+              "type": "object",
+              "properties": {
+                "timeout": { "type": "integer", "description": "Seconds to wait for all endpoints.", "default": 60 },
+                "endpoints": {
+                  "type": "array",
+                  "items": { "type": "string", "format": "uri" },
+                  "description": "Health check URLs. Derived from component ports and roles if omitted."
+                }
+              }
+            },
+            "tests": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "examples": ["cypress", "playwright", "k6"] },
+                  "spec": { "type": "string", "description": "Glob pattern for test files." },
+                  "base-url": { "type": "string", "format": "uri" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "additionalProperties": false,
+
+  "$defs": {
+    "component": {
+      "type": "object",
+      "required": ["name", "type", "location"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Component identifier. Used in CI variable names (M_TOKEN_<NAME_UPPER>), compose service names, and repo name suffixes.",
+          "pattern": "^[a-z][a-z0-9-]+$"
+        },
+        "type": {
+          "type": "string",
+          "description": "'embedded' lives inside the root repo (packages/<name>). 'referenced' lives in its own repo.",
+          "enum": ["embedded", "referenced"]
+        },
+        "location": {
+          "type": "string",
+          "description": "For embedded: relative path (e.g. ./packages/shell). For referenced: full SCM path (e.g. methodology-m/todo-m-workshop/todo-m-api-read)."
+        },
+        "role": {
+          "type": "string",
+          "description": "Component role. Determines scaffold template, CI template, health check convention, and port defaults.",
+          "enum": ["frontend-host", "frontend", "backend"]
+        },
+        "tag": {
+          "type": ["string", "null"],
+          "description": "Version pin. Null (~) means nothing released yet. Set by auto-tag after merge transaction. Format: v<major>.<minor>.<patch>.",
+          "pattern": "^v\\d+\\.\\d+\\.\\d+$"
+        },
+        "port": {
+          "type": "integer",
+          "description": "Service port for compose and health checks. Convention: frontend-host=3000, frontend=3001, backends=3002+. If omitted, derived from component order and role.",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

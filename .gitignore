@@ -10,3 +10,6 @@ ref-projects/
 *.code-workspace
 .vscode/
 .DS_Store
+
+# CLI build artefact (snapshot of .m/ for npm distribution)
+cli/dist-m/

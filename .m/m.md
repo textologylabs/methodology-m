@@ -1,6 +1,6 @@
 # Methodology M — Steering
 
-**Version:** 0.3.0
+**Version:** 0.3.1
 
 Methodology M is an AI-driven delivery method for distributed software systems where a single user story spans multiple repos, multiple deployable units, and can only be verified in an integrated environment. The full specification lives in `methodology-m.md` at the repo root.
 
@@ -13,6 +13,8 @@ This directory (`.m/`) is the agent-neutral, machine-readable expression of the 
 - `methodology-m.md` — the full methodology specification (the paper)
 - `.m/m.md` — this file: steering, capabilities, execution protocol
 - `.m/capabilities/` — standalone playbooks for each M capability
+- `.m/schemas/pat.schema.json` — JSON Schema for PAT.yaml files (story and sub-task)
+- `.m/schemas/project.schema.json` — JSON Schema for project.yaml topology manifest
 - `.m/providers/provider-interface.md` — namespace contracts and resolution protocol
 - `.m/providers/scm/gitlab.md` — GitLab SCM provider (reference implementation)
 
@@ -30,23 +32,23 @@ When the user asks you to:
 
 ## Capabilities
 
-Each capability is a standalone playbook. Read the full file before executing — summaries below are for orientation only.
+Each capability follows the [Agent Skills](https://agentskills.io) standard (`<name>/SKILL.md`). Read the full file before executing — summaries below are for orientation only.
 
 | Capability | File | Description |
 |---|---|---|
-| `setup-workspace` | [setup-workspace.md](capabilities/setup-workspace.md) | Create a project workspace (group/org) on the SCM platform |
-| `bootstrap-root-repo` | [bootstrap-root-repo.md](capabilities/bootstrap-root-repo.md) | Create and seed the root repo with topology manifest and Story Zero |
-| `generate-pats` | [generate-pats.md](capabilities/generate-pats.md) | Transform story acceptance criteria into PAT.yaml format |
-| `decompose-story` | [decompose-story.md](capabilities/decompose-story.md) | Map story-level PATs to components, generate sub-tasks and readiness tracker |
-| `scaffold-repo` | [scaffold-repo.md](capabilities/scaffold-repo.md) | Create and configure a managed repo from a sub-task file |
-| `wire-orchestration` | [wire-orchestration.md](capabilities/wire-orchestration.md) | Connect managed repos to root repo orchestration (webhooks, CI, tokens) |
-| `generate-acceptance-tests` | [generate-acceptance-tests.md](capabilities/generate-acceptance-tests.md) | Compile PAT stubs into executable acceptance tests (CATs) |
-| `tag-release` | [tag-release.md](capabilities/tag-release.md) | Tag a managed repo at a version and update root repo topology |
+| `setup-workspace` | [SKILL.md](capabilities/setup-workspace/SKILL.md) | Create a project workspace (group/org) on the SCM platform |
+| `bootstrap-root-repo` | [SKILL.md](capabilities/bootstrap-root-repo/SKILL.md) | Create and seed the root repo with topology manifest and Story Zero |
+| `generate-pats` | [SKILL.md](capabilities/generate-pats/SKILL.md) | Transform story acceptance criteria into PAT.yaml format |
+| `decompose-story` | [SKILL.md](capabilities/decompose-story/SKILL.md) | Map story-level PATs to components, generate sub-tasks and readiness tracker |
+| `scaffold-repo` | [SKILL.md](capabilities/scaffold-repo/SKILL.md) | Create and configure a managed repo from a sub-task file |
+| `wire-orchestration` | [SKILL.md](capabilities/wire-orchestration/SKILL.md) | Connect managed repos to root repo orchestration (webhooks, CI, tokens) |
+| `generate-acceptance-tests` | [SKILL.md](capabilities/generate-acceptance-tests/SKILL.md) | Compile PAT stubs into executable acceptance tests (CATs) |
+| `tag-release` | [SKILL.md](capabilities/tag-release/SKILL.md) | Tag a managed repo at a version and update root repo topology |
 
 ## Execution Protocol
 
 1. User requests a capability (by name or by describing the intent)
-2. Agent reads the corresponding `.m/capabilities/<name>.md` — the FULL file
+2. Agent reads the corresponding `.m/capabilities/<name>/SKILL.md` — the FULL file
 3. For any namespaced function call (e.g. `scm.create_repo(...)`):
    a. Check `project.yaml` → `providers` to find the active provider
    b. Read `.m/providers/<category>/<provider>.md` for the concrete implementation
@@ -82,20 +84,43 @@ function contracts and the protocol for adding new namespaces/providers.
 
 ```
 .m/
-  m.md                         ← this file
-  capabilities/                ← standalone playbooks (the "how to do it")
+  m.md                              ← this file
+  capabilities/
+    <name>/SKILL.md                 ← one per capability (Agent Skills standard)
+  schemas/
+    pat.schema.json                 ← JSON Schema for PAT.yaml files
+    project.schema.json             ← JSON Schema for project.yaml
   providers/
-    provider-interface.md      ← namespace contracts and resolution protocol
-    scm/gitlab.md              ← GitLab SCM provider (reference implementation)
-  steering/                    ← persistent rules for agents working in M projects
-  roles/                       ← specialist agent definitions
-  schemas/                     ← PAT.yaml, readiness.yaml, project.yaml schemas
+    provider-interface.md           ← namespace contracts and resolution protocol
+    scm/gitlab.md                   ← GitLab SCM provider (reference implementation)
 ```
+
+Agent-specific steering (how to behave) lives in agent directories
+(`.claude/steering/`, `.kiro/steering/`). Steering templates for
+managed repos are embedded in the `scaffold-repo` capability doc.
+
+## Schemas — Mandatory Validation
+
+The `.m/schemas/` directory contains JSON Schema definitions for M
+artefacts. These are the formal contracts — capability docs describe
+*when* and *why* to generate an artefact, schemas define *what it must
+look like*.
+
+| Schema | Validates | Used by |
+|---|---|---|
+| `pat.schema.json` | `*.pat.yaml` files (story-level and sub-task) | generate-pats, decompose-story, generate-acceptance-tests |
+| `project.schema.json` | `project.yaml` topology manifest | bootstrap-root-repo, scaffold-repo, wire-orchestration |
+
+**Agent rule:** When generating or modifying a PAT.yaml or project.yaml
+file, read the corresponding schema FIRST. Validate your output against
+the schema before committing. If a field is marked `required` in the
+schema, it must be present. If a value has an `enum` constraint or
+`pattern`, use only valid values. Do not invent fields not in the schema.
 
 ## Relationship to Agent Runtimes
 
 This directory is the canonical source. Agent-specific directories contain thin wrappers:
 
 - **Kiro** (`.kiro/powers/m-power/`) — a Power that bundles these capabilities with MCP servers and hooks
-- **Claude** (`.claude/skills/`) — skill wrappers that point here for execution
+- **Claude** (`.claude/skills/<name>/SKILL.md`) — thin skill wrappers pointing to `.m/capabilities/<name>/SKILL.md`
 - **Any SKILL.md-compatible agent** — can consume these files directly or via lightweight adapters
