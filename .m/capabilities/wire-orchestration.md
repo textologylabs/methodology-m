@@ -116,7 +116,7 @@ section while preserving the same lifecycle contract.
 
 **Shadow integration jobs** (run only on trigger events from managed repo webhooks):
 - `detect-trigger` — determines event type: `aot_integration`, `cascade_merge`, or `pipeline_failure`
-- `shadow:invalidate-status` — immediately pushes `pending` to all story MRs
+- `shadow:invalidate-status` — immediately pushes `pending` to ALL story MRs (including root) to block merge during AOT window
 - `shadow:integration` — clone siblings, Docker build, start, health check, run tests. Skips compose for `cascade_merge` and `pipeline_failure` (exits with failure for pipeline_failure to trigger report-failure)
 - `shadow:report-status` — push `success` commit status to ALL story MRs (including root)
 - `shadow:report-failure` — push `failed` commit status to ALL story MRs (including root)
@@ -318,6 +318,16 @@ https://gitlab.com/api/v4/projects/<root-project-id>/trigger/pipeline
 For projects on GitLab Premium+, managed repo pipelines can use the
 `trigger` keyword to directly trigger downstream root repo pipelines.
 The webhook approach works on all tiers.
+
+## Critical — Repo Lists Must Include Root
+
+Every script that iterates repos for a story — `integration-test.sh`,
+`report-shadow-status.sh`, `invalidate-story-status.sh` — MUST include
+the root repo alongside managed repos. The root repo is a constituent
+of every story (it delivers integration tests). Excluding it from any
+repo list creates a gap where the root MR can have stale status or
+bypass the integrity gate. Use a single `REPOS` variable derived from
+the topology, not a hardcoded list of managed repos.
 
 ## Notes
 
