@@ -3,6 +3,77 @@
 Captured during development of the reference implementation. Each item has
 enough context to pick up without archaeology.
 
+## Prioritisation
+
+Items are tiered by impact and dependency ordering. Resolved items are
+listed for completeness — their write-ups remain below as reference.
+
+### Tier 1 — Structural integrity (do next)
+
+| Item | Title | Rationale |
+|------|-------|-----------|
+| I-036 | project.yaml as live config | Root cause of recurring "forgot to update REPOS" bugs. Unblocks I-040. Highest leverage single item. |
+| I-022 | Rename shadow → AOT | Terminology split causes confusion. Wide blast radius — best done in one focused pass before more docs accumulate. |
+
+### Tier 2 — Completeness of the delivery loop
+
+| Item | Title | Rationale |
+|------|-------|-----------|
+| I-004 | Merge transaction, auto-tag, auto-bump (remaining) | Shadow status works. Post-merge lifecycle is entirely manual. Other half of the M promise. |
+| I-030 | Standalone and follow-up MRs | Any real project has non-story MRs. Currently these trigger full AOT and fail. Quick fix, big usability impact. |
+| I-040 | Topology changes | Adding/removing components mid-project is undefined. Depends on I-036 for clean implementation. |
+| I-041 | Pessimistic invalidation on pipeline start | Push `pending` to all story MRs when any constituent pipeline starts. Tightens the gate. |
+
+### Tier 3 — Architecture and extensibility
+
+| Item | Title | Rationale |
+|------|-------|-----------|
+| I-009 | Plugin architecture (umbrella) | Unifies I-003, I-008, I-014, I-015, I-018, I-019, I-024, I-025 under a coherent pattern. The `scm.*` provider interface solved one dimension; same pattern needed for CI, test, compose, deploy. |
+| I-003 | Configurable PAT→CAT framework | Sub-item of I-009. Test stack as project config, not hardcoded. |
+| I-008 | Role-specific CI templates | Sub-item of I-009. Frontend vs backend scaffold CI. |
+| I-014 | Compose strategy as plugin | Sub-item of I-009. Reference impl is Docker Compose + DinD. |
+| I-015 | Project templates | Sub-item of I-009. Pluggable scaffolding blueprints per role. |
+| I-018 | Compose strategy boundary in wire-orchestration | Sub-item of I-009. Separate methodology contract from reference impl. |
+| I-019 | Persistence layer as plugin | Sub-item of I-009. Shared state between components. |
+| I-024 | Project template catalogue | Sub-item of I-015. Org-level template registry. |
+| I-025 | Two-tier config: M Core + Org Config | Distribution model. Batteries-included defaults + org overlay. |
+| I-026 | Onboarding flows | Greenfield vs existing org adoption paths. |
+| I-027 | Installation mechanics | Concrete distribution: npm, CLI, power bundle. |
+| I-028 | Repo reorganisation | Separate distributable M from workshop artefacts. Prerequisite for I-029. |
+| I-029 | Version M as npm package with CLI | CLI built. Remaining: npm publish, AI changelog, repo reorg (I-028). |
+
+### Tier 4 — Polish and nice-to-haves
+
+| Item | Title | Rationale |
+|------|-------|-----------|
+| I-001 | Story Zero wizard | Cold-start UX. Nice but Story Zero is a one-time event per project. |
+| I-002 | Remove jira/ from GitLab repos | Conceptual cleanliness. Harmless but messy. |
+| I-006 | API stubs for frontend repos | Scaffold convenience. Currently manual. |
+| I-016 | Methodology paper overhaul | Post-demo. Accumulate learnings first. |
+| I-017 | DRY compose jobs | Tech debt. No functional change. |
+| I-034 | MR reopen events | Webhook edge case. Rare in practice. |
+| I-035 | Duplicate pipelines on MR close | CI noise. Not blocking. |
+| I-037 | AC-to-PAT 1:many mapping | PAT expressiveness. Current model works for simple stories. |
+| I-038 | Sub-task PATs in YAML | Inner validation loop. Complementary to I-039. |
+
+### Resolved
+
+| Item | Title | Resolution |
+|------|-------|------------|
+| I-004 | End-to-end loop (partial) | Shadow status reporting working. Merge transaction, auto-tag, auto-bump still TODO. |
+| I-005 | API scaffold CORS + port | Fixed in pass1. scaffold-repo updated. |
+| I-007 | Pipelines must succeed | Applied to all repos. scaffold-repo updated. |
+| I-010 | Shadow integration visible on MRs | shadow:report-status/failure push commit statuses. |
+| I-011 | Root repo MR pipeline rules | MR rules added to validate jobs. |
+| I-012 | Embedded shell lifecycle | Root repo CI has full lifecycle. |
+| I-013 | Compose from story branches | Eager model via resolve-story-branches.sh. |
+| I-020 | Root repo sub-task mandatory | decompose-story enforces root sub-task. |
+| I-021 | PAT validation loop in steering | Steering template updated. |
+| I-031 | Stale green race condition | Instant invalidation pushes pending before AOT. |
+| I-032 | Pipeline failure webhook | pipeline_events on webhooks, detect-trigger handles pipeline_failure. |
+| I-033 | 90s invalidation window | Accepted limitation. Documented. |
+| I-039 | Decomposition auto-establishes AOT gate | decompose-story Step 4: auto-compile PAT → Cypress, raise root MR. |
+
 ---
 
 ## I-001: Story Zero wizard (`init-story-zero`)
@@ -1891,6 +1962,7 @@ methodology-m/
 
 **Category:** Distribution / versioning
 **Priority:** Important (enables cross-project synchronisation)
+**Status:** ✅ Partially resolved (2026-04-11) — CLI built with init/clone/update/diff/version/changelog commands, npm package structure ready, JSON schemas added. Remaining: npm publish, AI-targeted changelog format (CHANGELOG-AI.md), repo reorganisation (I-028).
 **Discovered:** 2026-04-07, during distribution model discussion
 
 ### Problem
@@ -2771,3 +2843,74 @@ Without this, adding a component to a live M project requires manual
 updates to 10+ files/configs with no guidance from the methodology.
 This is the kind of gap that causes "it works for the demo but breaks
 in production" failures
+
+
+---
+
+## I-041: Pessimistic invalidation — push pending on pipeline start
+
+**Category:** Orchestration / water-tightness
+**Priority:** Important (tightens the gate)
+**Discovered:** 2026-04-11, discussing gap between pipeline failure and status fan-out
+
+### Problem
+
+When a managed repo's pipeline starts (new push to an MR branch), there
+is a window where sibling MRs retain their previous green
+`shadow-integration` status. The new code hasn't been AOT-tested yet,
+but the old status says "integration passed." This is stale information.
+
+I-032 closed the gap for pipeline *failures* (webhook fires, root
+detects failure, fans out `failed`). But the gap between "new code
+pushed" and "AOT re-evaluates" remains. During this window, sibling
+MRs appear mergeable based on a stale green that predates the new code.
+
+### Proposal
+
+Each managed repo's CI pipeline pushes `pending` for the
+`shadow-integration` commit status on ALL story MRs as its very first
+job. This immediately blocks all sibling MRs (including its own) until
+AOT re-evaluates the new state.
+
+**Implementation approach:**
+
+1. Add a `invalidate-shadow` job as the first stage in each managed
+   repo's `.gitlab-ci.yml` (generated by `scaffold-repo`)
+2. The job extracts the story ID from the branch name
+3. Calls a script (similar to `invalidate-story-status.sh` on root)
+   that pushes `state=pending` for `shadow-integration` to all story
+   MRs across all repos in the topology
+4. Requires a token with API scope that can post commit statuses to
+   sibling repos (the group-level token `M_GROUP_TOKEN`)
+
+**Alternative:** Instead of each managed repo doing this, the root
+repo's `shadow:invalidate-status` job already does it — but only after
+the webhook fires and the root pipeline starts (~30-40s latency). The
+managed-repo-first approach is faster (invalidation happens within
+seconds of the push, before the webhook even fires).
+
+### What needs changing
+
+- `scaffold-repo` capability — add `invalidate-shadow` job to managed
+  repo CI template
+- `wire-orchestration` capability — document the pessimistic model
+- Each managed repo needs `M_GROUP_TOKEN` as a CI variable (or the
+  invalidation script needs to be callable without cross-repo access,
+  delegating to the root repo via trigger)
+
+### Trade-offs
+
+- **Pro:** Eliminates stale green window almost entirely
+- **Pro:** Managed repos take responsibility for signalling "my code
+  changed, re-evaluate everything"
+- **Con:** Requires group-level token on every managed repo (security
+  surface increase)
+- **Con:** Every push to any story branch invalidates all sibling MRs,
+  even if the push is trivial (commit message fix, etc.)
+
+### Dependencies
+
+- I-032 (pipeline failure propagation — complementary)
+- I-036 (project.yaml as live config — repo list for invalidation)
+- scaffold-repo capability (generates managed repo CI)
+- wire-orchestration capability (documents the invalidation model)

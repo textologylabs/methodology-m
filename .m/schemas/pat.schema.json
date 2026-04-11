@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://methodology-m.dev/schemas/pat.schema.json",
+  "title": "M PAT (Provable Acceptance Test)",
+  "description": "Schema for story-level and sub-task-level PAT.yaml files. Story PATs define the full acceptance contract for a user story. Sub-task PATs scope acceptance criteria to what is verifiable in isolation for a single component.",
+
+  "type": "object",
+  "required": ["version", "acceptance"],
+
+  "oneOf": [
+    {
+      "description": "Story-level PAT — lives in root repo at pats/<story-id>.pat.yaml",
+      "required": ["story"],
+      "properties": {
+        "story": true,
+        "version": true,
+        "acceptance": true
+      },
+      "not": {
+        "anyOf": [
+          { "required": ["sub-task"] },
+          { "required": ["parent-story"] },
+          { "required": ["component"] }
+        ]
+      }
+    },
+    {
+      "description": "Sub-task PAT — lives in managed repo at pats/<sub-task-id>.pat.yaml",
+      "required": ["sub-task", "parent-story", "component"],
+      "properties": {
+        "sub-task": true,
+        "parent-story": true,
+        "component": true,
+        "version": true,
+        "acceptance": true
+      },
+      "not": {
+        "required": ["story"]
+      }
+    }
+  ],
+
+  "properties": {
+    "story": {
+      "type": "string",
+      "description": "Story identifier (e.g. TODOM-001, PROJ-042). Present on story-level PATs only.",
+      "pattern": "^[A-Z]+-\\d+$"
+    },
+    "sub-task": {
+      "type": "string",
+      "description": "Sub-task identifier (e.g. TODOM-001c). Story ID + alphabetic suffix. Present on sub-task PATs only.",
+      "pattern": "^[A-Z]+-\\d+[a-z]$"
+    },
+    "parent-story": {
+      "type": "string",
+      "description": "Parent story identifier. Required on sub-task PATs.",
+      "pattern": "^[A-Z]+-\\d+$"
+    },
+    "component": {
+      "type": "string",
+      "description": "Component name from project.yaml (e.g. todo-m-mfe). Required on sub-task PATs."
+    },
+    "version": {
+      "type": "integer",
+      "description": "Schema version. Always 1 for now.",
+      "const": 1
+    },
+    "acceptance": {
+      "type": "array",
+      "description": "Ordered list of acceptance criteria. Order matters — later entries may depend on state created by earlier ones.",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/acceptance-criterion" }
+    }
+  },
+  "additionalProperties": false,
+
+  "$defs": {
+    "acceptance-criterion": {
+      "type": "object",
+      "required": ["id", "when", "then", "steps"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique within this PAT file. Format: AC-NNN for single criteria, AC-NNNx (a,b,c...) when one acceptance criterion yields multiple test scenarios.",
+          "pattern": "^AC-\\d{3}[a-z]?$"
+        },
+        "when": {
+          "type": "string",
+          "description": "Trigger condition in plain English. User-facing, topology-agnostic. No component names, API paths, or CSS selectors."
+        },
+        "then": {
+          "type": "string",
+          "description": "Expected outcome in plain English. Observable result from the user's perspective."
+        },
+        "steps": {
+          "type": "array",
+          "description": "Ordered test steps. Each step is an object with exactly one verb key. Steps map directly to Cypress commands for story-level PATs.",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/step" }
+        },
+        "replaces": {
+          "type": "string",
+          "description": "AC this supersedes, from a previous story. Format: <story-id>/AC-<id>. Compiler must find and update the old compiled test.",
+          "pattern": "^[A-Z]+-\\d+/AC-\\d{3}[a-z]?$"
+        },
+        "removes": {
+          "type": "string",
+          "description": "AC this deletes, from a previous story. Format: <story-id>/AC-<id>. Compiler must find and delete the old compiled test.",
+          "pattern": "^[A-Z]+-\\d+/AC-\\d{3}[a-z]?$"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "step": {
+      "type": "object",
+      "description": "A single test step. Exactly one verb key per step object.",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "oneOf": [
+        { "required": ["navigate"], "properties": { "navigate": { "$ref": "#/$defs/step-navigate" } } },
+        { "required": ["click"], "properties": { "click": { "$ref": "#/$defs/step-click" } } },
+        { "required": ["type"], "properties": { "type": { "$ref": "#/$defs/step-type" } } },
+        { "required": ["assert"], "properties": { "assert": { "$ref": "#/$defs/step-assert" } } },
+        { "required": ["wait"], "properties": { "wait": { "$ref": "#/$defs/step-wait" } } },
+        { "required": ["render"], "properties": { "render": { "$ref": "#/$defs/step-render" } } }
+      ]
+    },
+
+    "step-navigate": {
+      "type": "string",
+      "description": "Navigate to a URL path. Compiles to cy.visit(path).",
+      "examples": ["/", "/todos", "/login"]
+    },
+    "step-click": {
+      "type": "string",
+      "description": "Click an element by data-testid selector. Format: \"[data-testid='<id>']\". Compiles to cy.get(selector).click().",
+      "pattern": "^\"\\[data-testid='[^']+']\"$"
+    },
+    "step-type": {
+      "type": "string",
+      "description": "Type text into an element. Format: \"[data-testid='<id>']\" value \"<text>\". Compiles to cy.get(selector).type(text).",
+      "pattern": "^\"\\[data-testid='[^']+']\" value \"[^\"]*\"$"
+    },
+    "step-assert": {
+      "type": "string",
+      "description": "Assert a condition on an element. Formats: \"[selector]\" is visible | \"[selector]\" contains \"<value>\" | \"[selector]\" count > N | \"[selector]\" is disabled.",
+      "pattern": "^\"\\[data-testid='[^']+']\" (is visible|is disabled|contains \"[^\"]*\"|count > \\d+)$"
+    },
+    "step-wait": {
+      "type": "string",
+      "description": "Wait for a condition on an element. Same formats as assert but waits with retry. Compiles to cy.get(selector).should(...).",
+      "pattern": "^\"\\[data-testid='[^']+']\" (is visible|contains \"[^\"]*\")$"
+    },
+    "step-render": {
+      "type": "string",
+      "description": "Render a component with a mock setup. Sub-task PATs only (not browser-level). Not compiled to Cypress — used for component-level testing.",
+      "examples": ["Todo component with mocked API", "Todo component with empty mock API"]
+    }
+  }
+}
