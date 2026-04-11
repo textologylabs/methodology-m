@@ -2689,3 +2689,83 @@ step anymore. It's a side effect of decomposition.
   is structurally enforced, not just prescribed
 - Eliminates the class of bugs where "everything went green but
   nothing was actually tested"
+
+
+---
+
+## I-040: Topology changes — adding, removing, or replacing components in a live project
+
+**Category:** Methodology / architecture
+**Priority:** Important (uncovered territory)
+**Discovered:** 2026-04-11, discussing wiring between managed repos
+
+### Problem
+
+Methodology M assumes a static topology declared at bootstrap time in
+`project.yaml`. Every capability — scaffold-repo, wire-orchestration,
+integration-test.sh, report-shadow-status.sh, resolve-story-branches.sh
+— reads the component list and treats it as fixed. There is no defined
+process for what happens when the topology changes mid-project:
+
+- **Adding a component** (e.g. new MFE, new API service): needs repo
+  creation, webhook wiring, CI variable for merge transaction token,
+  addition to integration test REPOS list, addition to compose config,
+  addition to status fan-out script, health check endpoints updated.
+
+- **Removing a component**: reverse of above — unhook webhooks, remove
+  CI variables, remove from REPOS lists, update compose config. What
+  happens to in-flight stories that reference the removed component?
+
+- **Replacing a component** (e.g. splitting one API into two): combination
+  of add + remove, plus migrating in-flight story sub-tasks and PATs.
+
+- **Changing component type** (embedded → referenced or vice versa):
+  the code moves, the orchestration wiring changes, but story-level
+  PATs should be unaffected (they're topology-agnostic).
+
+### What's affected
+
+| Artefact | Hardcoded topology? | Needs updating on change? |
+|---|---|---|
+| `project.yaml` | Source of truth | Yes — add/remove component entry |
+| `docker-compose.yml` | Service list, ports, build contexts | Yes |
+| `integration-test.sh` | `REPOS` list | Yes |
+| `report-shadow-status.sh` | `REPOS` list | Yes |
+| `invalidate-story-status.sh` | Repo list (if any) | Yes |
+| `resolve-story-branches.sh` | Repo list | Yes |
+| `.gitlab-ci.yml` (root) | Clone commands, health endpoints | Yes |
+| Webhooks | Per managed repo | Add/remove webhooks |
+| CI variables | Per managed repo token | Add/remove variables |
+| Health check endpoints | Per component | Add/remove endpoints |
+
+Many of these lists are currently hardcoded strings that should be
+derived from `project.yaml` (see I-036). Solving I-036 would make
+topology changes much simpler — update `project.yaml`, re-run the
+generation capability, done.
+
+### Proposal
+
+1. **Define a `topology-change` capability** — reads current and desired
+   `project.yaml`, diffs, and applies the delta: new webhooks, removed
+   CI variables, updated compose config, updated scripts.
+
+2. **Derive runtime artefacts from project.yaml** (I-036) — scripts
+   and CI configs should read from the manifest, not hardcode repo
+   lists. This makes topology changes a single-source update.
+
+3. **Document the manual process** for now — even without automation,
+   the methodology should describe what steps are needed when adding
+   or removing a component. Currently it's silent on the topic.
+
+### Dependencies
+
+- I-036 (project.yaml as live config, not just declaration)
+- wire-orchestration capability (generates the wiring that needs updating)
+- scaffold-repo capability (creates new components)
+
+### Impact
+
+Without this, adding a component to a live M project requires manual
+updates to 10+ files/configs with no guidance from the methodology.
+This is the kind of gap that causes "it works for the demo but breaks
+in production" failures
