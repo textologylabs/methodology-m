@@ -62,14 +62,18 @@ For each managed repo:
 scm.create_webhook(
   repo: <managed-repo>,
   url: <trigger-url-with-token>,
-  events: { merge_request: true, push: false },
+  events: { merge_request: true, pipeline: true, push: false },
   ssl_verify: true
 )
 ```
 
-**Important:** Only MR/PR events should trigger shadow integration.
-Explicitly disable push events to avoid triggering the root repo
-pipeline on every push to managed repos.
+**Important:** Push events MUST be explicitly disabled to avoid
+triggering the root repo pipeline on every push to managed repos.
+
+Pipeline events (`pipeline: true`) are required so that when a managed
+repo's own pipeline fails, the root repo is notified and can propagate
+the failure to all story MRs. Without this, sibling MRs retain stale
+green status until the next MR event.
 
 ### Step 4 — Store access tokens as CI secrets
 
@@ -111,14 +115,14 @@ section while preserving the same lifecycle contract.
 - `test` — shell unit tests
 
 **Shadow integration jobs** (run only on trigger events from managed repo webhooks):
-- `shadow:compose` — clone siblings, Docker build, start, health check
-- `shadow:integration-test` — run story-level tests against composed system
-- `shadow:report-status` — push pass/fail commit status back to source MR
-- `shadow:report-failure` — push failure status (runs `when: on_failure`)
+- `detect-trigger` — determines event type: `aot_integration`, `cascade_merge`, or `pipeline_failure`
+- `shadow:invalidate-status` — immediately pushes `pending` to all story MRs
+- `shadow:integration` — clone siblings, Docker build, start, health check, run tests. Skips compose for `cascade_merge` and `pipeline_failure` (exits with failure for pipeline_failure to trigger report-failure)
+- `shadow:report-status` — push `success` commit status to ALL story MRs (including root)
+- `shadow:report-failure` — push `failed` commit status to ALL story MRs (including root)
 
 **Validation jobs** (run on MR events and main pushes, skip triggers):
-- `validate:compose` — same compose logic as shadow, gates root repo MRs
-- `validate:integration-test` — story-level tests on the validated compose
+- `validate:integration` — compose, health check, run story-level tests. On MR pipelines, the `after_script` extracts the story ID from the branch name and fans out the result (success/failure) to all story MRs via `report-shadow-status.sh`. This ensures that a root MR pipeline failure makes all sibling MRs go red.
 
 **Merge transaction** (manual trigger):
 - `merge-transaction` — merge managed MRs atomically, update topology
@@ -251,18 +255,20 @@ rules:
 
 #### Shadow status reporting
 
-The shadow pipeline reports results back to the managed repo MR as
-commit statuses. This requires a group-level token with API scope
-(`M_GROUP_TOKEN`) as a CI secret on the root repo.
+The shadow pipeline reports results to ALL repos with open story MRs —
+managed repos AND the root repo. This is fan-out, not point-to-point.
+When shadow integration passes or fails, every constituent MR gets the
+same status simultaneously. This requires a group-level token with API
+scope (`M_GROUP_TOKEN`) as a CI secret on the root repo.
 
 Two jobs handle this:
-- `shadow:report-status` (on success) — pushes `state=success`
-- `shadow:report-failure` (on failure) — pushes `state=failed`
+- `shadow:report-status` (on success) — pushes `state=success` to all story MRs
+- `shadow:report-failure` (on failure) — pushes `state=failed` to all story MRs
 
-Both call:
+For each repo with an open story MR, both call:
 ```
 scm.post_commit_status(
-  repo: <source-managed-repo>,
+  repo: <story-repo>,
   sha: <commit-sha>,
   state: success | failed,
   name: "shadow-integration",
