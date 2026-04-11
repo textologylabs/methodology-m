@@ -1,6 +1,6 @@
 # Methodology M — Steering
 
-**Version:** 0.2.0
+**Version:** 0.3.0
 
 Methodology M is an AI-driven delivery method for distributed software systems where a single user story spans multiple repos, multiple deployable units, and can only be verified in an integrated environment. The full specification lives in `methodology-m.md` at the repo root.
 

@@ -2109,6 +2109,7 @@ For the reference implementation and demo, the race window is acceptable
 
 **Category:** Orchestration / water-tightness
 **Priority:** Nice to have (closes timing gap)
+**Status:** ✅ Resolved (2026-04-11) — pipeline_events added to webhooks, detect-trigger handles pipeline_failure, fan-out to all story MRs
 **Discovered:** 2026-04-07, during demo rehearsal
 
 ### Problem
@@ -2579,6 +2580,7 @@ component. Generating sub-task PATs is a natural extension.
 
 **Category:** Methodology / M Power capability (critical)
 **Priority:** Critical (without this, AOT integration is structurally permissive)
+**Status:** ✅ Resolved (2026-04-11) — decompose-story Step 4 added: auto-compile story PAT → Cypress spec, create branch, raise root MR
 **Discovered:** 2026-04-10, investigating why all MRs went green despite incomplete story
 
 ### Problem
