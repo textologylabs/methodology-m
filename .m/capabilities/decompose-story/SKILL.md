@@ -276,6 +276,117 @@ The integration test script must:
 - Be runnable from the shadow:integration CI job (curl-based, no browser)
 ```
 
+## Structural stories — additional handling
+
+Most stories are **business stories**: they add or change user-facing
+behaviour without modifying the project's topology. For these, the steps
+above are complete — the root MR contains only the compiled Cypress
+spec, and `project.yaml`, `docker-compose.yml`, and
+`scripts/integration-test.sh` are left untouched.
+
+**A story is structural** if its description implies topology changes:
+adding a new component, removing a component, merging two components
+into one, splitting one into two, or changing ports/roles. The
+distinction is in the agent's reading of the story — there is no tag,
+no flag, no automatic detection. Most stories are business; a few are
+structural.
+
+For structural stories, decompose-story does everything a business
+story does **plus** the following. Everything produced here is bundled
+into the same automatically-raised root MR on the same
+`feat/<story-id>d-integration-gate` branch.
+
+### S-1 — Author the new project.yaml
+
+Transform the story's structural description into the new topology
+manifest. The transformation is mechanical:
+
+| Story prose | project.yaml change |
+|---|---|
+| "add a new backend component `<name>`" | Append a `components:` entry with `type: referenced`, `role: backend`, next free port (lowest unused ≥ 3002) |
+| "remove component `<name>`" | Delete that `components:` entry |
+| "merge `<a>` and `<b>` into `<c>`" | Delete `<a>` and `<b>`; append `<c>` with the lowest-numbered port of the two |
+| "rename `<a>` to `<b>`" | Update `name` and derived `location` on that entry |
+| "change port of `<a>` to N" | Update the `port` field |
+
+Validate the result against `.m/schemas/project.schema.json` before
+proceeding.
+
+### S-2 — Regenerate docker-compose.yml
+
+Render the compose file from the new project.yaml. One `services:`
+block per component:
+
+- **frontend-host**: `build.context` from `location`; port mapping
+  `<port>:<port>`; `depends_on` lists every other component by name
+- **frontend**: `build.context` from `location`; port mapping
+- **backend**: `build.context` from `location`; port mapping;
+  `environment: [PORT=<port>, DB_PATH=/data/todos.db]` if persistence
+  is declared; `volumes: - <persistence.volume>:/data` if persistence
+  is declared
+
+Append a top-level `volumes:` block with the shared volume name from
+project.yaml's `persistence.volume` field if persistence is declared.
+
+### S-3 — Regenerate scripts/integration-test.sh
+
+Two blocks in this script are topology-dependent — regenerate these,
+leave everything else untouched:
+
+1. **Infrastructure baseline — topology aliveness probes.** This
+   block exists to verify every component in the current topology is
+   reachable and responsive. It is NOT tied to any story ID — it
+   reflects whatever project.yaml currently declares. Under the
+   header comment `# Infrastructure baseline — topology aliveness
+   probes`, emit one `check` call per component:
+
+   - frontend-host → `check "<name> shell renders" "http://${DOCKER_GATEWAY}:<port>" "app-shell"`
+   - frontend → `check "<name> remoteEntry.js served" "http://${DOCKER_GATEWAY}:<port>/remoteEntry.js" "<camelName>Mfe"`
+   - backend → `check "<name> health" "http://${DOCKER_GATEWAY}:<port>/health" "ok"`
+
+   If a previous version of this block was labelled with a story ID
+   (e.g. a historical "Infrastructure baseline" tied to Story Zero),
+   replace that label with the topology-neutral header above. The
+   block belongs to the current topology, not to a historical story.
+
+2. **The `REPOS=` line** in the story integrity gate:
+
+       REPOS="<project>-root <project>-<component-1> <project>-<component-2> ..."
+
+   where `<project>` is project.yaml's `project:` field and managed
+   repo names follow `<project>-<component>`.
+
+### S-4 — Include structural artefacts in the push
+
+The `push_files` call in step 4b becomes:
+
+    scm.push_files(repo: <root-repo>, branch: "feat/<story-id>d-integration-gate", files: [
+      { path: "pats/<story-id>.cy.js",       content: <compiled Cypress spec> },
+      { path: "project.yaml",                content: <new topology manifest> },
+      { path: "docker-compose.yml",          content: <rendered from new topology> },
+      { path: "scripts/integration-test.sh", content: <rendered from new topology> }
+    ], commit_message: "🏗️ <story-id>: structural change — <short description>")
+
+The resulting root MR carries the yaml change, its compiled downstream
+consequences, and the story-level Cypress spec as a single atomic unit.
+
+### Truth-preservation rule
+
+Structural changes must be **truth-preserving**: the regenerated
+artefacts are pure topology derivatives, with no semantic changes to
+behaviour. A structural story does not fix bugs, add features, or
+change test logic in the regenerated files. If a reviewer sees
+semantic differences in the generated artefacts beyond what topology
+alone implies, the change is not truth-preserving and must be
+rejected or split into two stories (structural + business).
+
+If code needs to physically move between repos (e.g. merging two
+components into one), that migration is a pure lift-and-shift sub-task
+of the same structural story — no logic changes allowed during the
+move. File paths change, imports update, nothing else. Bugs discovered
+during migration are filed as follow-up business stories, not fixed
+in-place.
+
 ## Notes
 
 - Sub-task IDs use alphabetic suffix: a, b, c, d (up to 26 components)
