@@ -4,6 +4,8 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-04-14
+
 ### Added
 - **`decompose-story` — Preconditions and CAT compilation guidance for structural stories.** New "Preconditions" section makes the order-of-operations explicit: for ADD/RENAME/MERGE/SPLIT, the new repo MUST exist on the SCM platform before decomposing the structural story (run `scaffold-repo` first). For REMOVE, no precondition. New "CAT compilation for structural stories" section codifies that CAT framework follows the assertion type — Cypress for browser-level, curl for HTTP-level, topology aliveness probe for structural — and that pure REMOVE needs no story-level CAT beyond regression. Findings surfaced by the TODOM-S01 structural test.
 - **I-045** improvement item — extend PAT yaml to support multi-framework assertions (HTTP step types compiling to curl/supertest), so structural stories can declare component-level health assertions natively.
