@@ -30,7 +30,7 @@ Repo-level override → Project-level (project.yaml) → Org Config → M Core C
 Repo and project lifecycle, branch protection, webhooks, CI secrets,
 and commit status reporting.
 
-**Active providers:** `gitlab` (reference implementation)
+**Active providers:** `gitlab` (reference implementation), `log-only` (dry-run testing — logs all calls, returns mock responses, no side effects)
 
 #### Functions
 

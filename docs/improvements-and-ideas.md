@@ -23,6 +23,8 @@ listed for completeness — their write-ups remain below as reference.
 | I-030 | Standalone and follow-up MRs | Any real project has non-story MRs. Currently these trigger full AOT and fail. Quick fix, big usability impact. |
 | I-040 | Topology changes | Adding/removing components mid-project is undefined. Depends on I-036 for clean implementation. |
 | I-041 | Pessimistic invalidation on pipeline start | Push `pending` to all story MRs when any constituent pipeline starts. Tightens the gate. |
+| I-042 | Reshuffle decompose-story and generate-pats | Lifecycle gap: PATs only exist at story level when decomposition runs, so sub-task PATs cannot be produced. Inverting the order (decompose first, generate-pats second with parent in scope) unblocks I-038 and removes the need for markdown PAT stubs. |
+| I-045 | Extend PAT yaml to multi-framework assertions | PAT yaml's step types are Cypress-shaped (data-testid, click, type). Structural stories, backend-only stories, and component-level health checks need HTTP-style step types compiling to curl/supertest. Surfaced by the TODOM-S01 structural test. |
 
 ### Tier 3 — Architecture and extensibility
 
@@ -2914,3 +2916,196 @@ seconds of the push, before the webhook even fires).
 - I-036 (project.yaml as live config — repo list for invalidation)
 - scaffold-repo capability (generates managed repo CI)
 - wire-orchestration capability (documents the invalidation model)
+
+
+---
+
+## I-042: Reshuffle decompose-story and generate-pats — decomposition first, PATs second, parent story always in scope
+
+**Category:** Methodology / capability lifecycle
+**Priority:** High (blocks I-038's resolution; root cause of PAT stubs)
+**Discovered:** 2026-04-13
+
+### Problem
+
+Current order is `generate-pats` → `decompose-story`. This means:
+
+1. PATs only exist at story level when decomposition runs
+2. Sub-task PATs cannot be produced because the AC→component mapping
+   is established *during* decomposition, not before it
+3. `decompose-story` emits markdown PAT stubs as a placeholder — which
+   is the I-038 problem in physical form
+4. There is no clean way to introduce sub-task PAT generation without
+   either inverting the order or making `generate-pats` awkwardly
+   level-aware
+
+The lifecycle has a gap: sub-task PATs *should* be produced, but no
+capability is positioned to own that step. Adding the feature requires
+restructuring, not extension.
+
+### Proposal
+
+Reverse the order. `decompose-story` runs first on the story prose
+alone; `generate-pats` runs second with the decomposition in hand.
+
+1. **decompose-story** — reads the story markdown alone. Identifies
+   components touched and AC→component mapping from the story prose
+   (not from a pre-existing PAT YAML). Produces sub-task markdown
+   files. Handles structural changes if present (project.yaml edit +
+   topology artefact regeneration). No PAT generation, no compilation.
+
+2. **generate-pats** — reads the enriched story + all sub-task
+   markdown files. Produces, in one capability run:
+   - `<story-id>.pat.yaml` — the parent contract
+   - One `<sub-task-id>.pat.yaml` per sub-task — a repo-scoped
+     projection of the story PAT, anchored back to the parent
+
+3. **Compile + raise root MR** — currently `decompose-story` Step 4.
+   After the reshuffle this needs to move, because decompose no
+   longer has PATs in hand. Options:
+   - Stay in decompose-story but call generate-pats internally
+   - Move to generate-pats as its final step
+   - Extract to a new capability (e.g. `compile-and-gate`)
+
+   Resolution is part of this item's implementation.
+
+### Why the parent story must stay in scope during sub-task PAT generation
+
+Sub-task PATs are not independent contracts. They are **projections
+of the story PAT onto specific components**. The parent story is
+their conceptual anchor, and `generate-pats` must keep it in scope
+at all times when producing sub-task PATs. Reasons:
+
+- **Coherence.** Two sub-task PATs in the same story must use
+  consistent terminology, test data, and assumptions. Generated in
+  isolation, they drift apart — same concept named differently in
+  different repos. Parent-aware generation keeps them aligned.
+
+- **Traceability.** Each sub-task PAT can declare `parent: <story-id>`
+  and tag each AC with `derives-from: <story-AC-id>`, making the
+  decomposition machine-readable. When the story PAT changes,
+  sub-task PATs can be regenerated coherently from the new parent.
+
+- **Single source of truth.** The story PAT is canonical. Sub-task
+  PATs are derivations. If they conflict (e.g. the story says "list
+  shows count" but the mfe sub-task drops the count assertion), the
+  story wins and the sub-task is rejected. Parent-aware generation
+  enforces this by construction.
+
+- **Validation symmetry.** When a sub-task is implemented, its tests
+  pass. When the story is integrated, the story PAT runs against
+  the composed system. Both descend from the same anchor, so they
+  should agree — and if they don't, the disagreement is information,
+  not noise.
+
+### Relationship to I-038
+
+I-038 describes *what* sub-task PATs look like (YAML format, schema,
+fields). This item describes *when and how* they are produced
+(generate-pats, after decomposition, with parent in scope). Both
+items together describe the full lifecycle. **This item is a
+precondition for I-038's resolution.**
+
+### Impact on existing capabilities
+
+- **decompose-story** — Step 1-3 stay (read inputs, propose mapping,
+  write sub-task markdown), but the input list shrinks: no longer
+  reads `pat.yaml`. Step 4 (compile + raise root MR) moves elsewhere.
+  The structural-stories handling section (S-1 to S-4) follows
+  wherever Step 4 lands, since they extend the root MR push.
+- **generate-pats** — gains sub-task awareness. Iterates over story
+  + all sub-tasks, generating PATs at each level with parent in scope.
+- **Workshop execution order** — any script or doc that sequences
+  capabilities (`generate-pats` then `decompose-story`) needs updating.
+
+### Effort
+
+Medium. Touches two capabilities, their schemas (sub-task PAT format
+from I-038), the workshop's execution scripts, and any documentation
+that describes the M lifecycle. Not trivial but contained.
+
+### Dependencies
+
+- I-038 (sub-task PATs in YAML — completes after this lifecycle fix)
+- decompose-story capability (current home of PAT compilation, Step 4)
+- generate-pats capability (gains sub-task awareness)
+
+
+---
+
+## I-045: Extend PAT yaml to support multi-framework assertions
+
+**Category:** Methodology / PAT schema
+**Priority:** Medium
+**Discovered:** 2026-04-13, during structural story test (TODOM-S01)
+
+### Problem
+
+PAT yaml's `acceptance.steps` schema is Cypress-shaped. Step types
+(`navigate`, `click`, `type`, `assert` with `data-testid` selectors)
+all assume a browser context. This works well for user-facing business
+stories but is limiting for:
+
+- **Structural stories** — adding/removing components has no
+  user-facing assertion; the natural verification is "does the new
+  component respond at /health?", which is an HTTP assertion, not a
+  DOM assertion
+- **Backend-only stories** — pure API behaviour assertions that don't
+  involve a browser
+- **Composability checks** — "does service X depend on service Y", or
+  "does the compose file declare the new component as a build
+  context", can't be expressed as browser actions
+
+### Proposal
+
+Extend the PAT yaml schema to support multiple step types tied to
+different test frameworks:
+
+| Step type | Compiles to | Use case |
+|---|---|---|
+| `navigate:`, `click:`, `type:`, `assert:` (existing) | Cypress | Browser-level UI behaviour |
+| `http: GET /endpoint` | curl or supertest | API contract / health probe |
+| `expect-status: 200` | curl or supertest | HTTP status check |
+| `expect-body-contains: <string>` | curl or supertest | Response body assertion |
+| `compose-service: <name>` | docker compose ps | Structural — service exists in compose |
+
+The CAT compilation step in `decompose-story` (or `generate-pats`,
+post-I-042) inspects the step types in each AC and chooses the right
+framework. Mixed PATs (browser + HTTP) compile to multi-framework
+specs — Cypress for the browser ACs, curl/supertest for the HTTP ACs.
+Output paths are framework-aware:
+
+- `pats/<story-id>.cy.js` for Cypress
+- `pats/<story-id>.http.sh` (or `.spec.js` with supertest) for HTTP
+
+### Relationship to Finding 6 from the TODOM-S01 test
+
+Surfaced because the structural test exposed that compiling a
+structural PAT to Cypress produces a meaningless spec — the regression
+check from AC-001 doesn't verify the new component at all, and PAT
+yaml has no native way to express "the new component responds at
+/health". The structural section of `decompose-story` works around
+this today by relying on the topology aliveness probe in
+`scripts/integration-test.sh` (S-3), which is curl-based and lives
+outside the PAT system.
+
+That workaround is fine for ADD/REMOVE/RENAME/MERGE/SPLIT/PORT-CHANGE
+in their pure forms, but it means the PAT system itself can't
+articulate structural assertions. I-045 closes that gap so PAT yaml
+becomes the single source of truth for "what this story asserts",
+regardless of the framework needed to verify it.
+
+### Dependencies
+
+- I-042 (decompose-story / generate-pats reshuffle) — should land
+  first, since the new `generate-pats` lifecycle is the natural place
+  to handle multi-framework compilation
+- I-038 (sub-task PATs in YAML) — same lifecycle change
+
+### Effort
+
+Medium. Touches: `pat.schema.json` (new step types), `decompose-story`
+(or `generate-pats` post-I-042) compilation logic, and any
+documentation describing the PAT format. The structural section of
+`decompose-story` becomes simpler once I-045 lands — its CAT
+compilation rules collapse into the standard PAT compilation flow.
