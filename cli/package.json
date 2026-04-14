@@ -1,6 +1,6 @@
 {
   "name": "methodology-m",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "CLI for distributing Methodology M into AI-driven software projects",
   "type": "module",
   "bin": {
