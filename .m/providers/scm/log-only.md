@@ -1,8 +1,9 @@
 # SCM Provider: log-only
 
 A non-executing implementation of the `scm.*` namespace. Every function
-logs its call — function name and parameters — to stdout, then returns
-a plausible mock response so the calling capability proceeds normally.
+logs its call — function name and parameters — to a log file, then
+returns a plausible mock response so the calling capability proceeds
+normally.
 
 This provider is used for **dry-run testing** of M capabilities: you
 can run any capability that uses `scm.*` without touching a real SCM
@@ -15,9 +16,38 @@ platform. Useful for:
 Select it by setting `providers.scm: log-only` in `project.yaml`, run
 the capability, then revert to a real provider (e.g. `gitlab`) when done.
 
+## Log file location
+
+All `scm.*` calls are appended to a log file. Default path:
+
+    /tmp/m-scm-log-only.log
+
+Override by setting the `M_LOG_FILE` environment variable before
+running the capability.
+
+**Append, do not overwrite.** Multiple capability runs accumulate in
+the same file. Each capability run MUST begin by appending a session
+header to the log file so entries from different runs can be told
+apart:
+
+    ═══════════════════════════════════════════════════════════════
+    SESSION  <ISO-8601 timestamp>
+    capability: <capability-name>
+    story:     <story-id or "n/a">
+    provider:  log-only
+    ═══════════════════════════════════════════════════════════════
+
+The header is written exactly once, at the start of the capability
+run, before any `scm.*` calls. If a capability is re-run, a new header
+marks the new session below the previous one.
+
+Between sessions, the reader can easily `tail -f` the log while the
+capability runs, or grep for a specific session timestamp to isolate
+one run's trace.
+
 ## Output format
 
-Every `scm.*` call produces one log block on stdout:
+Every `scm.*` call appends one log block to the log file:
 
     [scm.<function_name>]
       <param_1>: <value>
@@ -132,9 +162,10 @@ use `mock-namespace`.
 
 For each file in the list, log the path and total content size in
 bytes. Do NOT dump full file content to the log — it would drown
-every trace in noise. If the reader needs to see a specific file's
-content, they can re-run with the log-only provider and add a
-separate printf step in the capability.
+every trace in noise. If the reader needs to inspect specific file
+contents, the capability can write them to a sibling directory
+(e.g. `/tmp/m-scm-log-only-artefacts/<session-timestamp>/<path>`)
+so they are available out-of-band without polluting the trace.
 
 ---
 
