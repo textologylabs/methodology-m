@@ -20,10 +20,22 @@ the capability, then revert to a real provider (e.g. `gitlab`) when done.
 
 All `scm.*` calls are appended to a log file. Default path:
 
-    /tmp/m-scm-log-only.log
+    .work/scm.log
+
+This path is **relative to the project root** — the directory
+containing the project's `project.yaml`. The `.work/` directory is a
+conventional location for runtime artefacts produced by M capabilities
+(traces, intermediate fixtures, debug snapshots). It is created
+automatically on first use if it does not exist.
 
 Override by setting the `M_LOG_FILE` environment variable before
 running the capability.
+
+Projects using this provider should add `.work/` to their `.gitignore`
+so runtime traces do not pollute version control. (For our own dev
+testing of M itself, the log file is created inside the test fixture's
+project root and cleaned up after the test session — gitignoring is
+optional in that case.)
 
 **Append, do not overwrite.** Multiple capability runs accumulate in
 the same file. Each capability run MUST begin by appending a session
