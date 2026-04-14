@@ -24,6 +24,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-040 | Topology changes | Adding/removing components mid-project is undefined. Depends on I-036 for clean implementation. |
 | I-041 | Pessimistic invalidation on pipeline start | Push `pending` to all story MRs when any constituent pipeline starts. Tightens the gate. |
 | I-042 | Reshuffle decompose-story and generate-pats | Lifecycle gap: PATs only exist at story level when decomposition runs, so sub-task PATs cannot be produced. Inverting the order (decompose first, generate-pats second with parent in scope) unblocks I-038 and removes the need for markdown PAT stubs. |
+| I-045 | Extend PAT yaml to multi-framework assertions | PAT yaml's step types are Cypress-shaped (data-testid, click, type). Structural stories, backend-only stories, and component-level health checks need HTTP-style step types compiling to curl/supertest. Surfaced by the TODOM-S01 structural test. |
 
 ### Tier 3 — Architecture and extensibility
 
@@ -3028,3 +3029,83 @@ that describes the M lifecycle. Not trivial but contained.
 - I-038 (sub-task PATs in YAML — completes after this lifecycle fix)
 - decompose-story capability (current home of PAT compilation, Step 4)
 - generate-pats capability (gains sub-task awareness)
+
+
+---
+
+## I-045: Extend PAT yaml to support multi-framework assertions
+
+**Category:** Methodology / PAT schema
+**Priority:** Medium
+**Discovered:** 2026-04-13, during structural story test (TODOM-S01)
+
+### Problem
+
+PAT yaml's `acceptance.steps` schema is Cypress-shaped. Step types
+(`navigate`, `click`, `type`, `assert` with `data-testid` selectors)
+all assume a browser context. This works well for user-facing business
+stories but is limiting for:
+
+- **Structural stories** — adding/removing components has no
+  user-facing assertion; the natural verification is "does the new
+  component respond at /health?", which is an HTTP assertion, not a
+  DOM assertion
+- **Backend-only stories** — pure API behaviour assertions that don't
+  involve a browser
+- **Composability checks** — "does service X depend on service Y", or
+  "does the compose file declare the new component as a build
+  context", can't be expressed as browser actions
+
+### Proposal
+
+Extend the PAT yaml schema to support multiple step types tied to
+different test frameworks:
+
+| Step type | Compiles to | Use case |
+|---|---|---|
+| `navigate:`, `click:`, `type:`, `assert:` (existing) | Cypress | Browser-level UI behaviour |
+| `http: GET /endpoint` | curl or supertest | API contract / health probe |
+| `expect-status: 200` | curl or supertest | HTTP status check |
+| `expect-body-contains: <string>` | curl or supertest | Response body assertion |
+| `compose-service: <name>` | docker compose ps | Structural — service exists in compose |
+
+The CAT compilation step in `decompose-story` (or `generate-pats`,
+post-I-042) inspects the step types in each AC and chooses the right
+framework. Mixed PATs (browser + HTTP) compile to multi-framework
+specs — Cypress for the browser ACs, curl/supertest for the HTTP ACs.
+Output paths are framework-aware:
+
+- `pats/<story-id>.cy.js` for Cypress
+- `pats/<story-id>.http.sh` (or `.spec.js` with supertest) for HTTP
+
+### Relationship to Finding 6 from the TODOM-S01 test
+
+Surfaced because the structural test exposed that compiling a
+structural PAT to Cypress produces a meaningless spec — the regression
+check from AC-001 doesn't verify the new component at all, and PAT
+yaml has no native way to express "the new component responds at
+/health". The structural section of `decompose-story` works around
+this today by relying on the topology aliveness probe in
+`scripts/integration-test.sh` (S-3), which is curl-based and lives
+outside the PAT system.
+
+That workaround is fine for ADD/REMOVE/RENAME/MERGE/SPLIT/PORT-CHANGE
+in their pure forms, but it means the PAT system itself can't
+articulate structural assertions. I-045 closes that gap so PAT yaml
+becomes the single source of truth for "what this story asserts",
+regardless of the framework needed to verify it.
+
+### Dependencies
+
+- I-042 (decompose-story / generate-pats reshuffle) — should land
+  first, since the new `generate-pats` lifecycle is the natural place
+  to handle multi-framework compilation
+- I-038 (sub-task PATs in YAML) — same lifecycle change
+
+### Effort
+
+Medium. Touches: `pat.schema.json` (new step types), `decompose-story`
+(or `generate-pats` post-I-042) compilation logic, and any
+documentation describing the PAT format. The structural section of
+`decompose-story` becomes simpler once I-045 lands — its CAT
+compilation rules collapse into the standard PAT compilation flow.

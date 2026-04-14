@@ -296,6 +296,43 @@ story does **plus** the following. Everything produced here is bundled
 into the same automatically-raised root MR on the same
 `feat/<story-id>d-integration-gate` branch.
 
+### Preconditions
+
+The structural section below produces correct file edits, but those
+edits are only meaningful if certain platform preconditions hold:
+
+- **For ADD** (new component): the new component's repo MUST already
+  exist on the SCM platform before this story is decomposed. Run
+  `scaffold-repo` first — it creates the repo with seed files,
+  including a `/health` endpoint for backends or a baseline serving
+  shell for frontends. Without this, the regenerated
+  `docker-compose.yml` will reference a build context that doesn't
+  exist on disk, and CI will fail at `docker compose build`.
+
+- **For RENAME / MERGE / SPLIT**: the target repo(s) must exist before
+  the structural story. Same reasoning as ADD.
+
+- **For REMOVE**: no precondition. M's view of the project IS
+  `project.yaml` — once a component is removed from yaml, M no longer
+  cares whether the actual GitLab repo still exists. The repo can be
+  archived or deleted at any later time. Pure removal needs no new
+  test (see "CAT compilation for structural stories" below).
+
+- **For PORT CHANGE**: no special precondition beyond the component
+  already existing.
+
+**Order of operations for ADD-type structural changes:**
+
+1. Run `scaffold-repo` to create the new component's repo with seed
+   files (the seed includes a `/health` endpoint for backends — that
+   endpoint is what the topology aliveness probe will hit)
+2. Decompose the structural story (this section)
+3. Story merges, topology and reality are now consistent
+
+Inverting steps 1 and 2 produces a story whose CI can never go green:
+compose can't build a service whose build context doesn't exist on
+disk. **Always scaffold first.**
+
 ### S-1 — Author the new project.yaml
 
 Transform the story's structural description into the new topology
@@ -315,12 +352,24 @@ proceeding.
 ### S-2 — Regenerate docker-compose.yml
 
 Render the compose file from the new project.yaml. One `services:`
-block per component:
+block per component.
 
-- **frontend-host**: `build.context` from `location`; port mapping
+**`build.context` derivation rule:**
+
+- For `type: embedded` components, use `location` as-is — it is
+  already a relative local path (e.g. `./packages/shell`)
+- For `type: referenced` components, derive `../<basename of location>`
+  where `location` is the SCM path. Example:
+  `methodology-m/todo-m-workshop/todo-m-mfe` → basename `todo-m-mfe` →
+  context `../todo-m-mfe`. This places the build context as a sibling
+  on disk, which matches the layout produced by `m clone`.
+
+**Per-role rendering:**
+
+- **frontend-host**: `build.context` per the rule above; port mapping
   `<port>:<port>`; `depends_on` lists every other component by name
-- **frontend**: `build.context` from `location`; port mapping
-- **backend**: `build.context` from `location`; port mapping;
+- **frontend**: `build.context` per the rule above; port mapping
+- **backend**: `build.context` per the rule above; port mapping;
   `environment: [PORT=<port>, DB_PATH=/data/todos.db]` if persistence
   is declared; `volumes: - <persistence.volume>:/data` if persistence
   is declared
@@ -328,47 +377,126 @@ block per component:
 Append a top-level `volumes:` block with the shared volume name from
 project.yaml's `persistence.volume` field if persistence is declared.
 
+**Persistence drift caveat:** if the existing `docker-compose.yml` has
+persistence configured but `project.yaml` does NOT declare a
+`persistence:` block, this regen will *drop* persistence from existing
+backend services — a real regression. The fix is to bring `project.yaml`
+in line with reality (add the `persistence:` block) BEFORE running a
+structural story. This is a manifestation of I-036 drift and should be
+addressed at project setup time, not during a structural change.
+
 ### S-3 — Regenerate scripts/integration-test.sh
 
 Two blocks in this script are topology-dependent — regenerate these,
-leave everything else untouched:
+leave everything else untouched.
 
-1. **Infrastructure baseline — topology aliveness probes.** This
-   block exists to verify every component in the current topology is
-   reachable and responsive. It is NOT tied to any story ID — it
-   reflects whatever project.yaml currently declares. Under the
-   header comment `# Infrastructure baseline — topology aliveness
-   probes`, emit one `check` call per component:
+**Block 1 — Infrastructure baseline (topology aliveness probes).**
 
-   - frontend-host → `check "<name> shell renders" "http://${DOCKER_GATEWAY}:<port>" "app-shell"`
-   - frontend → `check "<name> remoteEntry.js served" "http://${DOCKER_GATEWAY}:<port>/remoteEntry.js" "<camelName>Mfe"`
-   - backend → `check "<name> health" "http://${DOCKER_GATEWAY}:<port>/health" "ok"`
+This block exists to verify every component in the current topology is
+reachable and responsive. It is NOT tied to any story ID — it reflects
+whatever `project.yaml` currently declares. The block has exactly this
+header (pinned for byte-stability of the regen output):
 
-   If a previous version of this block was labelled with a story ID
-   (e.g. a historical "Infrastructure baseline" tied to Story Zero),
-   replace that label with the topology-neutral header above. The
-   block belongs to the current topology, not to a historical story.
+    # Infrastructure baseline — topology aliveness probes
+    echo "Infrastructure baseline — topology aliveness probes:"
 
-2. **The `REPOS=` line** in the story integrity gate:
+Followed by one `check` call per component (including `type: embedded`
+components — they need health checks too even though they live in the
+root repo):
 
-       REPOS="<project>-root <project>-<component-1> <project>-<component-2> ..."
+| Role | Emitted check |
+|---|---|
+| `frontend-host` | `check "<name> renders" "http://${DOCKER_GATEWAY}:<port>" "app-shell"` |
+| `frontend` | `check "<name> remoteEntry.js served" "http://${DOCKER_GATEWAY}:<port>/remoteEntry.js" "webpackChunk"` |
+| `backend` | `check "<name> health" "http://${DOCKER_GATEWAY}:<port>/health" "ok"` |
 
-   where `<project>` is project.yaml's `project:` field and managed
-   repo names follow `<project>-<component>`.
+Notes on the templates:
+
+- **`webpackChunk`** is a stable substring in any webpack-built
+  `remoteEntry.js` (it's part of the bootstrap code emitted by every
+  webpack federation build). It's more reliable than guessing the
+  federation name from the project or component name. If the project
+  uses a non-webpack bundler (Vite, Rollup, etc.), the agent should
+  override this expected substring with one appropriate to the bundler
+  — e.g. for Vite federation, look for `__federation_method`.
+
+- **`<name> renders`** for frontend-host (not `<name> shell renders`)
+  — avoids awkward doubled words when the component is literally named
+  `shell` (which would otherwise produce `shell shell renders`).
+
+If a previous version of this block was labelled with a story ID
+(e.g. a historical "Infrastructure baseline" tied to Story Zero),
+replace that label with the topology-neutral header above. The block
+belongs to the current topology, not to a historical story.
+
+**Block 2 — The `REPOS=` line** in the story integrity gate:
+
+    REPOS="<project>-root <project>-<component-1> <project>-<component-2> ..."
+
+where `<project>` is `project.yaml`'s `project:` field and managed repo
+names follow `<project>-<component>`.
+
+**Include only `type: referenced` components.** Embedded components
+live inside the root repo and don't have their own GitLab repos — they
+cannot have their own MRs and so don't belong in the story integrity
+gate's repo list. The root repo itself appears as `<project>-root` at
+the start.
 
 ### S-4 — Include structural artefacts in the push
 
 The `push_files` call in step 4b becomes:
 
     scm.push_files(repo: <root-repo>, branch: "feat/<story-id>d-integration-gate", files: [
-      { path: "pats/<story-id>.cy.js",       content: <compiled Cypress spec> },
+      { path: "pats/<story-id>.<ext>",       content: <compiled CAT — see below> },
       { path: "project.yaml",                content: <new topology manifest> },
       { path: "docker-compose.yml",          content: <rendered from new topology> },
       { path: "scripts/integration-test.sh", content: <rendered from new topology> }
     ], commit_message: "🏗️ <story-id>: structural change — <short description>")
 
 The resulting root MR carries the yaml change, its compiled downstream
-consequences, and the story-level Cypress spec as a single atomic unit.
+consequences, and the story-level CAT as a single atomic unit. The CAT
+file extension (`.cy.js`, `.sh`, etc.) depends on the framework chosen
+by Step 4a — see "CAT compilation for structural stories" below.
+
+### CAT compilation for structural stories
+
+The story-level CAT compiled at Step 4a is **whatever framework matches
+the kinds of assertions the story PAT contains.** The default is
+Cypress for browser-style assertions (`data-testid` selectors,
+`click`/`type`/`navigate`). For pure structural stories, the meaningful
+verification is at a different layer:
+
+- **For ADD**: the structural verification is the topology aliveness
+  probe in the regenerated `scripts/integration-test.sh` (S-3 above) —
+  this probes the new component's `/health` endpoint via curl. The
+  compiled story CAT covers regression of *existing* components only.
+  Adding a new component does not require a new browser-level
+  assertion at the story-PAT layer; the curl-based aliveness probe is
+  the structural CAT.
+
+- **For REMOVE**: no new structural assertion is required at all. The
+  remaining components' aliveness probes serve as the regression check
+  — if they still pass after the deletion, the removal was clean. The
+  compiled story CAT, if any, covers regression on the remaining
+  surface.
+
+- **For RENAME / MERGE / SPLIT / PORT CHANGE**: same as ADD — the
+  topology aliveness probe in S-3 verifies the new shape; the compiled
+  story CAT covers regression of any unchanged surface.
+
+**CAT framework is whatever fits the assertion**, not always Cypress.
+Browser-level assertions compile to Cypress. HTTP-level assertions
+compile to curl (or supertest, depending on context). Component-level
+structural assertions are covered by the topology aliveness probe.
+
+PAT yaml today is Cypress-shaped — its `steps:` schema only supports
+browser-style step types (`navigate`, `click`, `type`, `assert` with
+data-testid selectors). Native HTTP-style assertions in PAT yaml are
+tracked as **I-045** and would let structural stories declare
+component-level health assertions directly. Until I-045 lands, the
+topology aliveness probe layer is the de facto structural CAT for
+ADD/RENAME/MERGE/SPLIT, and pure REMOVE needs no story-level CAT
+beyond regression.
 
 ### Truth-preservation rule
 
