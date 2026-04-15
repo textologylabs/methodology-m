@@ -208,10 +208,12 @@ checks pass. Three failure modes ensure no story can slip through:
   repos in the topology have open MRs for the story — managed repos
   AND the root repo. The root repo delivers story-level integration
   tests; without its MR the gate is meaningless. The repo list MUST
-  be derived from `project.yaml` components, not hardcoded. In the
-  rendered `scripts/integration-test.sh` (from
-  `compose.render_topology`), this appears as the `REPOS=` line, which
-  is the canonical source for the gate's repo set.
+  be derived from `project.yaml` components, not hardcoded. The
+  canonical `REPOS=` derivation appears in
+  `scripts/report-shadow-status.sh` (rendered by `ci.render_pipeline`),
+  where it drives commit-status fan-out. Any integrity-check job in
+  this capability MUST build its repo list by the same rule
+  (root + all `type: referenced` components in declaration order).
 
 - **Logical failure:** the integration test script exists but fails
   because not all components have implemented their part yet. The
@@ -327,13 +329,20 @@ The webhook approach works on all tiers.
 
 ## Critical — Repo Lists Must Include Root
 
-Every script that iterates repos for a story — `integration-test.sh`,
-`report-shadow-status.sh`, `invalidate-story-status.sh` — MUST include
-the root repo alongside managed repos. The root repo is a constituent
-of every story (it delivers integration tests). Excluding it from any
-repo list creates a gap where the root MR can have stale status or
-bypass the integrity gate. Use a single `REPOS` variable derived from
-the topology, not a hardcoded list of managed repos.
+Every script that iterates repos for a story — `report-shadow-status.sh`,
+`invalidate-story-status.sh`, and any future integrity-gate job — MUST
+include the root repo alongside managed repos. The root repo is a
+constituent of every story (it delivers integration tests). Excluding
+it from any repo list creates a gap where the root MR can have stale
+status or bypass the integrity gate. Every such script MUST derive
+its `REPOS` variable from the current `project.yaml` topology, not
+from a hardcoded list. The canonical derivation rule (root first,
+then `type: referenced` components in declaration order) is
+implemented in the CI provider's render function — see
+`.m/providers/ci/gitlab.md` for the gitlab reference. Note that
+`scripts/integration-test.sh` (the compose-provider-owned aliveness
+probe script) does NOT contain a `REPOS=` list — it verifies the
+*running system*, not the SCM integrity surface.
 
 ## Notes
 

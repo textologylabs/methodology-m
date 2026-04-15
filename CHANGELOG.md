@@ -30,8 +30,9 @@ All notable changes to Methodology M are documented in this file.
   file set. Ships with `ci/gitlab` reference provider emitting
   `.gitlab-ci.yml` (stages + shell-lifecycle-conditional-on-embedded-shell
   + orchestration jobs delegating to scripts) and
-  `scripts/report-shadow-status.sh` (glab-based, single-arg state,
-  REPOS and GROUP substituted at render time).
+  `scripts/report-shadow-status.sh` (curl+REST-based single-arg state
+  reporter, REPOS and GROUP substituted at render time — matches
+  pass1's proven pattern, no additional alpine install step required).
 
 - **TODOM-S01 committed structural fixture** — first committed
   regression fixture at `workshop/jira/TODOM-S01/TODOM-S01.md`. Minimal
@@ -49,6 +50,11 @@ All notable changes to Methodology M are documented in this file.
 - **I-047** improvement item — project.yaml should be AI-generated
   from Story Zero. Filed in Tier 1 as the natural follow-up to I-036:
   the renderer is meaningless if its input is still human-typed.
+
+- **I-048** improvement item — switch `report-shadow-status.sh` from
+  curl+REST to the `glab` CLI. Filed in Tier 4 (polish). Purely a
+  QoL improvement; blocked on alpine apk install story for `glab`.
+  No functional change.
 
 ### Changed
 

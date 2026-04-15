@@ -200,10 +200,12 @@ The reference provider `compose/docker-compose` returns:
 - `docker-compose.yml` — services block derived from `project.components[]`,
   ports, build contexts, persistence volumes, depends_on chain.
 - `scripts/integration-test.sh` — topology aliveness probes (one `check` call
-  per component) plus the `REPOS=` integrity gate (referenced components +
-  root). Embeds `DOCKER_GATEWAY="${DOCKER_GATEWAY:-docker}"` as a pinned
-  default so the script works both inside CI (where `DOCKER_GATEWAY` is set
-  by the job) and locally.
+  per component) against the running system. Does NOT contain a story
+  integrity gate — that concern belongs to `wire-orchestration` and
+  operates against the SCM API, not the filesystem. Embeds
+  `DOCKER_GATEWAY="${DOCKER_GATEWAY:-docker}"` as a pinned default so
+  the script works both inside CI (where `DOCKER_GATEWAY` is set by
+  the job) and locally.
 
 A kubernetes or podman provider returns a different file set appropriate to
 its strategy.

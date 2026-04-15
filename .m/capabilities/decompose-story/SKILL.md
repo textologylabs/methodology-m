@@ -68,12 +68,15 @@ The root repo sub-task always includes:
 **Note on integration-test scripts.** M has exactly ONE integration
 test script at `scripts/integration-test.sh` — it is topology-wide,
 emitted by the compose provider (`render-topology-artefacts`), and
-contains aliveness probes plus the story integrity gate. Per-story
-shell scripts under `scripts/integration-tests/<story-id>.sh` do NOT
-exist in the current design; any historical references to that path
-are legacy from before CAT compilation (I-039) and should be scrubbed.
-Per-story assertions live in the compiled CAT (`pats/<story-id>.cy.js`)
-or, for HTTP-layer assertions, in future HTTP PATs (I-045).
+contains ONLY aliveness probes against the running system. It does
+NOT contain a story integrity gate; that concern lives in
+`wire-orchestration` and operates against the SCM API, not the
+filesystem. Per-story shell scripts under
+`scripts/integration-tests/<story-id>.sh` do NOT exist in the current
+design; any historical references to that path are legacy from
+before CAT compilation (I-039) and should be scrubbed. Per-story
+assertions live in the compiled CAT (`pats/<story-id>.cy.js`) or,
+for HTTP-layer assertions, in future HTTP PATs (I-045).
 
 Even when the shell component has no feature changes, the root repo sub-task
 exists because the integration tests are the root repo's contribution to
@@ -411,7 +414,7 @@ every topology-derived file to disk:
 
 - `docker-compose.yml` (compose provider)
 - `scripts/integration-test.sh` (compose provider — aliveness probes
-  and story integrity gate)
+  against the running system; no integrity gate)
 - `.gitlab-ci.yml` (CI provider)
 - `scripts/report-shadow-status.sh` (CI provider)
 

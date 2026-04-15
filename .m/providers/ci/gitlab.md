@@ -292,10 +292,12 @@ A POSIX shell script invoked by the `shadow:report-status` and
 or `failed`) and pushes a commit status to each story MR on each
 referenced repo.
 
-The script uses the `glab` CLI (GitLab's command-line interface) rather
-than inline `curl` + `node` snippets. This matches the `scm: gitlab`
-provider's convention and makes the script portable to local debugging
-environments where `glab auth login` has been run.
+The script uses raw `curl` against the GitLab REST API rather than
+the `glab` CLI. This matches pass1's proven pattern and avoids the
+alpine-image dependency friction — `glab` is not in alpine's default
+apk repo and would require a tarball install step in `before_script`.
+A follow-up to switch to `glab` is tracked as **I-048** (low priority
+— purely a quality-of-life improvement, not a functional change).
 
 ```sh
 #!/bin/sh
@@ -325,20 +327,30 @@ if [ -z "${SOURCE_PROJECT_ID:-}" ]; then
   exit 0
 fi
 
+if [ -z "${M_GROUP_TOKEN:-}" ]; then
+  echo "M_GROUP_TOKEN not set — cannot push commit statuses"
+  exit 1
+fi
+
 echo "Reporting shadow integration status ($STATE) to $SOURCE_PROJECT_PATH"
 
 REPOS="<project>-root <project>-<component-1> <project>-<component-2> ..."
 GROUP="<project.group>"
+API="https://gitlab.com/api/v4"
 
 for repo in $REPOS; do
   PROJECT_PATH="$GROUP/$repo"
+  ENCODED_PATH=$(printf '%s' "$PROJECT_PATH" | sed 's|/|%2F|g')
+
   # Find the most recent open MR on this repo
-  MR_SHA=$(glab api \
-    "projects/$(printf '%s' "$PROJECT_PATH" | sed 's|/|%2F|g')/merge_requests?state=opened&per_page=1" \
-    2>/dev/null | node -e "
-      const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-      if (Array.isArray(data) && data.length > 0) console.log(data[0].sha);
-    ")
+  MR_DATA=$(curl -s \
+    --header "PRIVATE-TOKEN: $M_GROUP_TOKEN" \
+    "$API/projects/$ENCODED_PATH/merge_requests?state=opened&per_page=1")
+
+  MR_SHA=$(printf '%s' "$MR_DATA" | node -e "
+    const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+    if (Array.isArray(data) && data.length > 0) console.log(data[0].sha);
+  ")
 
   if [ -z "$MR_SHA" ]; then
     echo "  $repo: no open MR, skipping"
@@ -346,31 +358,41 @@ for repo in $REPOS; do
   fi
 
   echo "  $repo: pushing $STATE to commit $MR_SHA"
-  glab api \
-    --method POST \
-    "projects/$(printf '%s' "$PROJECT_PATH" | sed 's|/|%2F|g')/statuses/$MR_SHA" \
-    --field "state=$STATE" \
-    --field "name=shadow-integration" \
-    --field "description=$DESC" \
-    --field "target_url=$CI_PIPELINE_URL"
+  curl -s --request POST \
+    --header "PRIVATE-TOKEN: $M_GROUP_TOKEN" \
+    "$API/projects/$ENCODED_PATH/statuses/$MR_SHA" \
+    --form "state=$STATE" \
+    --form "name=shadow-integration" \
+    --form "description=$DESC" \
+    --form "target_url=$CI_PIPELINE_URL" > /dev/null
 done
 
 echo "Shadow status fan-out complete."
 ```
 
-The `REPOS=` line follows the same rules as
-`scripts/integration-test.sh`: `<project>-root` first, then
-`<project>-<component.name>` for each `type: referenced` component in
-declaration order. Embedded components are excluded.
+The `REPOS=` line follows the canonical M rule: `<project>-root`
+first, then `<project>-<component.name>` for each `type: referenced`
+component in declaration order. Embedded components are excluded —
+they live inside the root repo and do not have their own story MRs.
+This script is the canonical derivation point for the `REPOS` list
+in M (see `wire-orchestration` SKILL's "Repo Lists Must Include
+Root" section). `scripts/integration-test.sh` (owned by the compose
+provider) does NOT contain a `REPOS=` list — it verifies the
+running system, not the SCM integrity surface.
 
-The `GROUP=` line is substituted from `project.group` at render time
-so the script never has to parse `project.yaml` at runtime.
+The `GROUP=` and `API=` lines are substituted from project.yaml (and
+the gitlab host, currently pinned to `gitlab.com`) at render time, so
+the script never has to parse project.yaml at runtime.
 
-Authentication: the script expects `glab` to be available in the CI
-image and authenticated via the `GITLAB_TOKEN` environment variable
-(or equivalent). The `ci/gitlab` provider documents the CI secret
-contract as part of `wire-orchestration`; this script assumes that
-wiring is in place.
+Authentication: the script expects `M_GROUP_TOKEN` (a
+GitLab Personal Access Token or Group Access Token with `api` scope)
+to be set as a CI variable on the root repo. `wire-orchestration` is
+responsible for provisioning this token — this script assumes it is
+already in place.
+
+Dependencies: `curl` and `node` — both present in the shadow:compose
+image (alpine + `apk add --no-cache git curl` + `node:20` base image).
+No additional install steps required.
 
 ### Determinism notes
 
@@ -404,11 +426,10 @@ wiring is in place.
   `wire-orchestration`'s webhook configuration. The provider emits
   scripts that expect them but does not define them — the wiring
   capability owns that contract.
-- **`glab` must be pre-installed or apk-added in the job.** The
-  shadow:compose job currently adds `curl` and `git`; it needs to also
-  add `glab` if this script is invoked from it. The `before_script`
-  should be updated to `apk add --no-cache git curl glab` — noted as
-  follow-up wiring work.
+- **`curl` and `node` are the only external deps in the status
+  script.** Both are present in the shadow:compose job's image
+  (alpine base + apk add git curl + node:20 base). Do not switch to
+  `glab` without first solving the alpine install story (I-048).
 - **`merge_request_event` + `main` dual rules** — both are required for
   validate:compose and validate:integration-test. Removing either breaks
   the corresponding pipeline trigger.

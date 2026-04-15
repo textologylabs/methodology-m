@@ -51,6 +51,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-035 | Duplicate pipelines on MR close | CI noise. Not blocking. |
 | I-037 | AC-to-PAT 1:many mapping | PAT expressiveness. Current model works for simple stories. |
 | I-038 | Sub-task PATs in YAML | Inner validation loop. Complementary to I-039. |
+| I-048 | Switch report-shadow-status.sh to glab CLI | Currently uses raw curl + node (pass1 pattern). Switching to glab would clean up URL construction, JSON parsing, and make future extensions easier (other API calls). Blocked on alpine install story — glab isn't in default apk repo. Low priority, purely QoL, no functional change. |
 
 ### Resolved
 
