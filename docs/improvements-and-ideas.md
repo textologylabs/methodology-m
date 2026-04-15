@@ -13,6 +13,7 @@ listed for completeness — their write-ups remain below as reference.
 | Item | Title | Rationale |
 |------|-------|-----------|
 | I-047 | project.yaml is AI-generated from Story Zero | Currently hand-authored. Nothing owns interpretation of topology/persistence/deployment intent from story prose. Renderer (I-036) is complete; this is the next step to close the bootstrap authoring loop. |
+| I-049 | Deterministic capabilities as code, interpretive as SKILLs | Pure-function operations (renderer, PAT→CAT compilation, schema validation, integrity checks) should live in executable code (cli/), not as SKILL documents an agent interprets. Agents call them. Fixes the determinism gap I-036 exposed. |
 
 ### Tier 2 — Completeness of the delivery loop
 
@@ -24,6 +25,8 @@ listed for completeness — their write-ups remain below as reference.
 | I-041 | Pessimistic invalidation on pipeline start | Push `pending` to all story MRs when any constituent pipeline starts. Tightens the gate. |
 | I-042 | Reshuffle decompose-story and generate-pats | Lifecycle gap: PATs only exist at story level when decomposition runs, so sub-task PATs cannot be produced. Inverting the order (decompose first, generate-pats second with parent in scope) unblocks I-038 and removes the need for markdown PAT stubs. |
 | I-045 | Extend PAT yaml to multi-framework assertions | PAT yaml's step types are Cypress-shaped (data-testid, click, type). Structural stories, backend-only stories, and component-level health checks need HTTP-style step types compiling to curl/supertest. Surfaced by the TODOM-S01 structural test. |
+| I-050 | Capability regression test harness | Formalise the rewind-replay-diff pattern into a repeatable harness covering bootstrap + scaffold + all structural ops (ADD/REMOVE/RENAME/MERGE/SPLIT/PORT-CHANGE) + business. Currently ad-hoc. Only ADD exercised end-to-end during I-036 live validation. |
+| I-051 | `scm.push_files` lifecycle gap — can't update existing files | S-4 of decompose-story SKILL shows `scm.push_files(files=[...])` but that call fails when files already exist, which is ALWAYS the case for structural stories touching project.yaml/docker-compose.yml/.gitlab-ci.yml. Fix: update S-4 to use `create_or_update_file` per file, OR add a new `scm.push_or_update_files` that handles both. Worked around in the I-036 live test by using git commit+push directly. |
 
 ### Tier 3 — Architecture and extensibility
 
@@ -2522,6 +2525,283 @@ it instead of deriving fields ad-hoc from the story.
 Closes the last hand-authored artefact in the M bootstrap flow. With
 I-036 (live config) + I-047 (generated config), the whole topology
 surface becomes AI-driven from Story Zero prose alone.
+
+---
+
+## I-049: Deterministic capabilities as code, interpretive as SKILLs
+
+**Category:** Architecture / execution model
+**Priority:** High (unblocks real determinism, dramatically cheaper to run)
+**Discovered:** 2026-04-15, during I-036 live validation post-mortem
+
+### Problem
+
+M capabilities are currently all expressed as SKILL.md documents that an
+AI agent reads and executes. This model conflates two fundamentally
+different kinds of operations:
+
+- **Interpretive** — "read this story, identify which component owns
+  which PAT, propose a decomposition." These need context, judgment,
+  creativity. An agent is the right executor. SKILL.md is the right
+  home.
+- **Deterministic** — "given this `project.yaml`, emit exactly these
+  four files." These are pure functions. The output is fully determined
+  by the input. No creativity. No judgment. No variance allowed.
+
+The I-036 `render-topology-artefacts` capability is the cleanest example.
+Its whole job is: parse yaml, emit files. It has no interpretive surface.
+But today it's a SKILL an agent reads and executes by hand. Consequences:
+
+- **Determinism is aspirational, not mechanical.** Two agents reading
+  the same SKILL may produce slightly different bytes. The "byte-
+  identical output" claim in the SKILL cannot be enforced.
+- **Execution is slow and expensive.** An agent re-reading the SKILL
+  every time it renders (minutes, plus token cost) when a Node function
+  would take milliseconds for free.
+- **Regression testing is impossible.** You can't diff two renders
+  against each other with confidence because each render depends on
+  agent discipline.
+- **The renderer output during I-036's own live test was hand-written
+  by me as agent.** If I transcribed anything wrong, the test passed
+  despite the bug — and no automated check could catch it.
+
+The provider interface already baked in this distinction for SCM:
+`scm.create_repo` is not a SKILL — it's a concrete MCP/API call dispatched
+through `.m/providers/scm/gitlab.md`. Agents don't "interpret" how to
+create a repo; they call the function. The same pattern should apply to
+every pure-function capability.
+
+### Proposal
+
+Draw an explicit line:
+
+- **Executable code (in `cli/` as Node functions, exposed via the M CLI):**
+  - `render-topology-artefacts` (the full chain: parse project.yaml →
+    dispatch providers → emit files)
+  - PAT → CAT compilation (the Cypress transform)
+  - Schema validation (`m validate-project`)
+  - Readiness tracker operations
+  - Integrity gate checks (SCM-aware, not filesystem)
+  - Any other pure function currently living in a SKILL
+
+- **SKILL.md (interpretive agent work):**
+  - `decompose-story` story reading, PAT mapping, sub-task authoring
+  - `generate-pats` prose → PAT YAML
+  - Structural story recognition (reading story text to decide if it's
+    structural and which kind)
+  - Reviewer judgments
+  - Anything that needs context, creativity, or judgment
+
+Capabilities remain the top-level unit. Their SKILL.md becomes shorter —
+agents do the interpretive work, then CALL the executable helpers for
+the deterministic parts. Example refactor of `decompose-story`:
+
+```
+decompose-story (SKILL, agent-executed):
+  1. Read story. Propose PAT mapping. [interpretive]
+  2. For structural: decide operation type (ADD/REMOVE/...). [interpretive]
+  3. Author new project.yaml via Edit tool. [interpretive]
+  4. CALL `m render-topology-artefacts` [deterministic, scripted]
+  5. CALL `m compile-pat --story TODOM-001 --framework cypress` [deterministic]
+  6. Git commit + push [standard dev flow]
+  7. CALL scm.create_merge_request [provider dispatch]
+```
+
+### What needs to change
+
+1. **M CLI** grows new subcommands — one per deterministic operation.
+   `m render-topology-artefacts`, `m compile-pat`, `m validate-project`,
+   etc. Each is a pure function of its arguments.
+2. **Provider files** describe what the function does at the interface
+   level; **CLI files** implement it. The SKILL becomes a reference
+   doc, not an execution script.
+3. **Existing SKILLs are slimmed down.** They call `m <command>`
+   instead of containing the pseudo-code of the operation.
+4. **Tests come for free** — a Node function is trivially unit-testable
+   and integration-testable. I-050's regression harness becomes much
+   easier to build on top of this.
+
+### Dependencies
+
+- Requires modest Node development — the CLI already exists (I-029),
+  so the scaffolding is there.
+- Must ship before I-040 (topology changes) and I-050 (capability
+  regression test harness) to be truly valuable.
+- Coexists with I-047 (AI-generated project.yaml) — `author-project-yaml`
+  is an interpretive capability (Story Zero prose → yaml) and stays
+  in SKILL form, but calls `m validate-project` after emitting.
+
+### Impact
+
+Flips M from "SKILLs all the way down" to a clean interpretive/
+deterministic split. Massively cheaper per-run, actually deterministic
+in the mathematical sense, and makes automated testing possible. This
+is the conceptual fix for the gap I-036's live test exposed.
+
+---
+
+## I-050: Capability regression test harness
+
+**Category:** Testing infrastructure / methodology
+**Priority:** High (quality of evolution from here on)
+**Discovered:** 2026-04-15, during I-036 live validation
+
+### Problem
+
+I-036's live validation was real and end-to-end, but also ad-hoc:
+rewind workshop → manually edit project.yaml → hand-write rendered files
+→ git commit + push → raise MR → watch pipeline → read log → call it
+green. Each step was bespoke. There is no repeatable harness, so
+regression coverage is accidental, not designed.
+
+Specific gaps left by the I-036 live test:
+
+- **Only the ADD structural operation was exercised.** REMOVE, RENAME,
+  MERGE, SPLIT, PORT-CHANGE all share most of the renderer codepath but
+  are untested.
+- **`bootstrap-root-repo` was skipped entirely.** The rewound workshop
+  starts at post-bootstrap state, so the refactored bootstrap path
+  (Step 6 renderer call, persistence extraction, packages/shell stub)
+  never ran against real GitLab.
+- **`scaffold-repo` was mocked.** I created `todo-m-analytics` with a
+  minimal seed commit, not through the full scaffold-repo flow (which
+  includes CI pipeline, access tokens, webhooks, etc.).
+- **`report-shadow-status.sh` never executed.** It only fires on trigger
+  pipelines, which validate:compose doesn't use. The curl+REST rollback
+  is syntactically present but runtime-untested.
+
+### Proposal
+
+A formal harness covering every capability path end-to-end, runnable
+as a single command. Rough shape:
+
+```
+m test e2e --target gitlab --group methodology-m/todo-m-workshop-e2e
+```
+
+The harness:
+
+1. Creates (or reuses) a throwaway workshop group on the target SCM.
+2. Runs `bootstrap-root-repo` → asserts rendered files present + valid.
+3. Runs `scaffold-repo` for each managed component → asserts CI green.
+4. Smoke: pushes a trivial change to a managed repo → asserts shadow
+   compose webhook → pipeline fan-out → commit status fan-out.
+5. Runs `decompose-story` for TODOM-001 (business) → asserts MR !X
+   raised, pipeline green, no sub-task leakage into SCM repos.
+6. Runs `decompose-story` for TODOM-S01 (structural ADD) → asserts MR,
+   pipeline green, topology files regenerated correctly.
+7. Repeats for TODOM-S02..S06 (REMOVE/RENAME/MERGE/SPLIT/PORT-CHANGE)
+   — each is a new committed fixture.
+8. Tears down or rewinds at the end.
+
+Each step asserts BOTH the local file state AND the remote GitLab state
+(pipeline results, MR structure, commit status). Pass/fail is mechanical.
+
+### What needs to change
+
+1. **Test fixtures committed permanently:** TODOM-000 (already exists),
+   TODOM-001 (exists), TODOM-S01 (exists, added by I-036),
+   TODOM-S02..S06 (new — one per non-ADD structural operation).
+2. **Harness binary:** a new CLI command (`m test e2e` or similar) or
+   shell script that drives the full sequence.
+3. **Assertions:** each step has a declarative expectation — e.g.
+   "after bootstrap, root repo has files [x, y, z]; after decompose-S01,
+   docker-compose.yml contains service 'analytics'".
+4. **CI integration (optional):** the harness could run on every
+   methodology-m PR that touches a capability or provider, against a
+   throwaway subgroup. Would need a token with create-project + delete-
+   project permissions.
+
+### Dependencies
+
+- I-049 (deterministic capabilities as code) makes this dramatically
+  easier — asserting "the renderer produces these bytes" is trivial
+  against a code function, painful against an agent-executed SKILL.
+- I-029 (M CLI) — the harness plugs in as another CLI command.
+
+### Impact
+
+Evolving M from here on currently depends on manual validation per
+change. Any refactor that touches a capability requires a full ad-hoc
+live run. With the harness, CI catches regressions automatically.
+Confidence-per-release increases 10x.
+
+---
+
+## I-051: `scm.push_files` lifecycle gap — can't update existing files
+
+**Category:** Provider interface / SCM
+**Priority:** Medium (latent bug, affects every structural story)
+**Discovered:** 2026-04-15, during I-036 live validation
+
+### Problem
+
+The refactored `decompose-story` SKILL's S-4 section shows:
+
+```
+scm.push_files(repo, branch, files=[
+  { path: "project.yaml",                content: ... },
+  { path: "docker-compose.yml",          content: ... },
+  { path: "scripts/integration-test.sh", content: ... },
+  { path: ".gitlab-ci.yml",              content: ... },
+  { path: "scripts/report-shadow-status.sh", content: ... },
+])
+```
+
+But `scm.push_files` is create-only per the gitlab provider spec:
+
+> **Gotchas:** `push_files` rejects commits that touch files already
+> existing on the branch. For re-runs on partially seeded repos, use
+> `scm.create_or_update_file()` per file instead.
+
+For a structural story, `project.yaml`, `docker-compose.yml`, and
+`.gitlab-ci.yml` ALWAYS already exist (they were seeded at bootstrap).
+So the SKILL's S-4 pseudo-code would fail on the first real structural
+run with "A file with this name already exists".
+
+During I-036's live validation I hit this exact error on my first
+attempt and worked around it by using `git commit + git push` from the
+local clone, bypassing `scm.push_files` entirely. That works but it's
+not what the SKILL says to do.
+
+### Proposal
+
+Two candidate fixes:
+
+**Option A — Update the SKILL to use `create_or_update_file` per file.**
+Drawback: each file becomes its own commit. No atomicity. The MR shows
+N commits instead of one "structural change" commit.
+
+**Option B — Add a new provider function `scm.push_or_update_files`.**
+Same shape as `push_files` but handles both create and update cases
+atomically (via GitLab's commits API which supports mixed create/update
+actions in a single commit). The SKILL stays clean.
+
+Option B is the cleaner fix. The GitLab commits API natively supports
+mixed `create`/`update` actions in a single commit payload, so a single
+MCP call can produce one atomic commit with the full file set. Other
+SCM providers (GitHub, Gitea) have similar APIs.
+
+### What needs to change
+
+1. **Provider interface**: add `scm.push_or_update_files(repo, branch,
+   files[], commit_message)` to `.m/providers/provider-interface.md`.
+2. **gitlab provider**: implement via `POST /projects/:id/repository/commits`
+   with `actions: [{action: "create|update", file_path, content}, ...]`.
+3. **log-only provider**: dry-run stub.
+4. **decompose-story SKILL S-4**: switch to the new function.
+
+### Dependencies
+
+- Provider interface extension (straightforward).
+- MCP tooling may need a new `mcp__gitlab__commits` function that
+  accepts a mixed-action payload. Current `push_files` only does create.
+
+### Impact
+
+Closes a latent bug in the structural story path and restores SKILL/
+execution fidelity. Needed before the capability regression harness
+(I-050) can mechanically exercise every structural operation.
 
 ---
 

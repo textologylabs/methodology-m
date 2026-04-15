@@ -56,6 +56,32 @@ All notable changes to Methodology M are documented in this file.
   QoL improvement; blocked on alpine apk install story for `glab`.
   No functional change.
 
+- **I-049** improvement item (Tier 1, High) — **Deterministic
+  capabilities as code, interpretive as SKILLs.** Flips M's execution
+  model: pure-function operations (renderer, PAT→CAT compilation,
+  schema validation, integrity checks) should live as Node functions
+  exposed via the M CLI, not as SKILL documents an agent interprets
+  by hand. Agents call them. This is the conceptual fix for the
+  determinism gap I-036's live validation exposed — "byte-identical
+  output" cannot be enforced when the renderer is a SKILL.md.
+
+- **I-050** improvement item (Tier 2, High) — **Capability regression
+  test harness.** Formalise the rewind-replay-diff pattern into a
+  repeatable `m test e2e` command covering bootstrap + scaffold + all
+  structural operations (ADD/REMOVE/RENAME/MERGE/SPLIT/PORT-CHANGE) +
+  business decomposition. Currently the only live coverage is ad-hoc
+  and only exercises the ADD path. Needed before any further capability
+  refactor to avoid regression-by-accident.
+
+- **I-051** improvement item (Tier 2, Medium) — **`scm.push_files`
+  lifecycle gap.** S-4 of decompose-story SKILL shows
+  `scm.push_files(files=[...])` but that call fails when files already
+  exist, which is ALWAYS the case for structural stories touching
+  project.yaml/docker-compose.yml/.gitlab-ci.yml. Discovered during
+  I-036 live validation; worked around by using `git commit + git push`
+  directly. Fix: add `scm.push_or_update_files` to the provider
+  interface, or update S-4 to call `create_or_update_file` per file.
+
 ### Changed
 
 - **`bootstrap-root-repo` — emits topology-derived artefacts via
@@ -119,6 +145,115 @@ All notable changes to Methodology M are documented in this file.
 
 - **Provider interface extended with `compose.*` and `ci.*`
   namespaces.** See `.m/providers/provider-interface.md`.
+
+### Pre-flight corrections (applied after initial sub-agent simulation)
+
+A pre-flight review of the `.work/` rendered trees surfaced three
+targeted fixes, all in provider specs (no capability changes):
+
+- **`ci/gitlab` — `report-shadow-status.sh` reverted from `glab` CLI
+  to curl+REST.** The glab version would have failed at the first
+  real shadow:compose run — glab isn't in alpine's default apk repo
+  and the shadow:compose before_script only adds `git curl`. Rolled
+  back to pass1's proven curl+REST pattern. Kept the cleaner single-
+  arg state interface and render-time substitution of REPOS/GROUP/API.
+  `M_GROUP_TOKEN` is now explicitly validated at the top of the script.
+  Switch back to glab deferred to I-048.
+
+- **`compose/docker-compose` — `integration-test.sh` dropped the story
+  integrity gate block.** The original design conflated aliveness
+  probes ("is the system running?") with integrity ("does the story
+  cover every repo?") in one script. Worse, the integrity gate used
+  filesystem existence of sibling directories as the signal, which
+  is fundamentally wrong — integrity is an SCM-state concern, not a
+  disk-layout one. The script now contains ONLY the pinned framework,
+  aliveness probes, and a fixed epilogue. Integrity is wire-
+  orchestration's responsibility and operates against the SCM API.
+
+- **`compose/docker-compose` — cosmetic double-echo in epilogue fixed.**
+
+### Live end-to-end validation (2026-04-15)
+
+Full validation against real GitLab runners on
+`methodology-m/todo-m-workshop`. Two MRs exercised the refactored
+capabilities:
+
+- **MR !27** — TODOM-001 (business story). Exercises
+  `decompose-story` Step 4 (compile PAT → Cypress + readiness tracker).
+  Sub-tasks explicitly NOT committed to any SCM repo — they live in
+  the project's story source of truth. Pipeline green.
+
+- **MR !28** — TODOM-S01 (structural ADD story). Exercises the full
+  refactor: S-1 project.yaml mutation → S-2 renderer dispatch through
+  both compose and CI providers → S-4 commit + push + MR. Precondition
+  `todo-m-analytics` repo created and seeded with `/health` endpoint.
+
+  **MR !28 pipeline log shows all 5 topology aliveness probes
+  succeeded via the new POSIX `scripts/integration-test.sh`:**
+
+  ```
+  $ sh scripts/integration-test.sh
+  Infrastructure baseline — topology aliveness probes:
+  ✓ shell renders
+  ✓ mfe remoteEntry.js served
+  ✓ api-read health
+  ✓ api-write health
+  ✓ analytics health
+  All topology aliveness probes passed.
+  Job succeeded
+  ```
+
+  validate:compose built all 5 containers (including the new
+  analytics service), started them, executed the POSIX-sh check()
+  polling helper, and tore down cleanly. End-to-end walltime: 131
+  seconds.
+
+Every job in the MR pipeline ran green: install → build → test →
+validate:compose → validate:integration-test.
+
+### Known gaps and scope honesty
+
+The live validation is real but bounded. What's proven vs. unproven:
+
+**Proven:**
+
+- Structural ADD path (decompose-story + renderer + both providers)
+  works end-to-end on real GitLab.
+- POSIX-sh `integration-test.sh` with check() polling works in
+  alpine DinD with the documented DOCKER_GATEWAY default.
+- New rendered `.gitlab-ci.yml` jobs (with clone lines for analytics
+  and delegation to `sh scripts/integration-test.sh`) are syntactically
+  valid and runtime-correct.
+- Business decompose path (MR !27) still works post-refactor.
+- The "sub-tasks never committed to SCM" rule (I-002 closure) holds.
+
+**NOT proven — filed as I-050 coverage targets:**
+
+- **`bootstrap-root-repo` was SKIPPED in the live test.** The rewind
+  restored post-bootstrap state, so the refactored Step 6 renderer
+  call, persistence handling, and shell stub were validated only by
+  SKILL reading, not by execution.
+- **`scaffold-repo` was mocked.** `todo-m-analytics` was seeded with
+  a minimal express app, not through the full scaffold-repo flow
+  (CI pipeline, access tokens, webhooks).
+- **`report-shadow-status.sh` never executed.** It only fires on
+  trigger pipelines, which validate:compose doesn't use. The
+  curl+REST rollback is syntactically present but runtime-untested.
+- **Only the ADD structural operation was exercised.** REMOVE,
+  RENAME, MERGE, SPLIT, PORT-CHANGE share most of the renderer
+  codepath but are untested end-to-end.
+- **Only one provider per dimension exists** (docker-compose for
+  compose, gitlab for ci). "The plugin architecture is portable" is
+  credible but unverified.
+
+**Determinism caveat — filed as I-049:**
+
+The renderer is a SKILL document read and executed by an agent, not
+an executable function. The "pure function, byte-identical output"
+guarantee is enforceable only by agent discipline. Two agents
+reading the same SKILL may produce slightly different bytes. I-049
+proposes flipping deterministic capabilities into executable code
+(Node functions in the M CLI) so determinism becomes mechanical.
 
 ### Fixed
 
