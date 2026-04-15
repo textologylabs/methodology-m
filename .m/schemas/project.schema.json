@@ -25,18 +25,28 @@
 
     "providers": {
       "type": "object",
-      "description": "Active providers by namespace. Capabilities call namespaced functions (e.g. scm.create_repo); the provider selected here determines the concrete implementation. See .m/providers/ for available providers.",
+      "description": "Active providers by namespace. Capabilities call namespaced functions (e.g. scm.create_repo, compose.render_topology); the provider selected here determines the concrete implementation. See .m/providers/ for available providers.",
       "required": ["scm"],
       "properties": {
         "scm": {
           "type": "string",
           "description": "Source code management provider. Determines which .m/providers/scm/<provider>.md file is used.",
-          "examples": ["gitlab", "github"]
+          "examples": ["gitlab", "github", "log-only"]
+        },
+        "compose": {
+          "type": "string",
+          "description": "Compose/orchestration provider for render-topology-artefacts. Emits docker-compose.yml + scripts/integration-test.sh (or strategy-equivalent). If omitted, resolution falls back to compose.integration.strategy.",
+          "examples": ["docker-compose", "kubernetes", "podman"]
+        },
+        "ci": {
+          "type": "string",
+          "description": "CI platform provider for render-topology-artefacts. Emits the platform-specific pipeline config + helper scripts. If omitted, defaults to the value of providers.scm (CI and SCM are typically paired — .gitlab-ci.yml for gitlab, .github/workflows/*.yml for github).",
+          "examples": ["gitlab", "github", "jenkins"]
         }
       },
       "additionalProperties": {
         "type": "string",
-        "description": "Future provider namespaces (e.g. ci, test, compose, deploy)."
+        "description": "Future provider namespaces (e.g. test, deploy, monitor)."
       }
     },
 
