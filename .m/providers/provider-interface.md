@@ -168,6 +168,95 @@ integration gate from the moment the story is decomposed.
 
 ---
 
+### `compose` — Compose orchestration and aliveness
+
+Declarative service composition, topology aliveness probes, and the scripts
+that bring the running system up and verify it. A compose provider owns the
+strategy-specific file formats (docker-compose vs. kubernetes vs. podman) and
+the probe script that reaches running services through that strategy's network.
+
+**Active providers:** `docker-compose` (reference implementation).
+
+#### Functions
+
+| Function | Parameters | Returns | Used by |
+|---|---|---|---|
+| `compose.render_topology` | `project` | `[{path, content}, ...]` | render-topology-artefacts |
+
+#### Function Contracts
+
+**`compose.render_topology(project)`**
+
+Render the full set of compose-strategy-specific files from a parsed
+`project.yaml`. Returns a list of `{path, content}` entries. Paths are
+relative to the root repo directory.
+
+The function MUST be a pure function of `project`: same input → byte-identical
+output. No timestamps, no randomness, no reads of any other file. Determinism
+is enforced so that the render step is a safe refactor-target and its output
+can be diffed against a pre-refactor baseline.
+
+The reference provider `compose/docker-compose` returns:
+- `docker-compose.yml` — services block derived from `project.components[]`,
+  ports, build contexts, persistence volumes, depends_on chain.
+- `scripts/integration-test.sh` — topology aliveness probes (one `check` call
+  per component) plus the `REPOS=` integrity gate (referenced components +
+  root). Embeds `DOCKER_GATEWAY="${DOCKER_GATEWAY:-docker}"` as a pinned
+  default so the script works both inside CI (where `DOCKER_GATEWAY` is set
+  by the job) and locally.
+
+A kubernetes or podman provider returns a different file set appropriate to
+its strategy.
+
+The caller (render-topology-artefacts) is responsible for writing the files
+to disk. The provider never touches the filesystem.
+
+---
+
+### `ci` — CI pipeline and status reporting
+
+CI pipeline configuration and the helper scripts it invokes (status
+reporting, fan-out). A CI provider is typically — but not necessarily —
+paired with an `scm` provider, because the pipeline config format is tied
+to the SCM platform (`.gitlab-ci.yml` vs `.github/workflows/*.yml` vs
+`Jenkinsfile`) and helper scripts call the SCM platform's CLI (`glab`, `gh`).
+
+**Active providers:** `gitlab` (reference implementation).
+
+#### Functions
+
+| Function | Parameters | Returns | Used by |
+|---|---|---|---|
+| `ci.render_pipeline` | `project`, `scm` | `[{path, content}, ...]` | render-topology-artefacts |
+
+#### Function Contracts
+
+**`ci.render_pipeline(project, scm)`**
+
+Render the full set of CI-platform-specific files from a parsed `project.yaml`
+and the name of the active `scm` provider (so helper scripts can emit the
+right CLI syntax). Returns a list of `{path, content}` entries.
+
+Pure function — same determinism requirements as `compose.render_topology`.
+
+The reference provider `ci/gitlab` returns:
+- `.gitlab-ci.yml` — stages (install → build → test → compose → integration-test
+  → report-status → merge-transaction), job definitions, rules for MR and main
+  branch events, fan-out jobs invoking `scripts/report-shadow-status.sh`,
+  per-component health checks derived from `project.components[]`.
+- `scripts/report-shadow-status.sh` — iterates the integrity-gate repo list
+  (referenced components + root) and calls `scm.post_commit_status` via the
+  CLI syntax corresponding to the `scm` provider parameter (`glab` for GitLab,
+  `gh` for GitHub, etc.).
+
+A `ci/github` provider would return `.github/workflows/ci.yml` and a
+gh-flavored status script. Jenkins, CircleCI, etc. analogous.
+
+The caller (render-topology-artefacts) resolves the active scm provider from
+`project.yaml`'s `providers.scm` field and passes it to this function.
+
+---
+
 ## Adding a New Namespace
 
 When a new provider category is needed (e.g. `test.cat.*`):
