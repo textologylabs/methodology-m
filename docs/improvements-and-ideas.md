@@ -13,7 +13,7 @@ listed for completeness — their write-ups remain below as reference.
 | Item | Title | Rationale |
 |------|-------|-----------|
 | I-036 | project.yaml as live config | Root cause of recurring "forgot to update REPOS" bugs. Unblocks I-040. Highest leverage single item. |
-| I-022 | Rename shadow → AOT | Terminology split causes confusion. Wide blast radius — best done in one focused pass before more docs accumulate. |
+| I-047 | project.yaml is AI-generated from Story Zero | Currently hand-authored. Nothing owns interpretation of topology/persistence/deployment intent from story prose. Do right after I-036 — the renderer is meaningless if its input is still human-typed. |
 
 ### Tier 2 — Completeness of the delivery loop
 
@@ -30,7 +30,7 @@ listed for completeness — their write-ups remain below as reference.
 
 | Item | Title | Rationale |
 |------|-------|-----------|
-| I-009 | Plugin architecture (umbrella) | Unifies I-003, I-008, I-014, I-015, I-018, I-019, I-024, I-025 under a coherent pattern. The `scm.*` provider interface solved one dimension; same pattern needed for CI, test, compose, deploy. |
+| I-009 | Plugin architecture (umbrella) — **1/4 done** | scm dimension shipped (`scm.*` provider interface, gitlab + log-only). CI, test, compose, deploy dimensions still TODO. Unifies I-003, I-008, I-014, I-015, I-018, I-019, I-024, I-025. |
 | I-003 | Configurable PAT→CAT framework | Sub-item of I-009. Test stack as project config, not hardcoded. |
 | I-008 | Role-specific CI templates | Sub-item of I-009. Frontend vs backend scaffold CI. |
 | I-014 | Compose strategy as plugin | Sub-item of I-009. Reference impl is Docker Compose + DinD. |
@@ -41,8 +41,6 @@ listed for completeness — their write-ups remain below as reference.
 | I-025 | Two-tier config: M Core + Org Config | Distribution model. Batteries-included defaults + org overlay. |
 | I-026 | Onboarding flows | Greenfield vs existing org adoption paths. |
 | I-027 | Installation mechanics | Concrete distribution: npm, CLI, power bundle. |
-| I-028 | Repo reorganisation | Separate distributable M from workshop artefacts. Prerequisite for I-029. |
-| I-029 | Version M as npm package with CLI | CLI built. Remaining: npm publish, AI changelog, repo reorg (I-028). |
 
 ### Tier 4 — Polish and nice-to-haves
 
@@ -50,7 +48,6 @@ listed for completeness — their write-ups remain below as reference.
 |------|-------|-----------|
 | I-001 | Story Zero wizard | Cold-start UX. Nice but Story Zero is a one-time event per project. |
 | I-002 | Remove jira/ from GitLab repos | Conceptual cleanliness. Harmless but messy. |
-| I-006 | API stubs for frontend repos | Scaffold convenience. Currently manual. |
 | I-016 | Methodology paper overhaul | Post-demo. Accumulate learnings first. |
 | I-017 | DRY compose jobs | Tech debt. No functional change. |
 | I-034 | MR reopen events | Webhook edge case. Rare in practice. |
@@ -75,6 +72,10 @@ listed for completeness — their write-ups remain below as reference.
 | I-032 | Pipeline failure webhook | pipeline_events on webhooks, detect-trigger handles pipeline_failure. |
 | I-033 | 90s invalidation window | Accepted limitation. Documented. |
 | I-039 | Decomposition auto-establishes AOT gate | decompose-story Step 4: auto-compile PAT → Cypress, raise root MR. |
+| I-006 | API stubs for frontend repos | `pats/stubs/api-*.js` generated per dependency in scaffold-repo (express/cors, shared state). |
+| I-022 | Rename shadow → AOT | Terminology unified across docs, CI jobs, capabilities. |
+| I-028 | Repo reorganisation | Distributable M separated from workshop. `cli/`, `powers/`, `steering/` at repo root. |
+| I-029 | Version M as npm package with CLI | CLI built, v0.4.0 published to npm as `methodology-m`. Bin entry at `cli/bin/m.mjs`. |
 
 ---
 
@@ -2463,6 +2464,63 @@ Whichever path is chosen:
 - I-009 (plugin abstraction — compose strategy is a plugin, but it still
   needs topology input from somewhere)
 - I-018 (compose strategy as plugin boundary — the plugin reads project.yaml)
+
+---
+
+## I-047: project.yaml should be AI-generated from Story Zero
+
+**Category:** Methodology / capability lifecycle
+**Priority:** High (sits directly after I-036; renderer is meaningless without a generated input)
+**Discovered:** 2026-04-15, during I-036 scoping — surfaced by sub-agent baseline run
+
+### Problem
+
+`project.yaml` is the topology manifest. I-036 makes it a live config that
+the renderer consumes. But nothing generates it — it is hand-authored by
+whoever bootstraps the project. This means:
+
+- Topology, persistence, deployment model, component roles, ports, tags
+  — all interpreted from Story Zero prose by a human, typed into yaml,
+  and then handed to `bootstrap-root-repo` as input.
+- There is no capability that owns "read Story Zero, emit project.yaml".
+- Every pass1 / workshop / demo has required human intervention at this
+  step, making end-to-end AI execution of M impossible from Story Zero.
+- The drift items surfaced by the I-036 sub-agent baseline (missing
+  persistence block in the SKILL-literal bootstrap output vs. pass1
+  having one) are a direct symptom: nothing owns the interpretation,
+  so different actors produce different project.yamls from the same
+  source.
+
+### Proposal
+
+A new capability — working name `author-project-yaml` — reads the Story
+Zero markdown file and emits a complete, schema-valid `project.yaml`.
+Interprets:
+- `## Project` section → project name, group, topology mode, CI platform, deployment model
+- `## Components` catalogue → components list with name, role, port
+  assignment, type (embedded/referenced), tag seed
+- Implicit persistence needs from the story prose → `persistence:` block
+  when the story implies shared state (e.g. "both backends read/write
+  the same todos")
+- Provider selection → `providers:` block
+- Compose strategy → `compose:` block with local + integration entries
+
+Runs BEFORE `bootstrap-root-repo`. The output is fed into
+`bootstrap-root-repo` as the `project-yaml` parameter, which now reads
+it instead of deriving fields ad-hoc from the story.
+
+### Dependencies
+
+- Must ship after I-036 (the renderer that consumes project.yaml must
+  exist and be stable before we automate the author of its input).
+- Unblocks end-to-end AI execution of Story Zero — no more human
+  yaml typing.
+
+### Impact
+
+Closes the last hand-authored artefact in the M bootstrap flow. With
+I-036 (live config) + I-047 (generated config), the whole topology
+surface becomes AI-driven from Story Zero prose alone.
 
 ---
 
