@@ -4,6 +4,8 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-04-15
+
 ### Added
 
 - **`render-topology-artefacts` capability** — new orchestrator at
