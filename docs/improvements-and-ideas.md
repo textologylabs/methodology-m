@@ -12,8 +12,7 @@ listed for completeness — their write-ups remain below as reference.
 
 | Item | Title | Rationale |
 |------|-------|-----------|
-| I-036 | project.yaml as live config | Root cause of recurring "forgot to update REPOS" bugs. Unblocks I-040. Highest leverage single item. |
-| I-047 | project.yaml is AI-generated from Story Zero | Currently hand-authored. Nothing owns interpretation of topology/persistence/deployment intent from story prose. Do right after I-036 — the renderer is meaningless if its input is still human-typed. |
+| I-047 | project.yaml is AI-generated from Story Zero | Currently hand-authored. Nothing owns interpretation of topology/persistence/deployment intent from story prose. Renderer (I-036) is complete; this is the next step to close the bootstrap authoring loop. |
 
 ### Tier 2 — Completeness of the delivery loop
 
@@ -30,12 +29,10 @@ listed for completeness — their write-ups remain below as reference.
 
 | Item | Title | Rationale |
 |------|-------|-----------|
-| I-009 | Plugin architecture (umbrella) — **1/4 done** | scm dimension shipped (`scm.*` provider interface, gitlab + log-only). CI, test, compose, deploy dimensions still TODO. Unifies I-003, I-008, I-014, I-015, I-018, I-019, I-024, I-025. |
+| I-009 | Plugin architecture (umbrella) — **3/4 done** | scm, compose, and ci dimensions shipped (gitlab + log-only for scm; docker-compose for compose; gitlab for ci). test and deploy dimensions still TODO. Unifies I-003, I-008, I-015, I-019, I-024, I-025 (I-014 and I-018 closed by I-036). |
 | I-003 | Configurable PAT→CAT framework | Sub-item of I-009. Test stack as project config, not hardcoded. |
-| I-008 | Role-specific CI templates | Sub-item of I-009. Frontend vs backend scaffold CI. |
-| I-014 | Compose strategy as plugin | Sub-item of I-009. Reference impl is Docker Compose + DinD. |
+| I-008 | Role-specific CI templates | Sub-item of I-009. Frontend vs backend scaffold CI. Partial overlap with I-036's ci/gitlab provider (shell lifecycle conditional); full per-role CI template support still open. |
 | I-015 | Project templates | Sub-item of I-009. Pluggable scaffolding blueprints per role. |
-| I-018 | Compose strategy boundary in wire-orchestration | Sub-item of I-009. Separate methodology contract from reference impl. |
 | I-019 | Persistence layer as plugin | Sub-item of I-009. Shared state between components. |
 | I-024 | Project template catalogue | Sub-item of I-015. Org-level template registry. |
 | I-025 | Two-tier config: M Core + Org Config | Distribution model. Batteries-included defaults + org overlay. |
@@ -76,6 +73,9 @@ listed for completeness — their write-ups remain below as reference.
 | I-022 | Rename shadow → AOT | Terminology unified across docs, CI jobs, capabilities. |
 | I-028 | Repo reorganisation | Distributable M separated from workshop. `cli/`, `powers/`, `steering/` at repo root. |
 | I-029 | Version M as npm package with CLI | CLI built, v0.4.0 published to npm as `methodology-m`. Bin entry at `cli/bin/m.mjs`. |
+| I-014 | Compose strategy as plugin | `compose.*` provider namespace + `compose/docker-compose` reference impl delivered as part of I-036. v0.5.0. |
+| I-018 | Compose strategy boundary in wire-orchestration | CI pipeline delegates compose-specific logic to `sh scripts/integration-test.sh` and `sh scripts/report-shadow-status.sh` instead of inlining. v0.5.0. |
+| I-036 | project.yaml as live config | `render-topology-artefacts` capability + `compose.*` and `ci.*` provider namespaces. Bootstrap-root-repo and decompose-story both call the renderer. All four topology-derived files (`docker-compose.yml`, `scripts/integration-test.sh`, `.gitlab-ci.yml`, `scripts/report-shadow-status.sh`) are pure functions of `project.yaml`. v0.5.0. |
 
 ---
 

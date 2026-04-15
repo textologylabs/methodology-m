@@ -197,15 +197,21 @@ checks pass. Three failure modes ensure no story can slip through:
 
 - **Structural failure:** the integration test framework detects that
   a story is in-flight (open MRs with the story ID in branch names)
-  but no integration test script exists at
-  `scripts/integration-tests/<story-id>.sh`. This fails immediately
-  with a clear message telling the team to add tests.
+  but no story-level CAT exists at `pats/<story-id>.cy.js` (or other
+  framework-appropriate file) on the root repo's story branch. This
+  fails immediately with a clear message telling the team to add
+  tests. There is no separate `scripts/integration-tests/<story-id>.sh`
+  path — `scripts/integration-test.sh` is singular and topology-wide
+  (owned by the compose provider via `render-topology-artefacts`).
 
 - **Completeness failure:** the integrity check verifies that ALL
   repos in the topology have open MRs for the story — managed repos
   AND the root repo. The root repo delivers story-level integration
-  tests; without its MR the gate is meaningless. The repo list must
-  be derived from `project.yaml` components, not hardcoded.
+  tests; without its MR the gate is meaningless. The repo list MUST
+  be derived from `project.yaml` components, not hardcoded. In the
+  rendered `scripts/integration-test.sh` (from
+  `compose.render_topology`), this appears as the `REPOS=` line, which
+  is the canonical source for the gate's repo set.
 
 - **Logical failure:** the integration test script exists but fails
   because not all components have implemented their part yet. The
