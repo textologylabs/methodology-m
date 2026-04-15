@@ -41,6 +41,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-025 | Two-tier config: M Core + Org Config | Distribution model. Batteries-included defaults + org overlay. |
 | I-026 | Onboarding flows | Greenfield vs existing org adoption paths. |
 | I-027 | Installation mechanics | Concrete distribution: npm, CLI, power bundle. |
+| I-052 | `m init --user` — user-scope install for agent containers | M CLI currently only installs at project scope. Agentic consumers (e.g. Outpost's hut image) need M baked into the agent user's home so every agent container ships with M skills regardless of which repo it checks out. Requires wrapper path to be scope-aware. |
 
 ### Tier 4 — Polish and nice-to-haves
 
@@ -3448,3 +3449,116 @@ Medium. Touches: `pat.schema.json` (new step types), `decompose-story`
 documentation describing the PAT format. The structural section of
 `decompose-story` becomes simpler once I-045 lands — its CAT
 compilation rules collapse into the standard PAT compilation flow.
+
+---
+
+## I-052: `m init --user` — user-scope install for agent containers
+
+**Category:** M CLI capability
+**Tier:** 3 — Architecture and extensibility
+**Discovered:** 2026-04-16, during Outpost ↔ M integration design discussion
+
+### Problem
+
+`m init` currently installs at **project scope** only:
+
+- `.m/` goes in the target directory (`<target>/.m/`)
+- Wrappers go in `<target>/.claude/steering/m-steering.md` and `<target>/.claude/skills/<name>/SKILL.md`
+- The steering wrapper contains the relative string `Read and follow the canonical steering at .m/m.md.`, which resolves against the agent's cwd
+
+That model is correct for **human-driven projects**: a developer opens a repo, runs `m init`, and M lives alongside the code. But it breaks down for **agentic consumers** like Outpost, where the methodology is best expressed as a property of the *agent*, not the *project*.
+
+### Outpost's use case — why project-scope doesn't fit
+
+Outpost runs agents (implementer, test-engineer, senior-reviewer, scrum-master, and a future BA role) inside disposable `hut` containers. Each agent is launched against a working copy of some repo that may or may not be M-type. The agent's job is to know M as a capability it brings with it — not to depend on the repo having been `m init`'d first.
+
+Options considered:
+
+1. **Run `m init` per project inside the container at launch time.** Fragile (fails on non-M projects), adds latency, requires the agent to decide whether to init or not, creates version skew between agent and project.
+2. **Bake `m init` into the container image at project scope in a fixed directory, symlink on launch.** Fiddly. Multiple moving parts. Breaks when cwd changes.
+3. **Bake M into the agent user's home at image build time.** Clean. Works regardless of cwd. Matches how Claude Code already resolves user-level skills and steering (`~/.claude/` is walked before project-level). Mirrors the way humans install global tools.
+
+Option 3 is clearly right, and it's exactly what a `--user` scope flag enables.
+
+### Proposed solution
+
+Add a `--user` flag (or `--scope=user`) to `m init`:
+
+```bash
+m init --user
+```
+
+Semantics:
+
+| Concern | Project scope (current) | User scope (new) |
+|---|---|---|
+| `.m/` location | `<target>/.m/` | `~/.m/` |
+| Steering wrapper | `<target>/.claude/steering/m-steering.md` | `~/.claude/steering/m-steering.md` |
+| Skill wrappers | `<target>/.claude/skills/<name>/SKILL.md` | `~/.claude/skills/<name>/SKILL.md` |
+| Version file | `<target>/.m/.m-version` (existing) | `~/.m/.m-version` |
+| Wrapper path inside `m-steering.md` | `Read .m/m.md` (relative → cwd) | `Read ~/.m/m.md` (absolute → home) |
+| Bundled version source | Current CLI's bundled `.m/` | Same — `m init` always uses the bundled version it ships with |
+| `m update` behaviour | Updates `<target>/.m/` to latest bundled | Updates `~/.m/` to latest bundled |
+
+The bundled-version model already fits this cleanly: `m version` reports three versions (bundled, local config, npm), and per the existing design `m init` uses the bundled version and records it in the installed `.m/`. `--user` changes only *where* the installed copy lives — the versioning semantics are identical.
+
+### Wrapper path — the key correctness fix
+
+The current steering wrapper template is a static file at `cli/templates/claude/steering/m-steering.md`:
+
+```markdown
+# Methodology M — Claude Steering
+
+Read and follow the canonical steering at `.m/m.md`.
+```
+
+The relative `.m/m.md` only works because project-scope installs put `.m/` in the cwd. For user scope, the agent's cwd is arbitrary (whatever repo it happens to be working on), so the path must resolve to the user's home.
+
+The fix: make the wrapper a **template** rather than a static file, and have the generator in [`cli/src/lib/wrappers/claude.mjs`](cli/src/lib/wrappers/claude.mjs) substitute the correct path at generation time based on scope:
+
+- Project scope → `.m/m.md` (relative, current behaviour preserved)
+- User scope → `~/.m/m.md` (or the expanded absolute path)
+
+This needs to be applied consistently to any other wrapper that references `.m/` by relative path. If the skill wrappers also contain internal `.m/` references, they need the same treatment.
+
+### Scope marker in the version file
+
+`m update` needs to know which scope it's updating. Two approaches:
+
+1. **Implicit from cwd/home:** if `~/.m/.m-version` exists, update there when invoked from outside a project; if `<cwd>/.m/.m-version` exists, update the project. Ambiguous when both exist.
+2. **Explicit marker in `.m-version`:** record `scope: user` or `scope: project` at install time. `m update` reads it and writes back to the same scope. `m update --user` forces user scope explicitly.
+
+Option 2 is less ambiguous and self-documenting. Minor schema addition to the version file.
+
+### Outpost integration (the consuming use case)
+
+Once `--user` lands, the Outpost hut image Dockerfile becomes:
+
+```dockerfile
+RUN npm install -g methodology-m && m init --user
+```
+
+Pin the `methodology-m` version in the Dockerfile for reproducible builds. Bumping M in the hut image becomes a deliberate act: update the Dockerfile, rebuild the image, redeploy. This matches Outpost's existing release discipline.
+
+All Outpost agents (Dev, QA, Reviewer, SM, BA) boot with M skills and `.m/m.md` available under the agent user's home. The agent reads them the same way it reads any other skill — no per-project setup, no conditional init logic, no version drift between agent and project.
+
+### Scope of work
+
+- `cli/src/commands/init.mjs` — parse `--user` / `--scope`, route `copyDistM` + wrapper generation to `$HOME` instead of `target`
+- `cli/src/commands/update.mjs` — read scope marker from version file, update the correct `.m/`
+- `cli/src/lib/version-file.mjs` — record and read scope
+- `cli/src/lib/wrappers/claude.mjs` — templatise wrapper content, substitute path based on scope
+- `cli/templates/claude/steering/m-steering.md` — convert to template with a `{{M_PATH}}` placeholder (or equivalent)
+- `cli/src/lib/copy.mjs` — honour alternate target for `copyDistM`
+- Tests covering both scopes
+- Documentation — README or the methodology doc, describing when to use which scope
+
+### Priority
+
+Tier 3. Not blocking the M delivery loop (Tier 1/2 items still take precedence), but unblocks a concrete downstream consumer (Outpost) and generalises to any future agentic M consumer. Implementation is mechanically small — the surface area is a flag, a path substitution, and a scope marker.
+
+### Related
+
+- Outpost backlog #56 (M methodology injection — agents work M-native) depends on this.
+- Outpost backlog #57 (BA agent) is the most M-dependent agent role and benefits most from user-scope install.
+- Does not block Tier 1/2 M work — can land independently whenever the CLI has spare cycles.
