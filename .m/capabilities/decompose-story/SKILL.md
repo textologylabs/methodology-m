@@ -403,10 +403,15 @@ Topology-derived files are owned by `render-topology-artefacts` — not
 by this capability. After S-1 has mutated `project.yaml`, invoke the
 renderer against the new manifest:
 
-    render-topology-artefacts(
-      project-yaml: <path to the new project.yaml>,
-      target-dir:   <root repo working directory>
-    )
+    node .m/capabilities/render-topology-artefacts/render.mjs \
+      --project-yaml <path to the new project.yaml> \
+      --target-dir <root repo working directory>
+
+This is a real CLI the agent shells out to — not a SKILL the agent
+interprets. The orchestrator is executable code that produces
+byte-deterministic output. See
+`.m/capabilities/render-topology-artefacts/SKILL.md` for the full
+invocation contract and exit codes.
 
 The renderer dispatches to the compose and CI providers declared in
 `project.yaml` (see `.m/providers/provider-interface.md`) and writes
