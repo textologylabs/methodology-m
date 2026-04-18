@@ -34,6 +34,8 @@ components:
 
 providers:
   scm: gitlab
+  compose: docker-compose
+  ci: gitlab
 
 persistence:
   type: sqlite
