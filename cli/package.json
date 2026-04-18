@@ -21,7 +21,16 @@
   "engines": {
     "node": ">=18"
   },
-  "keywords": ["methodology-m", "ai", "sdlc", "delivery", "multi-repo"],
+  "keywords": [
+    "methodology-m",
+    "ai",
+    "sdlc",
+    "delivery",
+    "multi-repo"
+  ],
   "license": "MIT",
-  "author": "Textology Labs Ltd."
+  "author": "Textology Labs Ltd.",
+  "devDependencies": {
+    "js-yaml": "^4.1.1"
+  }
 }
