@@ -1,0 +1,32 @@
+project: todo-m
+group: methodology-m/todo-m-workshop
+
+components:
+  - name: shell
+    type: embedded
+    location: ./packages/shell
+    role: frontend-host
+    port: 3000
+
+  - name: mfe
+    type: referenced
+    location: methodology-m/todo-m-workshop/todo-m-mfe
+    role: frontend
+    port: 3001
+
+  - name: api-read
+    type: referenced
+    location: methodology-m/todo-m-workshop/todo-m-api-read
+    role: backend
+    port: 3002
+
+  - name: api-write
+    type: referenced
+    location: methodology-m/todo-m-workshop/todo-m-api-write
+    role: backend
+    port: 3003
+
+providers:
+  scm: gitlab
+  compose: docker-compose
+  ci: gitlab

@@ -403,10 +403,15 @@ Topology-derived files are owned by `render-topology-artefacts` — not
 by this capability. After S-1 has mutated `project.yaml`, invoke the
 renderer against the new manifest:
 
-    render-topology-artefacts(
-      project-yaml: <path to the new project.yaml>,
-      target-dir:   <root repo working directory>
-    )
+    node .m/capabilities/render-topology-artefacts/render.mjs \
+      --project-yaml <path to the new project.yaml> \
+      --target-dir <root repo working directory>
+
+This is a real CLI the agent shells out to — not a SKILL the agent
+interprets. The orchestrator is executable code that produces
+byte-deterministic output. See
+`.m/capabilities/render-topology-artefacts/SKILL.md` for the full
+invocation contract and exit codes.
 
 The renderer dispatches to the compose and CI providers declared in
 `project.yaml` (see `.m/providers/provider-interface.md`) and writes
@@ -438,8 +443,8 @@ may renumber.
 
 ### S-4 — Include artefacts in the push
 
-The `push_files` call in step 4b collects the S-1 yaml change, the
-S-2 renderer output, and (conditionally) the compiled CAT:
+The push call in step 4b collects the S-1 yaml change, the S-2 renderer
+output, and (conditionally) the compiled CAT:
 
     files = [
       { path: "project.yaml", content: <S-1 manifest> },
@@ -452,12 +457,21 @@ S-2 renderer output, and (conditionally) the compiled CAT:
     if <story is NOT a pure structural ADD>:
       files.append({ path: "pats/<story-id>.<ext>", content: <compiled CAT> })
 
-    scm.push_files(
+    scm.push_or_update_files(
       repo: <root-repo>,
       branch: "feat/<story-id>d-integration-gate",
       files: files,
       commit_message: "🏗️ <story-id>: structural change — <short description>"
     )
+
+**Use `scm.push_or_update_files`, NOT `scm.push_files`.** The topology
+files (`docker-compose.yml`, `.gitlab-ci.yml`, `scripts/integration-test.sh`,
+`scripts/report-shadow-status.sh`) already exist on the branch from
+`bootstrap-root-repo` Step 6. `scm.push_files` rejects any file that
+already exists, so the push would fail on every structural story. The
+`push_or_update_files` function handles create + update in one call — see
+`.m/providers/provider-interface.md` for the contract and the gitlab
+provider SKILL for the implementation.
 
 **Why the `pats/` file is conditional:** for a pure structural ADD
 (e.g. "add a new backend component"), the topology aliveness probe in

@@ -1,0 +1,20 @@
+project: backend-only
+group: methodology-m/backend-only
+
+components:
+  - name: api-read
+    type: referenced
+    location: methodology-m/backend-only/backend-only-api-read
+    role: backend
+    port: 4000
+
+  - name: api-write
+    type: referenced
+    location: methodology-m/backend-only/backend-only-api-write
+    role: backend
+    port: 4001
+
+providers:
+  scm: gitlab
+  compose: docker-compose
+  ci: gitlab

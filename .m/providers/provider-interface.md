@@ -41,6 +41,7 @@ and commit status reporting.
 | `scm.resolve_project_id` | `project_path` | project ID | wire-orchestration |
 | `scm.create_repo` | `name`, `namespace_id`, `initialize_readme` | repo URL, project ID | bootstrap-root-repo, scaffold-repo |
 | `scm.push_files` | `repo`, `branch`, `files[]`, `commit_message` | commit SHA | bootstrap-root-repo, scaffold-repo |
+| `scm.push_or_update_files` | `repo`, `branch`, `files[]`, `commit_message` | commit SHA | decompose-story (S-4) |
 | `scm.create_or_update_file` | `repo`, `path`, `content`, `commit_message`, `branch` | commit SHA | scaffold-repo (re-run) |
 | `scm.protect_branch` | `repo`, `branch`, `push`, `merge`, `force_push` | — | scaffold-repo, wire-orchestration |
 | `scm.create_access_token` | `repo`, `name`, `scopes[]`, `access_level`, `expiry` | token value | scaffold-repo |
@@ -80,6 +81,31 @@ to the platform's internal project ID.
 Create a new repository. `initialize_readme` MUST default to `false` —
 M capabilities seed repos with their own initial commit. A platform
 default README causes merge conflicts with the seed.
+
+---
+
+**`scm.push_or_update_files(repo, branch, files[], commit_message)`**
+
+Push multiple files in a single commit, where each file may be either
+new or already existing on the branch. The provider decides per file
+whether the concrete SCM call is a create or an update — the caller
+does not need to know and does not need to precheck.
+
+Each file entry contains `path` and `content`. Used by
+`decompose-story` S-4 which pushes a mix of new story artefacts and
+regenerated topology files to the root repo's story branch — some of
+those files (e.g. `docker-compose.yml`, `.gitlab-ci.yml`) already
+exist from bootstrap.
+
+`scm.push_files` is NOT suitable for this use because it rejects any
+file that already exists. Providers MAY implement this atomically
+(preferred — single commit via a bulk-commit API) or as a sequence of
+per-file updates (acceptable fallback — N commits in declaration
+order). The function contract does not require atomicity; callers
+should not assume a single commit SHA can roll back the whole batch.
+
+Returns the SHA of the last commit produced. Fails if the branch does
+not exist or any individual file write fails.
 
 ---
 

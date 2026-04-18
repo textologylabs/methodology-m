@@ -138,10 +138,15 @@ Call the `render-topology-artefacts` capability with the project.yaml
 generated in Step 3 and the root repo's local working directory as the
 target:
 
-    render-topology-artefacts(
-      project-yaml: <path to project.yaml>,
-      target-dir:   <root repo working dir>
-    )
+    node .m/capabilities/render-topology-artefacts/render.mjs \
+      --project-yaml <path to project.yaml> \
+      --target-dir <root repo working dir>
+
+This is a real CLI the agent shells out to — not a SKILL the agent
+interprets. The orchestrator is executable code that produces
+byte-deterministic output. See
+`.m/capabilities/render-topology-artefacts/SKILL.md` for the full
+invocation contract and exit codes.
 
 This produces the topology-derived files owned by the compose and CI
 providers:

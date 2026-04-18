@@ -15,3 +15,6 @@ ref-projects/
 
 # CLI build artefact (snapshot of .m/ for npm distribution)
 cli/dist-m/
+
+# npm install output — package-lock.json IS committed, node_modules is not
+cli/node_modules/
