@@ -4,6 +4,143 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-04-18
+
+### Added
+
+- **I-049 scoped to topology rendering — deterministic capabilities as
+  code.** The `render-topology-artefacts` capability and both of its
+  reference providers (`compose/docker-compose`, `ci/gitlab`) are now
+  executable Node modules co-located with their SKILL contracts under
+  `.m/`. No `m` CLI command is added; the orchestrator is invoked by
+  the agent via:
+
+        node .m/capabilities/render-topology-artefacts/render.mjs \
+          --project-yaml <path> --target-dir <path>
+
+  Resolves the gap called out in v0.5.0: byte-identical output is no
+  longer an agent-discipline claim, it's mechanically enforced by
+  pure-function provider code + orchestrator dispatch. `.md` files
+  shrink to thin contracts (purpose, signature, invocation, invariants,
+  implementation pointer); rendering rules move to JSDoc in the code
+  and to the co-located test suite.
+
+- **Log-only providers for the `compose.*` and `ci.*` namespaces** —
+  `compose/log-only.mjs` and `ci/log-only.mjs`. Trace stubs that emit
+  a single file recording what was dispatched and with what
+  top-level inputs. Useful for exercising the orchestrator's
+  resolution + dispatch without running a real render.
+
+- **`scm.push_or_update_files` function** in the `scm.*` provider
+  interface. Implementations in `scm/gitlab.md` (with both the
+  preferred atomic `POST /repository/commits` path and the current
+  interim `N × create_or_update_file` fallback) and `scm/log-only.md`.
+  Closes I-051 — decompose-story S-4 no longer requires a
+  `git commit + git push` shell fallback because the topology files
+  already exist on the branch from bootstrap-root-repo. The
+  function contract does not mandate atomicity; providers may
+  implement as a single bulk commit or as per-file updates.
+
+- **`scripts/e2e-harness.mjs` — I-050 thin.** A Node script
+  (development-only, not distributed) that scripts the v0.5.0
+  live-validation flow programmatically: render TODOM-S01 → create
+  scratch branch → push via interim `push_or_update_files` → raise
+  MR → poll pipeline → assert green → teardown. Zero-dep beyond
+  Node ≥18 (uses global `fetch`). Seed for the full I-050 capability
+  regression harness (bootstrap + scaffold + wire + all structural
+  operations), which remains a separate arc.
+
+- **Vendored `js-yaml` 4.1.1** at `.m/vendor/js-yaml.mjs`. Single-file
+  ESM vendored from upstream MIT release so the orchestrator can
+  parse `project.yaml` without user projects having to install any
+  dependency. Refresh procedure documented at
+  `.m/vendor/README.md`.
+
+- **Co-located test suite under `.m/`.** 80 tests across
+  `docker-compose.test.mjs`, `gitlab.test.mjs`, and `render.test.mjs`
+  cover every provider branch and orchestrator path. Fixtures live at
+  `.m/test-fixtures/`. Run via `node --test .m/`. Distributed package
+  excludes `*.test.mjs` and `test-fixtures/` via a snapshot-dist
+  filter.
+
+### Changed
+
+- **`decompose-story` SKILL S-4** now calls
+  `scm.push_or_update_files` instead of `scm.push_files`. The
+  topology files (`docker-compose.yml`, `.gitlab-ci.yml`,
+  `scripts/integration-test.sh`, `scripts/report-shadow-status.sh`)
+  exist on the branch from bootstrap, so the old `push_files` call
+  would have failed on every structural story.
+
+- **`decompose-story` S-2 and `bootstrap-root-repo` Step 6** now
+  describe the orchestrator invocation as a real shell command (the
+  `node .m/capabilities/...` pattern above) rather than a pseudo-
+  function call. The distinction matters — the orchestrator is
+  executable code that produces byte-deterministic output, not a
+  SKILL the agent interprets.
+
+- **`.m/providers/compose/docker-compose.md`** shrunk from 382 → 94
+  lines. Rendering rules moved to JSDoc in the `.mjs` + the test
+  suite.
+
+- **`.m/providers/ci/gitlab.md`** shrunk from 486 → 112 lines. Same
+  treatment.
+
+- **`.m/capabilities/render-topology-artefacts/SKILL.md`** restructured
+  as a thin contract + invocation specification (exit codes,
+  provider resolution rules, stdout/stderr convention) pointing at
+  `render.mjs` and `render.test.mjs`.
+
+### Fixed
+
+- **snapshot-dist.mjs** now bundles `.m/providers/compose/`,
+  `.m/providers/ci/`, and `.m/vendor/` into `cli/dist-m/`. Latent
+  v0.5.0 bug where the compose and CI provider SKILL docs were not
+  included in the published npm package is now closed. snapshot-dist
+  also filters out `*.test.mjs` files and `test-fixtures/` so tests
+  never ship to user projects.
+
+### Live end-to-end validation (2026-04-18)
+
+The `scripts/e2e-harness.mjs` harness ran against
+`methodology-m/todo-m-workshop` and completed green:
+
+- **MR !29** on `todo-m-root` (closed + branch deleted by the
+  harness teardown). Pipeline **2462335312**.
+- All 5 jobs green in 302.6s walltime: `install`, `build`, `test`,
+  `validate:compose`, `validate:integration-test`.
+- Pipeline ran on the output of the new Node orchestrator + Node
+  provider modules. Byte determinism verified mechanically (same
+  fixture → same output across runs) by the co-located tests;
+  end-to-end pipeline green demonstrates those bytes are valid at
+  the integration layer.
+
+### Known gaps and scope honesty
+
+Remaining work after v0.5.1 — filed, sized, and scheduled:
+
+- **I-049 full.** This release migrates the topology renderer only.
+  Other deterministic units (PAT→CAT compilation, readiness tracker
+  ops, schema validation as a standalone module, parts of `scm/*`
+  that are pure dispatch) are still SKILL-interpreted. Migrate per
+  capability per future arc.
+
+- **`scm.push_or_update_files` atomicity.** The v0.5.1 gitlab
+  implementation uses N per-file `create_or_update_file` calls
+  because no MCP wrapper exists for `POST /repository/commits` with
+  mixed actions. Functionally correct but N commits instead of one.
+  Atomic single-commit path is documented in the provider SKILL for
+  future MCP tooling work.
+
+- **I-050 full.** The thin harness shipped here exercises the renderer
+  + push path only. Extending to bootstrap + scaffold + wire + all
+  structural operations (REMOVE, RENAME, MERGE, SPLIT, PORT-CHANGE)
+  is a separate arc.
+
+- **I-047 (project.yaml AI-generated from Story Zero)** is now clean
+  to build on. The renderer is real code; I-047's output has a
+  verifiable target.
+
 ## [0.5.0] — 2026-04-15
 
 ### Added
