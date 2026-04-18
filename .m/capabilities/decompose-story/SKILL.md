@@ -443,8 +443,8 @@ may renumber.
 
 ### S-4 — Include artefacts in the push
 
-The `push_files` call in step 4b collects the S-1 yaml change, the
-S-2 renderer output, and (conditionally) the compiled CAT:
+The push call in step 4b collects the S-1 yaml change, the S-2 renderer
+output, and (conditionally) the compiled CAT:
 
     files = [
       { path: "project.yaml", content: <S-1 manifest> },
@@ -457,12 +457,21 @@ S-2 renderer output, and (conditionally) the compiled CAT:
     if <story is NOT a pure structural ADD>:
       files.append({ path: "pats/<story-id>.<ext>", content: <compiled CAT> })
 
-    scm.push_files(
+    scm.push_or_update_files(
       repo: <root-repo>,
       branch: "feat/<story-id>d-integration-gate",
       files: files,
       commit_message: "🏗️ <story-id>: structural change — <short description>"
     )
+
+**Use `scm.push_or_update_files`, NOT `scm.push_files`.** The topology
+files (`docker-compose.yml`, `.gitlab-ci.yml`, `scripts/integration-test.sh`,
+`scripts/report-shadow-status.sh`) already exist on the branch from
+`bootstrap-root-repo` Step 6. `scm.push_files` rejects any file that
+already exists, so the push would fail on every structural story. The
+`push_or_update_files` function handles create + update in one call — see
+`.m/providers/provider-interface.md` for the contract and the gitlab
+provider SKILL for the implementation.
 
 **Why the `pats/` file is conditional:** for a pure structural ADD
 (e.g. "add a new backend component"), the topology aliveness probe in

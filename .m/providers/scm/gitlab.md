@@ -116,6 +116,69 @@ Parameters:
 
 ---
 
+## scm.push_or_update_files
+
+Push multiple files where each may be either new or already existing on
+the branch. The caller does not precheck.
+
+**Preferred implementation (atomic single commit):**
+
+Use the GitLab commits API with a mixed-action payload.
+
+```
+MCP: gitlab
+Tool: (no MCP wrapper yet — raw HTTP via curl or `mcp_gitlab_*` extension)
+
+HTTP: POST /projects/:id/repository/commits
+
+Body:
+  branch: <branch>
+  commit_message: <message>
+  actions: [
+    { action: "create" | "update", file_path: <path>, content: <content> },
+    ...
+  ]
+```
+
+The provider determines `action` per file by first resolving whether
+the path exists on the branch (via `mcp_gitlab_get_file_contents` — a
+404 means create, success means update). All actions then go in a
+single commit. Returns the commit SHA from the response.
+
+**Current interim implementation (N commits, non-atomic):**
+
+Until an MCP wrapper for the commits API exists, fall back to iterating
+the files and calling `scm.create_or_update_file` per file. This
+produces N commits in declaration order instead of one atomic commit
+but handles the create/update mix correctly.
+
+```
+For each file in files[]:
+  mcp_gitlab_create_or_update_file(
+    project_id: <project_id>,
+    file_path: <file.path>,
+    content: <file.content>,
+    commit_message: <message>,
+    branch: <branch>
+  )
+
+Return the commit SHA from the last call.
+```
+
+**MCP tooling follow-up:** an `mcp_gitlab_commit` wrapper exposing the
+full `POST /projects/:id/repository/commits` endpoint would let this
+function become atomic. Not blocking v0.5.1; filed as part of I-051's
+polish.
+
+**Gotchas:**
+- The interim implementation is NOT atomic. A partial failure mid-batch
+  leaves the branch in an inconsistent state (some files updated,
+  others not). For `decompose-story` S-4 this is acceptable because
+  the branch is a short-lived story branch, and a failure mid-push is
+  a signal to abort the story and restart.
+
+---
+
 ## scm.create_or_update_file
 
 Create or update a single file in a repo.

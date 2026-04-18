@@ -181,6 +181,27 @@ so they are available out-of-band without polluting the trace.
 
 ---
 
+## scm.push_or_update_files
+
+```
+[scm.push_or_update_files]
+  project_id: <project_id>
+  branch: <branch>
+  commit_message: <message>
+  files:
+    - <path_1> (<N bytes>)
+    - <path_2> (<N bytes>)
+    ...
+→ returns: { commit_sha: "deadbeef00000000000000000000000000000003" }
+```
+
+Same size-only logging rule as `push_files` — log path + content size,
+never dump full file content into the trace. The log-only provider
+does not attempt to distinguish create from update per file; the trace
+records only that the batch was dispatched.
+
+---
+
 ## scm.create_or_update_file
 
 ```
