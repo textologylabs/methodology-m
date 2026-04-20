@@ -13,7 +13,7 @@ listed for completeness — their write-ups remain below as reference.
 | Item | Title | Rationale |
 |------|-------|-----------|
 | I-047 | project.yaml is AI-generated from Story Zero | Currently hand-authored. Nothing owns interpretation of topology/persistence/deployment intent from story prose. Renderer (I-036) is complete; this is the next step to close the bootstrap authoring loop. |
-| I-049 | Deterministic capabilities as code, interpretive as SKILLs | Pure-function operations (renderer, PAT→CAT compilation, schema validation, integrity checks) should live in executable code (cli/), not as SKILL documents an agent interprets. Agents call them. Fixes the determinism gap I-036 exposed. |
+| I-049 | Deterministic capabilities as code, interpretive as SKILLs — **partial: renderer scope done v0.5.1** | Pure-function operations (renderer, PAT→CAT compilation, schema validation, integrity checks) should live in executable code (cli/), not as SKILL documents an agent interprets. Agents call them. Fixes the determinism gap I-036 exposed. **Renderer + compose/ci providers migrated in v0.5.1. PAT→CAT compilation, schema validation, scm/* pure-dispatch still open — migrate incrementally per-capability.** |
 
 ### Tier 2 — Completeness of the delivery loop
 
@@ -25,8 +25,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-041 | Pessimistic invalidation on pipeline start | Push `pending` to all story MRs when any constituent pipeline starts. Tightens the gate. |
 | I-042 | Reshuffle decompose-story and generate-pats | Lifecycle gap: PATs only exist at story level when decomposition runs, so sub-task PATs cannot be produced. Inverting the order (decompose first, generate-pats second with parent in scope) unblocks I-038 and removes the need for markdown PAT stubs. |
 | I-045 | Extend PAT yaml to multi-framework assertions | PAT yaml's step types are Cypress-shaped (data-testid, click, type). Structural stories, backend-only stories, and component-level health checks need HTTP-style step types compiling to curl/supertest. Surfaced by the TODOM-S01 structural test. |
-| I-050 | Capability regression test harness | Formalise the rewind-replay-diff pattern into a repeatable harness covering bootstrap + scaffold + all structural ops (ADD/REMOVE/RENAME/MERGE/SPLIT/PORT-CHANGE) + business. Currently ad-hoc. Only ADD exercised end-to-end during I-036 live validation. |
-| I-051 | `scm.push_files` lifecycle gap — can't update existing files | S-4 of decompose-story SKILL shows `scm.push_files(files=[...])` but that call fails when files already exist, which is ALWAYS the case for structural stories touching project.yaml/docker-compose.yml/.gitlab-ci.yml. Fix: update S-4 to use `create_or_update_file` per file, OR add a new `scm.push_or_update_files` that handles both. Worked around in the I-036 live test by using git commit+push directly. |
+| I-050 | Capability regression test harness — **partial: thin seed done v0.5.1** | Formalise the rewind-replay-diff pattern into a repeatable harness covering bootstrap + scaffold + all structural ops (ADD/REMOVE/RENAME/MERGE/SPLIT/PORT-CHANGE) + business. **Thin seed (`scripts/e2e-harness.mjs`) shipped in v0.5.1 — covers render → branch → push → MR → poll pipeline → assert → teardown for ADD. Full structural-op coverage still open.** |
 
 ### Tier 3 — Architecture and extensibility
 
@@ -81,6 +80,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-014 | Compose strategy as plugin | `compose.*` provider namespace + `compose/docker-compose` reference impl delivered as part of I-036. v0.5.0. |
 | I-018 | Compose strategy boundary in wire-orchestration | CI pipeline delegates compose-specific logic to `sh scripts/integration-test.sh` and `sh scripts/report-shadow-status.sh` instead of inlining. v0.5.0. |
 | I-036 | project.yaml as live config | `render-topology-artefacts` capability + `compose.*` and `ci.*` provider namespaces. Bootstrap-root-repo and decompose-story both call the renderer. All four topology-derived files (`docker-compose.yml`, `scripts/integration-test.sh`, `.gitlab-ci.yml`, `scripts/report-shadow-status.sh`) are pure functions of `project.yaml`. v0.5.0. |
+| I-051 | `scm.push_files` lifecycle gap — can't update existing files | `scm.push_or_update_files` added to the provider interface; implemented in `scm/gitlab.md` (atomic preferred + interim N-call fallback) and `scm/log-only.md`; wired into `decompose-story` S-4. Live-validated via e2e harness. v0.5.1. |
 
 ---
 
@@ -2529,11 +2529,12 @@ surface becomes AI-driven from Story Zero prose alone.
 
 ---
 
-## I-049: Deterministic capabilities as code, interpretive as SKILLs
+## I-049: Deterministic capabilities as code, interpretive as SKILLs — ⚠️ PARTIAL (v0.5.1)
 
 **Category:** Architecture / execution model
 **Priority:** High (unblocks real determinism, dramatically cheaper to run)
 **Discovered:** 2026-04-15, during I-036 live validation post-mortem
+**Status:** Renderer scope delivered in v0.5.1 (`.m/capabilities/render-topology-artefacts/render.mjs` + `.m/providers/compose/*` + `.m/providers/ci/*` as executable Node modules). Remaining scope — PAT→CAT compilation, schema validation, scm/* pure-dispatch — still open. Migrate incrementally per-capability post-v1.0.
 
 ### Problem
 
@@ -2641,11 +2642,12 @@ is the conceptual fix for the gap I-036's live test exposed.
 
 ---
 
-## I-050: Capability regression test harness
+## I-050: Capability regression test harness — ⚠️ PARTIAL (v0.5.1)
 
 **Category:** Testing infrastructure / methodology
 **Priority:** High (quality of evolution from here on)
 **Discovered:** 2026-04-15, during I-036 live validation
+**Status:** Thin seed shipped in v0.5.1 (`scripts/e2e-harness.mjs`, 379 lines, zero-dep). Scripts render → branch → push → MR → poll pipeline → assert → teardown for an ADD scenario. Full structural-op coverage (REMOVE/RENAME/MERGE/SPLIT/PORT-CHANGE, scaffold, wire) still open.
 
 ### Problem
 
@@ -2729,11 +2731,12 @@ Confidence-per-release increases 10x.
 
 ---
 
-## I-051: `scm.push_files` lifecycle gap — can't update existing files
+## I-051: `scm.push_files` lifecycle gap — can't update existing files — ✅ DONE (v0.5.1)
 
 **Category:** Provider interface / SCM
 **Priority:** Medium (latent bug, affects every structural story)
 **Discovered:** 2026-04-15, during I-036 live validation
+**Resolved:** v0.5.1. `scm.push_or_update_files` added to the provider interface; implemented in `scm/gitlab.md` (atomic preferred + interim N-call fallback) and `scm/log-only.md`; wired into `decompose-story` S-4. Live-validated via `scripts/e2e-harness.mjs` (MR !29, pipeline 2462335312, all 5 jobs green).
 
 ### Problem
 
