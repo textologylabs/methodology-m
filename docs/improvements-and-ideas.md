@@ -23,7 +23,6 @@ listed for completeness — their write-ups remain below as reference.
 | I-030 | Standalone and follow-up MRs | Any real project has non-story MRs. Currently these trigger full AOT and fail. Quick fix, big usability impact. |
 | I-040 | Topology changes | Adding/removing components mid-project is undefined. Depends on I-036 for clean implementation. |
 | I-041 | Pessimistic invalidation on pipeline start | Push `pending` to all story MRs when any constituent pipeline starts. Tightens the gate. |
-| I-042 | Reshuffle decompose-story and generate-pats | Lifecycle gap: PATs only exist at story level when decomposition runs, so sub-task PATs cannot be produced. Inverting the order (decompose first, generate-pats second with parent in scope) unblocks I-038 and removes the need for markdown PAT stubs. |
 | I-045 | Extend PAT yaml to multi-framework assertions | PAT yaml's step types are Cypress-shaped (data-testid, click, type). Structural stories, backend-only stories, and component-level health checks need HTTP-style step types compiling to curl/supertest. Surfaced by the TODOM-S01 structural test. |
 | I-050 | Capability regression test harness — **partial: thin seed done v0.5.1** | Formalise the rewind-replay-diff pattern into a repeatable harness covering bootstrap + scaffold + all structural ops (ADD/REMOVE/RENAME/MERGE/SPLIT/PORT-CHANGE) + business. **Thin seed (`scripts/e2e-harness.mjs`) shipped in v0.5.1 — covers render → branch → push → MR → poll pipeline → assert → teardown for ADD. Full structural-op coverage still open.** |
 
@@ -53,7 +52,6 @@ listed for completeness — their write-ups remain below as reference.
 | I-034 | MR reopen events | Webhook edge case. Rare in practice. |
 | I-035 | Duplicate pipelines on MR close | CI noise. Not blocking. |
 | I-037 | AC-to-PAT 1:many mapping | PAT expressiveness. Current model works for simple stories. |
-| I-038 | Sub-task PATs in YAML | Inner validation loop. Complementary to I-039. |
 | I-048 | Switch report-shadow-status.sh to glab CLI | Currently uses raw curl + node (pass1 pattern). Switching to glab would clean up URL construction, JSON parsing, and make future extensions easier (other API calls). Blocked on alpine install story — glab isn't in default apk repo. Low priority, purely QoL, no functional change. |
 
 ### Resolved
@@ -81,6 +79,8 @@ listed for completeness — their write-ups remain below as reference.
 | I-018 | Compose strategy boundary in wire-orchestration | CI pipeline delegates compose-specific logic to `sh scripts/integration-test.sh` and `sh scripts/report-shadow-status.sh` instead of inlining. v0.5.0. |
 | I-036 | project.yaml as live config | `render-topology-artefacts` capability + `compose.*` and `ci.*` provider namespaces. Bootstrap-root-repo and decompose-story both call the renderer. All four topology-derived files (`docker-compose.yml`, `scripts/integration-test.sh`, `.gitlab-ci.yml`, `scripts/report-shadow-status.sh`) are pure functions of `project.yaml`. v0.5.0. |
 | I-051 | `scm.push_files` lifecycle gap — can't update existing files | `scm.push_or_update_files` added to the provider interface; implemented in `scm/gitlab.md` (atomic preferred + interim N-call fallback) and `scm/log-only.md`; wired into `decompose-story` S-4. Live-validated via e2e harness. v0.5.1. |
+| I-042 | Reshuffle decompose-story and generate-pats | Lifecycle reshuffled to decompose-story → generate-pats → compile-story-pats. New `compile-story-pats` capability + `test.cat.*` provider namespace (`cypress` + `log-only` reference providers). PAT yaml schema patterns fixed to yaml-valid Option-B format; workshop PAT fixtures rewritten. v0.6.0. |
+| I-038 | Sub-task PATs in YAML | Sub-task branch of `pat.schema.json` wired up by I-042: `generate-pats` produces one `<sub-task-id>.pat.yaml` per sub-task with `parent-story:` + `component:` anchoring. PAT stubs in sub-task markdown retired. `scaffold-repo` and `generate-acceptance-tests` read the yaml directly. v0.6.0. |
 
 ---
 
@@ -2893,6 +2893,11 @@ todos is broken."
 
 **Category:** Methodology / M Power capability
 **Priority:** High (closes the inner validation loop)
+**Status:** ✅ Resolved (2026-04-21, v0.6.0) — sub-task branch of
+`pat.schema.json` already in place; I-042's lifecycle reshuffle
+wired `generate-pats` to produce `<sub-task-id>.pat.yaml` per
+sub-task with `parent-story:` + `component:` anchoring. Retires
+markdown PAT stubs.
 **Discovered:** 2026-04-10, pre-demo review of sub-task structure
 
 ### Problem
@@ -3267,6 +3272,14 @@ seconds of the push, before the webhook even fires).
 
 **Category:** Methodology / capability lifecycle
 **Priority:** High (blocks I-038's resolution; root cause of PAT stubs)
+**Status:** ✅ Resolved (2026-04-21, v0.6.0) — lifecycle reshuffled to
+decompose-story → generate-pats → compile-story-pats. Old Step 4 of
+decompose-story extracted to new `compile-story-pats` capability
+backed by a new `test.cat.*` provider namespace (`cypress` + `log-only`
+reference providers). Side discovery during implementation: PAT yaml
+step grammar was not valid yaml; `pat.schema.json` patterns and the
+workshop PAT fixtures rewritten to yaml-valid Option-B format. Also
+closes I-038.
 **Discovered:** 2026-04-13
 
 ### Problem

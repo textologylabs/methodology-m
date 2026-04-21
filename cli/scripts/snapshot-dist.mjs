@@ -28,6 +28,7 @@ const entries = [
   { src: '.m/providers/scm', dest: 'providers/scm', dir: true },
   { src: '.m/providers/compose', dest: 'providers/compose', dir: true },
   { src: '.m/providers/ci', dest: 'providers/ci', dir: true },
+  { src: '.m/providers/test', dest: 'providers/test', dir: true },
   { src: '.m/vendor', dest: 'vendor', dir: true },
   { src: 'CHANGELOG.md', dest: 'CHANGELOG.md' },
 ];

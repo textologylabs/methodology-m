@@ -41,7 +41,7 @@ and commit status reporting.
 | `scm.resolve_project_id` | `project_path` | project ID | wire-orchestration |
 | `scm.create_repo` | `name`, `namespace_id`, `initialize_readme` | repo URL, project ID | bootstrap-root-repo, scaffold-repo |
 | `scm.push_files` | `repo`, `branch`, `files[]`, `commit_message` | commit SHA | bootstrap-root-repo, scaffold-repo |
-| `scm.push_or_update_files` | `repo`, `branch`, `files[]`, `commit_message` | commit SHA | decompose-story (S-4) |
+| `scm.push_or_update_files` | `repo`, `branch`, `files[]`, `commit_message` | commit SHA | compile-story-pats |
 | `scm.create_or_update_file` | `repo`, `path`, `content`, `commit_message`, `branch` | commit SHA | scaffold-repo (re-run) |
 | `scm.protect_branch` | `repo`, `branch`, `push`, `merge`, `force_push` | — | scaffold-repo, wire-orchestration |
 | `scm.create_access_token` | `repo`, `name`, `scopes[]`, `access_level`, `expiry` | token value | scaffold-repo |
@@ -49,8 +49,8 @@ and commit status reporting.
 | `scm.create_webhook` | `repo`, `url`, `events{}`, `ssl_verify` | webhook ID | wire-orchestration |
 | `scm.store_ci_secret` | `repo`, `key`, `value`, `protected`, `masked` | — | wire-orchestration |
 | `scm.post_commit_status` | `repo`, `sha`, `state`, `name`, `description`, `target_url` | — | wire-orchestration (CI scripts) |
-| `scm.create_branch` | `repo`, `branch`, `ref` | — | decompose-story |
-| `scm.create_merge_request` | `repo`, `source_branch`, `target_branch`, `title`, `description?` | MR URL | decompose-story |
+| `scm.create_branch` | `repo`, `branch`, `ref` | — | compile-story-pats |
+| `scm.create_merge_request` | `repo`, `source_branch`, `target_branch`, `title`, `description?` | MR URL | compile-story-pats |
 
 #### Function Contracts
 
@@ -92,10 +92,10 @@ whether the concrete SCM call is a create or an update — the caller
 does not need to know and does not need to precheck.
 
 Each file entry contains `path` and `content`. Used by
-`decompose-story` S-4 which pushes a mix of new story artefacts and
-regenerated topology files to the root repo's story branch — some of
-those files (e.g. `docker-compose.yml`, `.gitlab-ci.yml`) already
-exist from bootstrap.
+`compile-story-pats` which pushes a mix of new story artefacts
+(compiled CAT, readiness tracker) and regenerated topology files to
+the root repo's story branch — some of those files (e.g.
+`docker-compose.yml`, `.gitlab-ci.yml`) already exist from bootstrap.
 
 `scm.push_files` is NOT suitable for this use because it rejects any
 file that already exists. Providers MAY implement this atomically
@@ -181,7 +181,7 @@ one of: `success`, `failed`, `pending`.
 **`scm.create_branch(repo, branch, ref)`**
 
 Create a new branch from an existing ref (branch, tag, or SHA).
-Used by `decompose-story` to create the root repo's story branch
+Used by `compile-story-pats` to create the root repo's story branch
 for the integration gate.
 
 ---
@@ -189,7 +189,7 @@ for the integration gate.
 **`scm.create_merge_request(repo, source_branch, target_branch, title, description?)`**
 
 Create a merge request / pull request. Returns the MR URL. Used by
-`decompose-story` to raise the root repo MR that establishes the
+`compile-story-pats` to raise the root repo MR that establishes the
 integration gate from the moment the story is decomposed.
 
 ---
@@ -285,9 +285,66 @@ The caller (render-topology-artefacts) resolves the active scm provider from
 
 ---
 
+### `test.cat` — Compiled Acceptance Test generation
+
+Compilation of PAT yaml contracts into executable test specs (CATs).
+A `test.cat` provider owns the mapping from PAT step grammar to a
+specific test framework. Story-level PATs compile to integration-gate
+specs (via `compile-story-pats`). Sub-task PATs compile to repo-level
+specs (via `generate-acceptance-tests`). Both consumers dispatch
+through the same namespace.
+
+**Active providers:** `cypress` (reference implementation for browser
+step types), `log-only` (trace stub). Additional providers (`curl`,
+`supertest`) land in v0.8.0 alongside I-045's HTTP step types.
+
+**Selected via `project.yaml`:**
+
+```yaml
+providers:
+  test:
+    cat: cypress
+```
+
+#### Functions
+
+| Function | Parameters | Returns | Used by |
+|---|---|---|---|
+| `test.cat.compile_story_pat` | `pat` (parsed story-level PAT) | `{path, content, mode}` | compile-story-pats |
+
+Each provider module also exports a `spec_extension` string constant
+(e.g. `.cy.js`, `.trace.txt`) used by the orchestrator for filename
+resolution.
+
+#### Function Contracts
+
+**`test.cat.compile_story_pat(pat)`**
+
+Compile a story-level PAT into an executable spec file. Returns one
+`{path, content, mode}` entry. The orchestrator writes the file to
+disk; the provider never touches the filesystem.
+
+Pure function of `pat`. Same input produces byte-identical output.
+No filesystem reads, no timestamps, no randomness. Determinism is
+enforced so the compile step is a safe refactor-target and its
+output can be diffed against a pre-refactor baseline.
+
+**Input validation:** providers MUST raise a clear error if the
+input is not a story-level PAT (e.g. lacks `story:` or has a
+sub-task shape). Sub-task PATs compile via
+`generate-acceptance-tests` using the same namespace but a
+different (future) entry point; the two paths must not silently
+accept each other's inputs.
+
+**Rejected step types:** the `cypress` provider rejects `render:`
+steps (sub-task component-test mocks). Future providers may reject
+or compile step types based on their framework capabilities.
+
+---
+
 ## Adding a New Namespace
 
-When a new provider category is needed (e.g. `test.cat.*`):
+When a new provider category is needed (e.g. `deploy.*`):
 
 1. Add the namespace to this document with its function signatures
 2. Create a provider implementation at `.m/providers/<category>/<provider>.md`

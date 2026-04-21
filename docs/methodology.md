@@ -560,13 +560,15 @@ Bootstrap is not a single big-bang operation — it follows a defined sequence w
 
 The root repo is now the source of truth. The story lives in the codebase, not in a scratch file or external system.
 
-**Step 3: Generate PATs** — The skill offers to generate story-level PATs from the story just committed. This delegates to the `generate-pats` capability, which presents the draft for review. On confirmation, the PAT is written to `pats/PROJ-000.pat.yaml` in the root repo.
+**Step 3: Decompose story** — The skill maps Story Zero's acceptance criteria onto components, generates sub-task markdown files for each, and stages the readiness tracker. No PATs are authored yet — that's the next step.
 
-**Step 4: Decompose story** — With the story and PATs in the root repo, the skill decomposes Story Zero into component sub-tasks, maps PATs to components, and creates managed repo stubs.
+**Step 4: Generate PATs** — With the decomposition in hand, the skill runs `generate-pats` to produce both the story-level `PROJ-000.pat.yaml` and one `<sub-task-id>.pat.yaml` per sub-task, anchored to the parent via `parent-story:` / `derives-from:` fields.
+
+**Step 5: Compile story PATs + raise integration gate** — `compile-story-pats` dispatches the story PAT through the project's `test.cat.*` provider (e.g. `cypress`), writes the compiled spec, bundles it with the readiness tracker and any structural artefacts, creates the root-repo story branch, and raises the integration-gate MR. The gate is live from the moment the story is decomposed.
 
 At this point, nothing works. The repos exist but contain only scaffolding. The `project.yaml` has null tags — nothing has been released yet. The story-level PATs would fail if you ran them — there's nothing to test against.
 
-This sequencing resolves the bootstrap paradox: PATs need to live in the root repo, but the root repo doesn't exist until bootstrap creates it. By making root repo creation the first step and PAT generation a follow-on step that writes directly to the root repo, the chicken-and-egg problem dissolves. Each capability stays atomic — `bootstrap-root-repo` creates and seeds, `generate-pats` generates PATs, `decompose-story` decomposes — but the skill orchestrates them in the right order.
+This sequencing resolves the bootstrap paradox: PATs need to live in the root repo, but the root repo doesn't exist until bootstrap creates it. By making root repo creation the first step, the chicken-and-egg problem dissolves. Each capability stays atomic — `bootstrap-root-repo` creates and seeds, `decompose-story` decomposes, `generate-pats` authors contracts, `compile-story-pats` establishes the gate, `generate-acceptance-tests` compiles sub-task PATs into repo-level specs — and the skill orchestrates them in the right order.
 
 ### The Idea phase — already done
 
@@ -584,7 +586,7 @@ acceptance:
     then: it composes the MFE
     steps:
       - navigate: /
-      - assert: "[data-testid='mfe-container']" is visible
+      - assert: "[data-testid='mfe-container'] is visible"
 
   - id: AC-002
     when: MFE loads
@@ -938,6 +940,7 @@ This demonstrates why the merge transaction doesn't need rollback. The root repo
 ### A. PAT.yaml schema reference
 
 ```
+# Story-level PAT — lives in root repo at pats/<story-id>.pat.yaml
 story: PROJ-XXX                    # story ID
 version: 1                         # schema version
 
@@ -947,22 +950,41 @@ acceptance:
     then: <expected outcome>       # observable result (plain English)
     steps:                         # ordered test steps
       - navigate: /path            # navigate to URL
-      - click: "[data-testid='x']" # interact with element
-      - type: "[data-testid='x']" value "text"  # input text
-      - assert: "[data-testid='x']" is visible   # visibility check
-      - assert: "[data-testid='x']" contains "y" # content check
-      - assert: "[data-testid='x']" count > 0    # count check
-      - wait: "[data-testid='x']" is visible      # wait for element
-    replaces: AC-old-id            # optional: supersedes a previous AC
-    removes: AC-old-id             # optional: explicitly removes a previous AC
+      - click: "[data-testid='x']"                  # interact with element
+      - type: "[data-testid='x'] value 'text'"      # input text
+      - assert: "[data-testid='x'] is visible"      # visibility check
+      - assert: "[data-testid='x'] contains 'y'"    # content check
+      - assert: "[data-testid='x'] count > 0"       # count check
+      - wait: "[data-testid='x'] is visible"        # wait for element
+    replaces: PROJ-YYY/AC-001      # optional: supersedes an AC from a previous story
+    removes:  PROJ-YYY/AC-001      # optional: explicitly removes an AC from a previous story
+```
+
+Sub-task PATs share the same schema. They differ in the top-level
+branch — `sub-task:`, `parent-story:`, and `component:` replace the
+story-level `story:`:
+
+```
+# Sub-task PAT — lives in managed repo at pats/<sub-task-id>.pat.yaml
+sub-task: PROJ-001a
+parent-story: PROJ-001
+component: mfe
+version: 1
+
+acceptance:
+  - id: AC-001
+    when: ...
+    then: ...
+    steps: ...
 ```
 
 Conventions:
 - All interactive elements use `data-testid` attributes for stable selectors.
 - `when`/`then` are plain English — topology-agnostic, no technical implementation details.
-- `steps` are ordered and deterministic — suitable for direct Cypress translation.
+- `steps` are ordered and deterministic — compiled by the project's active `test.cat.*` provider (`cypress` for browser steps; `curl`/`supertest` coming with I-045).
+- **Step values are authored as yaml double-quoted scalars** so the selector's `[` and inner `'` parse cleanly. Inner text uses single quotes and cannot contain a single quote.
 - Story-level PATs live in the root repo under `pats/`.
-- Repo-level PATs live in the managed repo under `pats/` with the same schema but scoped to component behaviour.
+- Sub-task PATs live in each managed repo under `pats/` with the same schema but scoped to what the component can verify in isolation.
 
 ### B. Project manifest (`project.yaml`) schema reference
 
