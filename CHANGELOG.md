@@ -4,6 +4,130 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-04-21
+
+### Added
+
+- **I-042 — story lifecycle reshuffle.** `decompose-story` now runs
+  BEFORE `generate-pats`. Sub-task PAT authoring finally works with
+  the parent story in scope. The old order (generate-pats first,
+  then decompose-story) left sub-task PAT generation stranded — no
+  capability was positioned to produce them cleanly. The new order
+  is:
+
+      decompose-story → generate-pats → compile-story-pats
+
+  `decompose-story` now reads story prose alone (no `pat-file`
+  parameter) and produces sub-task markdown + readiness tracker.
+  `generate-pats` reads the decomposition output and produces the
+  story-level PAT **plus** one `<sub-task-id>.pat.yaml` per sub-task
+  with `parent-story:` / `component:` anchoring. Closes I-042 and
+  retires the PAT-stub-in-markdown workaround that I-038 flagged
+  (the sub-task branch of `pat.schema.json` was already in place
+  from prior work — this release wires it up).
+
+- **`compile-story-pats` capability.** Extracted from the pre-v0.6.0
+  `decompose-story` Step 4. Takes a story-level PAT, dispatches
+  through the active `test.cat.*` provider for CAT compilation,
+  bundles the compiled spec with any staged topology artefacts and
+  the readiness tracker, and raises the root-repo integration-gate
+  MR. Invoked by the agent as:
+
+        node .m/capabilities/compile-story-pats/compile.mjs \
+          --pat <path> --project-yaml <path> --target-dir <path>
+
+  The `decompose-story` capability now makes zero SCM calls —
+  structural stories stage topology artefacts locally for
+  `compile-story-pats` to pick up.
+
+- **New `test.cat.*` provider namespace.** Following the same
+  pattern v0.5.1 introduced for `compose.*` and `ci.*`, CAT
+  compilation is now provider-based. Projects select a compilation
+  strategy via `project.yaml`:
+
+        providers:
+          test:
+            cat: cypress
+
+  Reference providers shipped:
+  - `test/cat/cypress.{md,mjs}` — reference implementation. The
+    PAT-step-to-Cypress mapping that previously lived as an
+    interpretive table in `decompose-story` is now pure-function
+    code. Byte-identical output to the pre-extraction flow for the
+    reference TODOM fixtures (after the schema fix below).
+  - `test/cat/log-only.{md,mjs}` — trace stub matching the
+    `compose/log-only` and `ci/log-only` pattern. Emits a
+    `pats/<story-id>.trace.txt` file recording what was dispatched.
+
+  I-045 (v0.8.0) will extend this namespace with `curl` and
+  `supertest` providers for HTTP step types, without touching
+  `compile-story-pats` itself — that is the architectural win
+  that motivated pulling the extraction forward.
+
+- **New `.claude/skills/compile-story-pats/SKILL.md` wrapper** and
+  matching `cli/templates/claude/skills/compile-story-pats/`
+  template so `m init` distributes the new capability.
+
+### Changed
+
+- **PAT yaml step grammar is now valid YAML.** The previous step
+  format (`- assert: "[data-testid='X']" is visible`) parsed
+  correctly in no standard YAML parser — the outer `"` closed on
+  `]` and the trailing predicate was a syntax error. It only
+  "worked" because nothing programmatic had ever parsed PAT yaml;
+  I-042's first parse path uncovered the gap. The grammar now
+  wraps each step value in a single pair of outer double quotes
+  and uses single-quoted inner string literals:
+
+        # Before — invalid yaml
+        - assert: "[data-testid='todo-list']" contains "Buy milk"
+
+        # After — parses
+        - assert: "[data-testid='todo-list'] contains 'Buy milk'"
+
+  `pat.schema.json` step patterns updated accordingly. Existing
+  workshop PATs (`workshop/jira/TODOM-000`, `workshop/jira/TODOM-001`)
+  rewritten to the new format. Inner text values may not contain a
+  single quote (enforced by schema regex).
+
+- **Provider interface doc** (`.m/providers/provider-interface.md`)
+  adds the `test.cat.*` namespace section with function contracts
+  and updates the `scm.*` caller references from `decompose-story`
+  to `compile-story-pats`.
+
+- **Methodology docs** (`docs/methodology.md`, `README.md`,
+  `.m/m.md`) updated to reflect the new lifecycle order and the
+  `compile-story-pats` capability.
+
+- **`bootstrap-root-repo` Step 8** now offers `decompose-story` as
+  the post-bootstrap delegation target, not `generate-pats`.
+  Matches the new lifecycle.
+
+- **`scaffold-repo`** now takes a `sub-task-pat` parameter and
+  writes `pats/<sub-task-id>.pat.yaml` into the managed repo
+  instead of the retired `pats/<sub-task-id>.stub` pseudocode file.
+
+- **`generate-acceptance-tests`** reads sub-task PAT yaml directly
+  (not the retired stub). The PAT-to-Cypress mapping is delegated
+  to the `test.cat.cypress` provider's contract doc — authoritative
+  reference. Full provider-backed sub-task compilation is deferred
+  to a follow-up after I-045.
+
+### Deferred / forward-looking
+
+- **I-045 (multi-framework PAT yaml) pulled into MVP scope** as
+  v0.8.0, landing BEFORE I-040 (topology changes). Reason: I-045
+  collapses the integration-test.sh aliveness-probe workaround
+  into the standard CAT compilation flow, which cleans up I-040's
+  structural-story implementation. Roadmap re-sequenced to:
+  v0.6.0 I-042 → v0.7.0 I-030 → v0.8.0 I-045 → v0.9.0 I-040 →
+  v0.10.0 I-004 → v1.0.0 MVP.
+
+- **`generate-acceptance-tests` full provider-backed rewrite**
+  deferred to a follow-up after I-045 — the capability's
+  repo-specific concerns (test deps, CI wiring, API stubs, mock
+  data) are not pure mapping and remain SKILL-shaped for now.
+
 ## [0.5.1] — 2026-04-18
 
 ### Added

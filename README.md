@@ -61,11 +61,12 @@ cli/                         M CLI (npm: methodology-m)
 |---|---|
 | `setup-workspace` | Create a project workspace (group/org) on the SCM platform |
 | `bootstrap-root-repo` | Create and seed the root repo with topology and Story Zero |
-| `generate-pats` | Transform story acceptance criteria into PAT.yaml format |
-| `decompose-story` | Map story PATs to components, generate sub-tasks, raise root MR |
+| `decompose-story` | Map story prose onto components, generate sub-task markdown + readiness tracker |
+| `generate-pats` | Produce story-level + sub-task PAT yaml (parent story in scope) |
+| `compile-story-pats` | Compile the story PAT into an integration CAT and raise the root-repo gate MR |
 | `scaffold-repo` | Create and configure a managed repo from a sub-task |
 | `wire-orchestration` | Connect managed repos to root repo (webhooks, CI, tokens) |
-| `generate-acceptance-tests` | Compile PAT stubs into executable tests (CATs) |
+| `generate-acceptance-tests` | Compile sub-task PATs into repo-level executable tests (CATs) |
 | `tag-release` | Tag a managed repo and update root repo topology |
 
 ## Provider model

@@ -8,10 +8,11 @@ Creates the root repo on GitLab, seeds it with the project manifest and
 Story Zero. After this step, the root repo is the source of truth — all
 subsequent M Power actions read from and write to it.
 
-On completion, offers to run `generate-pats` to produce story-level PATs
-and commit them to the root repo. PAT generation is delegated to the
-existing `generate-pats` capability — this capability orchestrates the
-sequence but does not reimplement PAT logic.
+On completion, offers to run `decompose-story` as the next step in
+the post-v0.6.0 lifecycle (decompose-story → generate-pats →
+compile-story-pats). Each capability stays atomic — this one only
+bootstraps; downstream capabilities handle decomposition, PAT
+authoring, and integration-gate setup.
 
 ## Parameters
 
@@ -107,16 +108,16 @@ Build the project manifest from the component catalogue:
 ### Step 4 — Seed Story Zero
 
 The Story Zero markdown file is the input to subsequent capabilities
-(`decompose-story`, `generate-pats`). It lives in the project's story
-source of truth — a real Jira instance for production projects, or a
-local markdown directory for projects using file-based story tracking.
-The location of the local directory is a project-level convention and
-is NOT prescribed by M.
+(`decompose-story`, `generate-pats`, `compile-story-pats`). It lives
+in the project's story source of truth — a real Jira instance for
+production projects, or a local markdown directory for projects using
+file-based story tracking. The location of the local directory is a
+project-level convention and is NOT prescribed by M.
 
 **The Story Zero file is NOT committed to the root repo.** The
 decision to keep sub-task and story markdown out of SCM repos is
 baked into M (see I-002). The capability remembers the path to the
-story file for step 7 (delegation to `generate-pats`) but does not
+story file for step 8 (delegation to `decompose-story`) but does not
 include it in the seed commit.
 
 ### Step 5 — Create conventional folder structure
@@ -185,37 +186,40 @@ can be pushed in one commit with no conflicts.
 
 The commit message is: `🎬 bootstrap: seed <project> root repo`.
 
-### Step 8 — Offer PAT generation
+### Step 8 — Offer decomposition
 
 Present the user with:
 
 ```
 Root repo created and seeded with Story Zero.
-Want me to generate PATs now? (delegates to generate-pats)
+Want me to decompose Story Zero now? (delegates to decompose-story)
 ```
 
-If confirmed, run `generate-pats` with:
-- `story-file`: the story file just committed to the root repo
-- Output target: `pats/<story-id>.pat.yaml` in the root repo
+If confirmed, run `decompose-story` with:
+- `story-file`: the Story Zero path remembered from Step 1
 
-The `generate-pats` capability handles the draft/review/confirm cycle.
-On confirmation, the PAT file is committed to the root repo.
+The `decompose-story` capability handles AC→component mapping,
+sub-task markdown generation, and readiness-tracker staging. After it
+completes, the natural next step is `generate-pats` (to author the
+story + sub-task PAT yaml) and then `compile-story-pats` (to compile
+and raise the integration-gate MR).
 
 ### Step 9 — Report
 
 Output the root repo URL and a summary of what was created.
-Note that the next step is `decompose-story`.
+Note that the next step is `decompose-story` (post-v0.6.0 lifecycle).
 
 ## Notes
 
 - The root repo becomes the source of truth the moment it's created
-- This capability orchestrates a sequence but delegates PAT generation
-  to `generate-pats` — each capability stays atomic
+- This capability orchestrates a sequence but delegates decomposition
+  and PAT authoring downstream — each capability stays atomic
 - Managed repos are NOT created here — that happens during
-  `decompose-story` or via a future `scaffold-repo` capability
+  `scaffold-repo`, which reads sub-task markdown produced by
+  `decompose-story`
 - The story file parameter is a local path to the Story Zero markdown.
   The file is read, metadata is extracted, and the path is remembered
-  for step 8 (delegation to generate-pats). The file itself is NOT
+  for step 8 (delegation to decompose-story). The file itself is NOT
   committed to the root repo — see Step 4.
-- The user has a decision point between seeding and PAT generation —
-  they can pause, edit the story, or generate PATs later
+- The user has a decision point between seeding and decomposition —
+  they can pause, edit the story, or decompose later

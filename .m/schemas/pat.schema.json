@@ -134,23 +134,23 @@
     },
     "step-click": {
       "type": "string",
-      "description": "Click an element by data-testid selector. Format: \"[data-testid='<id>']\". Compiles to cy.get(selector).click().",
-      "pattern": "^\"\\[data-testid='[^']+']\"$"
+      "description": "Click an element by data-testid selector. Format: [data-testid='<id>']. Author in yaml as a double-quoted scalar: \"[data-testid='<id>']\". Compiles to cy.get(selector).click().",
+      "pattern": "^\\[data-testid='[^']+']$"
     },
     "step-type": {
       "type": "string",
-      "description": "Type text into an element. Format: \"[data-testid='<id>']\" value \"<text>\". Compiles to cy.get(selector).type(text).",
-      "pattern": "^\"\\[data-testid='[^']+']\" value \"[^\"]*\"$"
+      "description": "Type text into an element. Format: [data-testid='<id>'] value '<text>'. Author in yaml as a double-quoted scalar so the inner single quotes parse cleanly. Text may not contain a single quote. Compiles to cy.get(selector).type(text).",
+      "pattern": "^\\[data-testid='[^']+'] value '[^']*'$"
     },
     "step-assert": {
       "type": "string",
-      "description": "Assert a condition on an element. Formats: \"[selector]\" is visible | \"[selector]\" contains \"<value>\" | \"[selector]\" count > N | \"[selector]\" is disabled.",
-      "pattern": "^\"\\[data-testid='[^']+']\" (is visible|is disabled|contains \"[^\"]*\"|count > \\d+)$"
+      "description": "Assert a condition on an element. Formats: [selector] is visible | [selector] is disabled | [selector] contains '<value>' | [selector] count > N. Author in yaml as a double-quoted scalar. Inner string values use single quotes and may not contain a single quote.",
+      "pattern": "^\\[data-testid='[^']+'] (is visible|is disabled|contains '[^']*'|count > \\d+)$"
     },
     "step-wait": {
       "type": "string",
-      "description": "Wait for a condition on an element. Same formats as assert but waits with retry. Compiles to cy.get(selector).should(...).",
-      "pattern": "^\"\\[data-testid='[^']+']\" (is visible|contains \"[^\"]*\")$"
+      "description": "Wait for a condition on an element. Same formats as assert but waits with retry. Subset of predicates: is visible | contains '<value>'. Compiles to cy.get(selector).should(...).",
+      "pattern": "^\\[data-testid='[^']+'] (is visible|contains '[^']*')$"
     },
     "step-render": {
       "type": "string",

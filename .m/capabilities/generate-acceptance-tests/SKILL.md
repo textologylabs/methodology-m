@@ -1,15 +1,16 @@
 # generate-acceptance-tests
 
-**Capability:** Transform PAT stubs into executable acceptance test code
+**Capability:** Compile sub-task PAT yaml into executable acceptance test code
 
 ## What it does
 
-Reads the PAT stub file (`pats/<sub-task-id>.stub.js`) and the sub-task
-file, then generates real, executable acceptance tests (CATs) using the
-appropriate framework for the component type. After this step, `npm test`
-proves the implementation meets its contract.
+Reads the sub-task PAT yaml (`pats/<sub-task-id>.pat.yaml` — authored
+by `generate-pats` with the parent story in scope) and the sub-task
+markdown file, then generates real, executable acceptance tests (CATs)
+using the appropriate framework for the component type. After this
+step, `npm test` proves the implementation meets its contract.
 
-The stub is the specification. The spec is the compiled proof. This
+The yaml is the specification. The spec is the compiled proof. This
 capability bridges the two.
 
 **Scope:** This capability produces CATs — compiled acceptance tests that
@@ -17,6 +18,17 @@ prove the PAT contract is met. Unit tests (vitest, Testing Library, etc.)
 are a separate developer-level concern created during implementation, not
 by this capability. Both layers coexist in the repo but serve different
 purposes and are authored at different times.
+
+**v0.6.0 note:** Pre-v0.6.0 this capability read a `pats/<sub-task-id>.stub.js`
+pseudocode file authored by `decompose-story`. That file is retired.
+Sub-task PATs are now yaml contracts, and the PAT → Cypress step
+grammar is the same one the `test.cat.cypress` provider documents at
+`.m/providers/test/cat/cypress.md`. The compilation work in this
+capability still includes repo-specific concerns (test deps, CI
+wiring, mock data) that are not pure mapping, so the capability remains
+a SKILL rather than being absorbed into the provider code today.
+Full provider-backed sub-task compilation is tracked as a follow-up to
+I-045 (v0.8.0).
 
 ## Parameters
 
@@ -29,19 +41,22 @@ purposes and are authored at different times.
 
 - Managed repo is scaffolded (`scaffold-repo`)
 - Implementation exists (`implement-component` has been run)
-- PAT stub exists at `pats/<sub-task-id>.stub.js`
-- Sub-task file exists at `jira/<sub-task-id>.md`
+- Sub-task PAT yaml exists at `pats/<sub-task-id>.pat.yaml`
+  (produced by `generate-pats` with the parent story in scope)
+- Sub-task markdown file exists in the story source of truth
 
 ## Execution
 
 ### Step 1 — Read the contract and implementation
 
-Read `pats/<sub-task-id>.stub.js` — this is the test specification
-in pseudocode form. Each `it()` block contains comments describing
-what to assert.
+Read `pats/<sub-task-id>.pat.yaml` — this is the test specification
+in yaml form. Each acceptance entry has `id`, `when`, `then`, and
+`steps[]`. Step values follow the grammar documented at
+`.m/providers/test/cat/cypress.md` (for browser-level step types).
 
-Read `jira/<sub-task-id>.md` — for acceptance criteria context and
-component role.
+Read the sub-task markdown file from the story source of truth — for
+acceptance criteria context, component role, and any supersession
+notes (`replaces:` / `removes:`) that affect CAT compilation.
 
 Read the implementation source files (`src/`) — to understand the
 API surface, exports, and how to import the component under test.
@@ -113,25 +128,29 @@ module.exports = defineConfig({
 The `baseUrl` should match the port the built frontend is served on.
 The `specPattern` points to the PAT directory where CATs live.
 
-### Step 5 — Transform stubs into specs
+### Step 5 — Compile the PAT yaml into a spec
 
 Create `pats/<sub-task-id>.spec.js` (backend) or
-`pats/<sub-task-id>.cy.js` (frontend) alongside the stub file.
+`pats/<sub-task-id>.cy.js` (frontend) alongside the PAT yaml file.
 
 **Transformation rules:**
-- Keep the same `describe()` and `it()` structure from the stub
-- Replace comment placeholders with real assertions
-- Import the component under test (app, component, etc.)
+- Emit one `describe()` with the sub-task id, one `it()` per
+  acceptance criterion. Title format: `<AC-id>: <when> → <then>`.
+- Translate each PAT step into the framework's idiom. For browser
+  step types, the mapping matches the `test.cat.cypress` provider at
+  `.m/providers/test/cat/cypress.md` — treat that table as
+  authoritative.
+- Import the component under test (app, component, etc.).
 - For API tests: use supertest to make HTTP requests against the
-  imported app (not a running server)
+  imported app (not a running server).
 - For frontend tests (MFE, shell): use Cypress to visit the page,
-  interact with elements via `data-testid` attributes, and assert
-  on visible UI state
+  interact with elements via `data-testid` attributes, and assert on
+  visible UI state.
 
 ### Step 5a — Handle PAT supersession (replaces/removes)
 
-Before writing the new spec, check the sub-task file for `replaces`
-or `removes` declarations in the acceptance criteria.
+Before writing the new spec, check the sub-task PAT yaml for
+`replaces` or `removes` fields on each acceptance criterion.
 
 **For `replaces`:** Find the existing test file for the superseded AC
 (e.g. `pats/TODOM-000b.cy.js` if replacing `TODOM-000b/AC-001`).
@@ -172,7 +191,7 @@ describe('<sub-task-id>: <description>', () => {
 
   it('<acceptance criterion>', () => {
     cy.get('[data-testid="<element>"]').should('be.visible')
-    // ... assertions matching the PAT stub
+    // ... assertions matching the sub-task PAT yaml
   })
 })
 ```
@@ -269,12 +288,14 @@ Output:
 - Test framework and dependencies added
 - CI pipeline updated (for frontend repos: pinned Cypress image, stub startup)
 - Test results (pass/fail count)
-- Reminder: do NOT delete the stub file — it's the human-readable
-  contract. The spec is the machine-readable proof. Both live in `pats/`.
+- Reminder: do NOT delete the sub-task PAT yaml — it's the
+  human-readable contract. The spec is the machine-readable proof.
+  Both live in `pats/`.
 
 ## Notes
 
-- The stub file is never deleted or modified. It remains as the
+- The sub-task PAT yaml (`pats/<sub-task-id>.pat.yaml`) is never
+  deleted or modified by this capability. It remains as the
   human-readable specification alongside the executable spec.
 - Tests must import the app/component directly, not via a running
   server. This is why `implement-component` separates app from server.
@@ -291,9 +312,10 @@ Output:
   `npm test` — the CATs are what gate the MR.
 - The `vitest run` flag is essential for backend repos. Without it,
   vitest starts in watch mode, which hangs CI pipelines indefinitely.
-- PAT stubs use `describe`/`it` syntax even though they're pseudocode.
-  This makes the transformation mechanical — same structure, real
-  assertions replacing comments.
+- Sub-task PATs are yaml contracts (not `describe`/`it` pseudocode
+  as they were pre-v0.6.0). The compilation rules for browser step
+  types live at `.m/providers/test/cat/cypress.md` — treat that
+  table as authoritative for Cypress output.
 - **CI image pinning:** Always pin `cypress/included` to the exact
   version from `package.json`. The `:latest` tag drifts independently
   of the npm package — when they diverge, the Cypress binary path

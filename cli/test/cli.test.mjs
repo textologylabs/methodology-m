@@ -308,12 +308,13 @@ describe('wrappers/claude', async () => {
 
   test('creates steering and individual skill wrappers when missing', () => {
     const { created, skipped } = generateClaudeWrappers(tmp);
-    // 1 steering + 8 skills = 9
-    assert.strictEqual(created.length, 9);
+    // 1 steering + 9 skills = 10 (compile-story-pats added in v0.6.0)
+    assert.strictEqual(created.length, 10);
     assert.strictEqual(skipped.length, 0);
     assert.ok(existsSync(join(tmp, '.claude', 'steering', 'm-steering.md')));
     assert.ok(existsSync(join(tmp, '.claude', 'skills', 'scaffold-repo', 'SKILL.md')));
     assert.ok(existsSync(join(tmp, '.claude', 'skills', 'decompose-story', 'SKILL.md')));
+    assert.ok(existsSync(join(tmp, '.claude', 'skills', 'compile-story-pats', 'SKILL.md')));
     assert.ok(existsSync(join(tmp, '.claude', 'skills', 'wire-orchestration', 'SKILL.md')));
   });
 
@@ -321,7 +322,7 @@ describe('wrappers/claude', async () => {
     generateClaudeWrappers(tmp);
     const { created, skipped } = generateClaudeWrappers(tmp);
     assert.strictEqual(created.length, 0);
-    assert.strictEqual(skipped.length, 9);
+    assert.strictEqual(skipped.length, 10);
   });
 
   test('created files have content from templates', () => {

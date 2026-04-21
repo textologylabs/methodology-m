@@ -1,6 +1,6 @@
 # generate-acceptance-tests
 
-Compile PAT stubs into executable acceptance tests (CATs)
+Compile sub-task PATs into repo-level executable acceptance tests (CATs)
 
 ## Triggers
 

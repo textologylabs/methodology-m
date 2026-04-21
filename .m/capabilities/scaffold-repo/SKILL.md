@@ -15,23 +15,30 @@ snapshot artefact, and auto-tag on merge.
 | Parameter      | Type   | Required | Description                                         |
 |----------------|--------|----------|-----------------------------------------------------|
 | sub-task-file  | path   | Yes      | Path to the sub-task markdown file                   |
+| sub-task-pat   | path   | Yes      | Path to the sub-task PAT yaml (authored by `generate-pats`) |
 | project-yaml   | path   | Yes      | Path to project.yaml (for group path, project name)  |
 | repo-type      | string | No       | "node", "python", "rust", etc. (default: node)       |
 | namespace-id   | string | No       | GitLab namespace ID (extracted from project if omitted) |
 
-The sub-task file is the primary input. It contains the component name,
-repo name, parent story reference, and repo-level PAT stubs. The
-project.yaml provides the group path and project-level context.
+The sub-task markdown file carries component name, repo name, parent
+story reference, and acceptance criteria prose. The sub-task PAT yaml
+is the machine-readable contract (authored by `generate-pats` with
+the parent story in scope). The project.yaml provides the group path
+and project-level context.
 
 ## Execution
 
 ### Step 1 — Extract metadata
 
-Read the sub-task file. Extract:
+Read the sub-task markdown file. Extract:
 - Component name (from `Component:` field)
 - Repo name (from `Repo:` field)
 - Parent story ID (from `Parent:` field)
-- Repo-level PAT stubs (from `## PAT Stubs` section)
+- Acceptance criteria (from `## Acceptance Criteria` section) — for
+  README context only; the executable contract is the PAT yaml.
+
+Read the sub-task PAT yaml (`<sub-task-id>.pat.yaml`). Validate
+against `.m/schemas/pat.schema.json` (sub-task branch).
 
 Read project.yaml. Extract:
 - Group path (from `group:` field)
@@ -57,14 +64,19 @@ Push all seed files in a single commit:
 scm.push_files(repo: <repo>, branch: "main", files: [...], commit_message: "seed: scaffold <component>")
 ```
 
-- `README.md` — component name, parent story reference, repo-level PATs
+- `README.md` — component name, parent story reference, acceptance criteria summary
 - CI config — pluggable lifecycle pipeline (see Pipeline Template)
 - `.gitignore` — standard ignores for the repo type (e.g. `node_modules/`)
 - `package.json` (or equivalent for repo-type) — with lifecycle scripts
 - `package-lock.json` — minimal lockfile so `npm ci` works from day zero
-- `jira/<sub-task-id>.md` — copy of the sub-task file
-- `pats/<sub-task-id>.stub` — PAT stub file extracted from the sub-task
+- `pats/<sub-task-id>.pat.yaml` — sub-task PAT yaml (machine-readable contract, authored by `generate-pats`)
 - `.m/steering/m-managed-repo.md` — M development guide (see Steering Template)
+
+**Sub-task markdown is NOT committed to the managed repo.** Per I-002,
+story and sub-task prose lives in the story source of truth (Jira or
+the project-local markdown directory), not in any SCM repo. The
+managed repo carries only the executable contract (the yaml) + the
+scaffolded pipeline.
 
 **For frontend repos with API dependencies (role: frontend, frontend-host):**
 

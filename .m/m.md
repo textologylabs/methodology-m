@@ -1,6 +1,6 @@
 # Methodology M — Steering
 
-**Version:** 0.3.1
+**Version:** 0.3.2
 
 Methodology M is an AI-driven delivery method for distributed software systems where a single user story spans multiple repos, multiple deployable units, and can only be verified in an integrated environment. The full specification lives in `methodology-m.md` at the repo root.
 
@@ -38,11 +38,12 @@ Each capability follows the [Agent Skills](https://agentskills.io) standard (`<n
 |---|---|---|
 | `setup-workspace` | [SKILL.md](capabilities/setup-workspace/SKILL.md) | Create a project workspace (group/org) on the SCM platform |
 | `bootstrap-root-repo` | [SKILL.md](capabilities/bootstrap-root-repo/SKILL.md) | Create and seed the root repo with topology manifest and Story Zero |
-| `generate-pats` | [SKILL.md](capabilities/generate-pats/SKILL.md) | Transform story acceptance criteria into PAT.yaml format |
-| `decompose-story` | [SKILL.md](capabilities/decompose-story/SKILL.md) | Map story-level PATs to components, generate sub-tasks and readiness tracker |
+| `decompose-story` | [SKILL.md](capabilities/decompose-story/SKILL.md) | Map story prose onto components, generate sub-task markdown + readiness tracker |
+| `generate-pats` | [SKILL.md](capabilities/generate-pats/SKILL.md) | Produce the story-level PAT yaml and one sub-task PAT yaml per sub-task (parent in scope) |
+| `compile-story-pats` | [SKILL.md](capabilities/compile-story-pats/SKILL.md) | Compile the story-level PAT into an integration CAT and raise the root-repo gate MR |
 | `scaffold-repo` | [SKILL.md](capabilities/scaffold-repo/SKILL.md) | Create and configure a managed repo from a sub-task file |
 | `wire-orchestration` | [SKILL.md](capabilities/wire-orchestration/SKILL.md) | Connect managed repos to root repo orchestration (webhooks, CI, tokens) |
-| `generate-acceptance-tests` | [SKILL.md](capabilities/generate-acceptance-tests/SKILL.md) | Compile PAT stubs into executable acceptance tests (CATs) |
+| `generate-acceptance-tests` | [SKILL.md](capabilities/generate-acceptance-tests/SKILL.md) | Compile sub-task PATs into repo-level executable acceptance tests (CATs) |
 | `tag-release` | [SKILL.md](capabilities/tag-release/SKILL.md) | Tag a managed repo at a version and update root repo topology |
 
 ## Execution Protocol
@@ -75,10 +76,13 @@ namespace is backed by a provider selected in `project.yaml`.
 | Namespace | Category | Provider interface |
 |---|---|---|
 | `scm.*` | Source code management | [provider-interface.md](providers/provider-interface.md) |
+| `compose.*` | Compose orchestration + aliveness | [provider-interface.md](providers/provider-interface.md) |
+| `ci.*` | CI pipeline + status reporting | [provider-interface.md](providers/provider-interface.md) |
+| `test.cat.*` | Compiled Acceptance Test generation | [provider-interface.md](providers/provider-interface.md) |
 
-New namespaces (e.g. `test.cat.*`, `compose.*`) are added as the
-methodology evolves. See the provider interface doc for the full
-function contracts and the protocol for adding new namespaces/providers.
+New namespaces (e.g. `deploy.*`) are added as the methodology evolves.
+See the provider interface doc for the full function contracts and the
+protocol for adding new namespaces/providers.
 
 ## Directory Structure
 
@@ -87,12 +91,16 @@ function contracts and the protocol for adding new namespaces/providers.
   m.md                              ← this file
   capabilities/
     <name>/SKILL.md                 ← one per capability (Agent Skills standard)
+    <name>/*.mjs                    ← executable orchestrator (deterministic capabilities only)
   schemas/
-    pat.schema.json                 ← JSON Schema for PAT.yaml files
+    pat.schema.json                 ← JSON Schema for PAT.yaml files (story + sub-task)
     project.schema.json             ← JSON Schema for project.yaml
   providers/
     provider-interface.md           ← namespace contracts and resolution protocol
     scm/gitlab.md                   ← GitLab SCM provider (reference implementation)
+    compose/docker-compose.{md,mjs} ← Docker Compose provider (pure-function render)
+    ci/gitlab.{md,mjs}              ← GitLab CI provider (pure-function render)
+    test/cat/cypress.{md,mjs}       ← Cypress test.cat provider (pure-function compile)
 ```
 
 Agent-specific steering (how to behave) lives in agent directories
