@@ -168,10 +168,13 @@ function renderOrchestration(project, hasShell) {
     return `    - git clone --depth 1 --branch main "https://gitlab-ci-token:\${CI_JOB_TOKEN}@${host}/\${GROUP}/${repoName}.git" ../${repoName}`;
   });
 
-  // I-030: classify the trigger as story-MR-present vs standalone before
-  // running any expensive shadow work. Writes STORY_ID to detect.env; when
-  // empty, downstream shadow jobs early-exit so standalone MRs don't burn
-  // through compose + integration-test for nothing.
+  // I-030: classify the trigger via the webhook-URL `EVENT_KIND` variable
+  // (`mr` | `pipeline`). Writes STORY_ID + TRIGGER_MODE to detect.env.
+  // TRIGGER_MODE is one of:
+  //   - `story`             — active story MR in the topology; run full AOT
+  //   - `pipeline-failure`  — managed-repo pipeline failed on a story branch; fan out `failed`
+  //   - `standalone`        — no active story MR; skip all shadow work
+  // Downstream shadow:* jobs skip unless the trigger mode matches their role.
   const shadowDetectTrigger = [
     `shadow:detect-trigger:`,
     `  stage: detect`,
@@ -187,16 +190,36 @@ function renderOrchestration(project, hasShell) {
     `    - if: $CI_PIPELINE_SOURCE == "trigger"`,
   ].join('\n');
 
-  // Skip-gate emitted at the top of every shadow:* job's script. Empty
-  // STORY_ID means the detect step found no active story MRs in the
-  // topology — treat as standalone, exit cleanly.
-  const skipIfStandalone = [
+  // Skip-gate emitted at the top of every shadow:* job's script. The job
+  // only runs when shadow:detect-trigger emitted TRIGGER_MODE equal to
+  // the expected mode for this job; otherwise exit cleanly.
+  const skipUnlessMode = (mode) => [
     `    - |`,
-    `      if [ -z "\${STORY_ID:-}" ]; then`,
-    `        echo "Standalone trigger (no active story MR) — skipping shadow"`,
+    `      if [ "\${TRIGGER_MODE:-standalone}" != "${mode}" ]; then`,
+    `        echo "TRIGGER_MODE=\${TRIGGER_MODE:-standalone} — skipping (this job runs only on TRIGGER_MODE=${mode})"`,
     `        exit 0`,
     `      fi`,
   ];
+
+  // I-031: pre-AOT invalidation. Pushes `pending` to every open story MR
+  // so stale green can't race the gate while compose + integration-test
+  // run. shadow:compose needs this to guarantee ordering.
+  const shadowInvalidateStatus = [
+    `shadow:invalidate-status:`,
+    `  stage: detect`,
+    `  image: alpine:3.19`,
+    `  before_script:`,
+    `    - apk add --no-cache curl nodejs`,
+    `  script:`,
+    ...skipUnlessMode('story'),
+    `    - echo "Invalidating shadow-integration status (pending) for story $STORY_ID"`,
+    `    - sh scripts/report-shadow-status.sh pending`,
+    `  needs:`,
+    `    - job: shadow:detect-trigger`,
+    `      artifacts: true`,
+    `  rules:`,
+    `    - if: $CI_PIPELINE_SOURCE == "trigger"`,
+  ].join('\n');
 
   const shadowCompose = [
     `shadow:compose:`,
@@ -210,7 +233,7 @@ function renderOrchestration(project, hasShell) {
     `  before_script:`,
     `    - apk add --no-cache git curl`,
     `  script:`,
-    ...skipIfStandalone,
+    ...skipUnlessMode('story'),
     `    - echo "Shadow compose for story $STORY_ID (triggered by $SOURCE_PROJECT_PATH)"`,
     `    - echo "Cloning sibling repos..."`,
     ...cloneLines,
@@ -225,6 +248,7 @@ function renderOrchestration(project, hasShell) {
     `  needs:`,
     `    - job: shadow:detect-trigger`,
     `      artifacts: true`,
+    `    - job: shadow:invalidate-status`,
     `  rules:`,
     `    - if: $CI_PIPELINE_SOURCE == "trigger"`,
   ].join('\n');
@@ -233,7 +257,7 @@ function renderOrchestration(project, hasShell) {
     `shadow:integration-test:`,
     `  stage: integration-test`,
     `  script:`,
-    ...skipIfStandalone,
+    ...skipUnlessMode('story'),
     `    - npm run integration-test --if-present`,
     `  needs:`,
     `    - job: shadow:detect-trigger`,
@@ -247,7 +271,7 @@ function renderOrchestration(project, hasShell) {
     `shadow:report-status:`,
     `  stage: report-status`,
     `  script:`,
-    ...skipIfStandalone,
+    ...skipUnlessMode('story'),
     `    - sh scripts/report-shadow-status.sh success`,
     `  needs:`,
     `    - job: shadow:detect-trigger`,
@@ -262,7 +286,7 @@ function renderOrchestration(project, hasShell) {
     `shadow:report-failure:`,
     `  stage: report-status`,
     `  script:`,
-    ...skipIfStandalone,
+    ...skipUnlessMode('story'),
     `    - sh scripts/report-shadow-status.sh failed`,
     `  needs:`,
     `    - job: shadow:detect-trigger`,
@@ -273,11 +297,34 @@ function renderOrchestration(project, hasShell) {
     `  when: on_failure`,
   ].join('\n');
 
+  // I-032: managed-repo pipeline failure fan-out. When shadow:detect-trigger
+  // classifies the trigger as pipeline-failure (EVENT_KIND=pipeline webhook
+  // fired by a managed-repo pipeline that failed on an active story branch),
+  // skip compose + integration-test entirely and push `failed` to every
+  // sibling story MR. Closes the latency window where sibling MRs retain
+  // stale green until the next MR event.
+  const shadowFanoutFailure = [
+    `shadow:fanout-failure:`,
+    `  stage: report-status`,
+    `  image: alpine:3.19`,
+    `  before_script:`,
+    `    - apk add --no-cache curl nodejs`,
+    `  script:`,
+    ...skipUnlessMode('pipeline-failure'),
+    `    - echo "Managed-repo pipeline failure on story $STORY_ID — fanning out failed status to siblings"`,
+    `    - sh scripts/report-shadow-status.sh failed`,
+    `  needs:`,
+    `    - job: shadow:detect-trigger`,
+    `      artifacts: true`,
+    `  rules:`,
+    `    - if: $CI_PIPELINE_SOURCE == "trigger"`,
+  ].join('\n');
+
   const mergeTransaction = [
     `merge-transaction:`,
     `  stage: merge-transaction`,
     `  script:`,
-    ...skipIfStandalone,
+    ...skipUnlessMode('story'),
     `    - npm run merge-transaction --if-present`,
     `  needs:`,
     `    - job: shadow:detect-trigger`,
@@ -329,10 +376,12 @@ function renderOrchestration(project, hasShell) {
 
   return [
     shadowDetectTrigger,
+    shadowInvalidateStatus,
     shadowCompose,
     shadowIntegrationTest,
     shadowReportStatus,
     shadowReportFailure,
+    shadowFanoutFailure,
     mergeTransaction,
     validateCompose,
     validateIntegrationTest,
@@ -357,13 +406,15 @@ function renderDetectStoryTrigger(project) {
 # Generated by ci/gitlab provider — do not edit by hand.
 # Source of truth: project.yaml.
 #
-# Determines if this trigger corresponds to an active story MR (any open
-# MR across the project's repos whose source branch references a story
-# whose readiness tracker shows status != completed) or a standalone MR
-# (no such match). Closes I-030.
-#
-# Emits STORY_ID=<id> to detect.env as a dotenv artifact. Downstream
-# shadow:* jobs early-exit when STORY_ID is empty.
+# Branches on the EVENT_KIND webhook-URL variable set by
+# wire-orchestration (one MR webhook with EVENT_KIND=mr, one pipeline
+# webhook with EVENT_KIND=pipeline). Emits STORY_ID=<id> and
+# TRIGGER_MODE=<mode> to detect.env as a dotenv artifact. Downstream
+# shadow:* jobs gate on TRIGGER_MODE:
+#   story            — active story MR present; run full AOT (I-030)
+#   pipeline-failure — managed-repo pipeline failed on an active story
+#                      branch; fan out failed status to siblings (I-032)
+#   standalone       — no active story MR; skip all shadow work (I-030)
 
 set -eu
 
@@ -378,61 +429,124 @@ REPOS="${reposLine}"
 ROOT_ENCODED_PATH="${encodedRootPath}"
 
 STORY_ID=""
+TRIGGER_MODE="standalone"
 
-for repo in $REPOS; do
-  PROJECT_PATH="$GROUP/$repo"
-  ENCODED_PATH=$(printf '%s' "$PROJECT_PATH" | sed 's|/|%2F|g')
-
-  MR_DATA=$(curl -sf \\
+# Resolve readiness for a candidate story ID against the root repo's
+# stories/<id>.yaml tracker. Echoes the status field (empty if missing).
+readiness_status() {
+  candidate="$1"
+  data=$(curl -sf \\
     --header "PRIVATE-TOKEN: $M_GROUP_TOKEN" \\
-    "$API/projects/$ENCODED_PATH/merge_requests?state=opened&per_page=50" \\
-    || echo "[]")
+    "$API/projects/$ROOT_ENCODED_PATH/repository/files/stories%2F$candidate.yaml/raw?ref=main" \\
+    || echo "")
+  if [ -z "$data" ]; then
+    echo ""
+    return
+  fi
+  printf '%s' "$data" | grep -E '^status:' | awk '{print $2}' | tr -d '"'
+}
 
-  CANDIDATES=$(printf '%s' "$MR_DATA" | node -e "
-    const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-    if (!Array.isArray(data)) process.exit(0);
-    const seen = new Set();
-    for (const mr of data) {
-      const m = (mr.source_branch || '').match(/[A-Z]+-\\\\d+/);
-      if (m && !seen.has(m[0])) { seen.add(m[0]); console.log(m[0]); }
-    }
-  ")
+EVENT_KIND="\${EVENT_KIND:-mr}"
+echo "Trigger classification: EVENT_KIND=$EVENT_KIND"
 
-  for candidate in $CANDIDATES; do
-    READINESS=$(curl -sf \\
+if [ "$EVENT_KIND" = "pipeline" ]; then
+  # I-032: webhook fired by a managed-repo pipeline event. Query the
+  # source project's recent pipelines for the most recent failure, and
+  # if its ref encodes an active story ID, fan out failure to siblings.
+  # Success/running pipelines and failures on non-story branches fall
+  # through to standalone and no shadow work runs.
+  if [ -z "\${SOURCE_PROJECT_ID:-}" ]; then
+    echo "pipeline event without SOURCE_PROJECT_ID — treating as standalone"
+  else
+    PIPELINE_DATA=$(curl -sf \\
       --header "PRIVATE-TOKEN: $M_GROUP_TOKEN" \\
-      "$API/projects/$ROOT_ENCODED_PATH/repository/files/stories%2F$candidate.yaml/raw?ref=main" \\
-      || echo "")
+      "$API/projects/$SOURCE_PROJECT_ID/pipelines?per_page=10" \\
+      || echo "[]")
 
-    if [ -z "$READINESS" ]; then
-      echo "  $repo/$candidate: no readiness tracker in root repo — skipping"
-      continue
+    FAILED_REF=$(printf '%s' "$PIPELINE_DATA" | node -e "
+      const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+      if (!Array.isArray(data)) process.exit(0);
+      const fail = data.find((p) => p.status === 'failed');
+      if (fail && fail.ref) console.log(fail.ref);
+    ")
+
+    if [ -z "$FAILED_REF" ]; then
+      echo "  no failed pipelines in recent history on source project — skipping"
+    else
+      CANDIDATE=$(printf '%s' "$FAILED_REF" | grep -oE '[A-Z]+-[0-9]+' | head -1 || echo "")
+      if [ -z "$CANDIDATE" ]; then
+        echo "  failed pipeline on '$FAILED_REF' — ref does not encode a story ID, skipping"
+      else
+        STATUS=$(readiness_status "$CANDIDATE")
+        case "$STATUS" in
+          ""|completed)
+            echo "  failed pipeline on '$FAILED_REF' → $CANDIDATE: readiness status='$STATUS' — skipping"
+            ;;
+          *)
+            echo "  failed pipeline on '$FAILED_REF' → $CANDIDATE: active story — fanning out failure"
+            STORY_ID="$CANDIDATE"
+            TRIGGER_MODE="pipeline-failure"
+            ;;
+        esac
+      fi
     fi
-
-    STATUS=$(printf '%s' "$READINESS" | grep -E '^status:' | awk '{print $2}' | tr -d '"')
-
-    case "$STATUS" in
-      ""|completed)
-        echo "  $repo/$candidate: readiness status='$STATUS' — skipping"
-        ;;
-      *)
-        echo "  $repo/$candidate: readiness status='$STATUS' — active story"
-        STORY_ID="$candidate"
-        break 2
-        ;;
-    esac
-  done
-done
-
-if [ -n "$STORY_ID" ]; then
-  echo ""
-  echo "Active story detected: $STORY_ID"
+  fi
 else
-  echo ""
-  echo "Standalone trigger — no active story MRs found across the topology"
+  # EVENT_KIND=mr (default) — I-030 story-vs-standalone classification.
+  for repo in $REPOS; do
+    PROJECT_PATH="$GROUP/$repo"
+    ENCODED_PATH=$(printf '%s' "$PROJECT_PATH" | sed 's|/|%2F|g')
+
+    MR_DATA=$(curl -sf \\
+      --header "PRIVATE-TOKEN: $M_GROUP_TOKEN" \\
+      "$API/projects/$ENCODED_PATH/merge_requests?state=opened&per_page=50" \\
+      || echo "[]")
+
+    CANDIDATES=$(printf '%s' "$MR_DATA" | node -e "
+      const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+      if (!Array.isArray(data)) process.exit(0);
+      const seen = new Set();
+      for (const mr of data) {
+        const m = (mr.source_branch || '').match(/[A-Z]+-\\\\d+/);
+        if (m && !seen.has(m[0])) { seen.add(m[0]); console.log(m[0]); }
+      }
+    ")
+
+    for candidate in $CANDIDATES; do
+      STATUS=$(readiness_status "$candidate")
+      case "$STATUS" in
+        "")
+          echo "  $repo/$candidate: no readiness tracker in root repo — skipping"
+          ;;
+        completed)
+          echo "  $repo/$candidate: readiness status='completed' — skipping"
+          ;;
+        *)
+          echo "  $repo/$candidate: readiness status='$STATUS' — active story"
+          STORY_ID="$candidate"
+          TRIGGER_MODE="story"
+          break 2
+          ;;
+      esac
+    done
+  done
 fi
 
+echo ""
+case "$TRIGGER_MODE" in
+  story)
+    echo "Active story detected: $STORY_ID (mode=story)"
+    ;;
+  pipeline-failure)
+    echo "Pipeline failure on story: $STORY_ID (mode=pipeline-failure)"
+    ;;
+  standalone)
+    echo "Standalone trigger — no shadow work (mode=standalone)"
+    ;;
+esac
+
 echo "STORY_ID=$STORY_ID" > detect.env
+echo "TRIGGER_MODE=$TRIGGER_MODE" >> detect.env
 `;
 }
 

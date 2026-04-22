@@ -75,42 +75,62 @@ For each managed repo:
    managed_path = <group>/<project>-<component-name>
    ```
 
-2. Construct the webhook URL. URL-encode the project path (`/` → `%2F`)
-   so the query string parses cleanly:
+2. Construct **two** webhook URLs — one for MR events, one for pipeline
+   events. URL-encode the project path (`/` → `%2F`) so the query
+   string parses cleanly:
 
    ```
-   webhook_url = https://<scm-host>/api/v4/projects/<root-id>/ref/main/trigger/pipeline
-                 ?token=<trigger-token>
-                 &variables[SOURCE_PROJECT_ID]=<managed_id>
-                 &variables[SOURCE_PROJECT_PATH]=<url-encoded managed_path>
+   webhook_url_mr = https://<scm-host>/api/v4/projects/<root-id>/ref/main/trigger/pipeline
+                    ?token=<trigger-token>
+                    &variables[SOURCE_PROJECT_ID]=<managed_id>
+                    &variables[SOURCE_PROJECT_PATH]=<url-encoded managed_path>
+                    &variables[EVENT_KIND]=mr
+
+   webhook_url_pipeline = https://<scm-host>/api/v4/projects/<root-id>/ref/main/trigger/pipeline
+                          ?token=<trigger-token>
+                          &variables[SOURCE_PROJECT_ID]=<managed_id>
+                          &variables[SOURCE_PROJECT_PATH]=<url-encoded managed_path>
+                          &variables[EVENT_KIND]=pipeline
    ```
 
    These static values identify **which** managed repo's webhook fired
-   the trigger. The dynamic story-vs-standalone classification happens
-   at runtime inside `shadow:detect-trigger` (see Pipeline structure
-   below), which cross-checks open MRs against the root repo's
-   readiness trackers — no branch-name convention is imposed.
+   the trigger and **which kind of event** it fired for. `EVENT_KIND`
+   is required because GitLab pipeline triggers (`/trigger/pipeline`)
+   do not forward webhook payloads into the triggered pipeline —
+   only URL-encoded `variables[KEY]=value` pairs become CI variables.
+   Two webhooks with distinct `EVENT_KIND` values give
+   `shadow:detect-trigger` the event-type signal it needs to route
+   MR events into the story/standalone classification and pipeline
+   events into the I-032 failure-fan-out path.
 
-3. Install the webhook:
+   The dynamic story-vs-standalone classification happens at runtime
+   inside `shadow:detect-trigger` (see Pipeline structure below), which
+   cross-checks open MRs against the root repo's readiness trackers —
+   no branch-name convention is imposed.
+
+3. Install both webhooks:
 
    ```
    scm.create_webhook(
      repo: <managed-repo>,
-     url: <webhook_url from step 2>,
-     events: { merge_request: true, pipeline: true, push: false },
+     url: <webhook_url_mr from step 2>,
+     events: { merge_request: true, pipeline: false, push: false },
+     ssl_verify: true
+   )
+
+   scm.create_webhook(
+     repo: <managed-repo>,
+     url: <webhook_url_pipeline from step 2>,
+     events: { merge_request: false, pipeline: true, push: false },
      ssl_verify: true
    )
    ```
 
-**Important:** Push events MUST be explicitly disabled to avoid
-triggering the root repo pipeline on every push to managed repos.
-
-Pipeline events (`pipeline: true`) are kept enabled because v0.8.0
-(I-032 re-implementation) will consume `object_kind=pipeline` in the
-detect-trigger job to propagate managed-repo pipeline failures to
-sibling story MRs. Until v0.8.0 lands, pipeline events fire into the
-root pipeline but detect-trigger doesn't distinguish them from MR
-events — this is tracked as a regression.
+**Important:** Push events MUST be explicitly disabled on both
+webhooks to avoid triggering the root repo pipeline on every push
+to managed repos. Each webhook enables exactly one event type so
+that `EVENT_KIND` in the URL query string unambiguously tags every
+trigger with its originating event.
 
 ### Step 4 — Store access tokens as CI secrets
 
@@ -151,34 +171,45 @@ section while preserving the same lifecycle contract.
 - `build` — build the shell
 - `test` — shell unit tests
 
-**Detect stage — story-vs-standalone classification** (v0.7.0 / I-030):
-- `shadow:detect-trigger` — runs on every trigger. Queries the GitLab
-  API for open MRs across root + all managed repos, extracts any
-  `[A-Z]+-\d+` story ID from each source branch, cross-checks against
-  the root repo's `stories/<story-id>.yaml` readiness tracker, and
-  writes the first **active** story ID (`status != completed`) into
-  `detect.env` as a dotenv artifact. If no active story MR exists
-  anywhere in the topology, the trigger is classified as **standalone**
-  and `STORY_ID` is emitted empty.
+**Detect stage — trigger classification** (v0.7.0 / I-030 + v0.8.0 / I-031 / I-032):
+- `shadow:detect-trigger` — runs on every trigger. Branches on
+  `$EVENT_KIND` (set by the webhook URL query string, see Step 3):
+  - **`mr`** — queries the GitLab API for open MRs across root + all
+    managed repos, extracts any `[A-Z]+-\d+` story ID from each source
+    branch, cross-checks against the root repo's
+    `stories/<story-id>.yaml` readiness tracker, and emits the first
+    **active** story ID (`status != completed`) as `STORY_ID`.
+    `TRIGGER_MODE=story` if an active story is found, otherwise
+    `TRIGGER_MODE=standalone`.
+  - **`pipeline`** (I-032) — queries the source managed repo's recent
+    pipelines, filters for `status=failed`, and if the failing
+    pipeline's ref encodes an active story ID, emits
+    `TRIGGER_MODE=pipeline-failure` plus the matching `STORY_ID`.
+    Success/running pipelines and failures on non-story branches yield
+    `TRIGGER_MODE=standalone`.
+  - Either way, `STORY_ID` and `TRIGGER_MODE` are written to
+    `detect.env` as a dotenv artifact consumed by downstream jobs.
+- `shadow:invalidate-status` (I-031) — runs in the detect stage as a
+  sibling of `shadow:detect-trigger`, gated on
+  `TRIGGER_MODE=story`. Pushes `pending` to every open story MR
+  (root + all managed repos) via `report-shadow-status.sh pending`
+  **before** `shadow:compose` begins, so stale-green can't race the
+  gate. `shadow:compose` declares `needs: [shadow:invalidate-status]`
+  to enforce the ordering.
 
 **Shadow integration jobs** (run only on trigger events; each gates
-on `STORY_ID` via `shadow:detect-trigger`'s dotenv artifact and
-early-exits when empty):
-- `shadow:compose` — clone siblings, Docker build, start, health check
-- `shadow:integration-test` — run story-level Cypress spec
-- `shadow:report-status` (on_success) — push `success` commit status to all story MRs via `report-shadow-status.sh`
-- `shadow:report-failure` (on_failure) — push `failed` commit status to all story MRs
-- `merge-transaction` (manual) — merge managed MRs atomically, update topology
+on `TRIGGER_MODE` via `shadow:detect-trigger`'s dotenv artifact and
+early-exits when the mode doesn't match):
+- `shadow:compose` — (mode `story`) clone siblings, Docker build, start, health check
+- `shadow:integration-test` — (mode `story`) run story-level Cypress spec
+- `shadow:report-status` (on_success) — (mode `story`) push `success` commit status to all story MRs via `report-shadow-status.sh`
+- `shadow:report-failure` (on_failure) — (mode `story`) push `failed` commit status to all story MRs
+- `shadow:fanout-failure` (I-032) — (mode `pipeline-failure`) runs in the report-status stage when a managed-repo pipeline failure triggered the root; pushes `failed` via `report-shadow-status.sh failed` to every sibling story MR without waiting for the next MR event. Skips compose + integration-test entirely.
+- `merge-transaction` (manual) — (mode `story`) merge managed MRs atomically, update topology
 
 **Validation jobs** (run on MR events and main pushes, skip triggers):
 - `validate:compose` — compose, health check
 - `validate:integration-test` — run story-level tests. On MR pipelines, the `after_script` extracts the story ID from the branch name and fans out the result (success/failure) to all story MRs via `report-shadow-status.sh`. This ensures that a root MR pipeline failure makes all sibling MRs go red.
-
-**Known regressions scheduled for v0.8.0** (I-031 + I-032 — dropped
-during the v0.5.0 I-036 CI extraction; tracked as regressed in the
-backlog):
-- `shadow:invalidate-status` — pre-AOT push of `pending` to all story MRs so stale green can't race the gate.
-- Pipeline-failure branch of `shadow:detect-trigger` — when a managed repo's own pipeline fails (`object_kind=pipeline` webhook), root should propagate failure to siblings without waiting for the next MR event. Webhook config enables `pipeline_events: true` but the root pipeline has no handler today.
 
 #### Compose job contract (methodology)
 
