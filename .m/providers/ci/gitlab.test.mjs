@@ -151,14 +151,16 @@ describe('.gitlab-ci.yml — no embedded frontend-host', () => {
 });
 
 describe('.gitlab-ci.yml — orchestration jobs', () => {
-  test('shadow:detect-trigger, shadow:compose, shadow:integration-test, shadow:report-{status,failure} all present', () => {
+  test('shadow:detect-trigger, shadow:invalidate-status, shadow:compose, shadow:integration-test, shadow:report-{status,failure}, shadow:fanout-failure all present', () => {
     const project = loadFixture('todo-m-base.yaml');
     const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
     assert.match(yml.content, /^shadow:detect-trigger:$/m);
+    assert.match(yml.content, /^shadow:invalidate-status:$/m);
     assert.match(yml.content, /^shadow:compose:$/m);
     assert.match(yml.content, /^shadow:integration-test:$/m);
     assert.match(yml.content, /^shadow:report-status:$/m);
     assert.match(yml.content, /^shadow:report-failure:$/m);
+    assert.match(yml.content, /^shadow:fanout-failure:$/m);
   });
 
   test('merge-transaction job uses resource_group distributed_merge', () => {
@@ -193,21 +195,31 @@ describe('.gitlab-ci.yml — I-030 story-vs-standalone gating', () => {
     assert.match(detectBlock, /\n {4}- if: \$CI_PIPELINE_SOURCE == "trigger"/);
   });
 
-  test('every shadow:* job early-exits when STORY_ID is empty', () => {
+  test('every gated shadow:* job skips unless TRIGGER_MODE matches its role', () => {
     const project = loadFixture('todo-m-base.yaml');
     const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
-    const gated = ['shadow:compose', 'shadow:integration-test', 'shadow:report-status', 'shadow:report-failure', 'merge-transaction'];
-    for (const name of gated) {
+    // Each job declares which TRIGGER_MODE it runs for; anything else is
+    // a clean early-exit from the job's script.
+    const expected = {
+      'shadow:invalidate-status': 'story',
+      'shadow:compose': 'story',
+      'shadow:integration-test': 'story',
+      'shadow:report-status': 'story',
+      'shadow:report-failure': 'story',
+      'shadow:fanout-failure': 'pipeline-failure',
+      'merge-transaction': 'story',
+    };
+    for (const [name, mode] of Object.entries(expected)) {
       const block = extractJobBlock(yml.content, name);
       assert.match(
         block,
-        /if \[ -z "\$\{STORY_ID:-\}" \]; then/,
-        `${name} is missing the STORY_ID skip-gate`,
+        new RegExp(`if \\[ "\\$\\{TRIGGER_MODE:-standalone\\}" != "${mode}" \\]; then`),
+        `${name} must skip unless TRIGGER_MODE=${mode}`,
       );
       assert.match(
         block,
-        /Standalone trigger \(no active story MR\) — skipping shadow/,
-        `${name} skip-gate must explain what it's skipping`,
+        new RegExp(`this job runs only on TRIGGER_MODE=${mode}`),
+        `${name} skip-gate must name the expected TRIGGER_MODE`,
       );
     }
   });
@@ -215,7 +227,7 @@ describe('.gitlab-ci.yml — I-030 story-vs-standalone gating', () => {
   test('gated shadow jobs consume the detect dotenv via needs: artifacts', () => {
     const project = loadFixture('todo-m-base.yaml');
     const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
-    for (const name of ['shadow:compose', 'shadow:integration-test', 'shadow:report-status', 'shadow:report-failure', 'merge-transaction']) {
+    for (const name of ['shadow:invalidate-status', 'shadow:compose', 'shadow:integration-test', 'shadow:report-status', 'shadow:report-failure', 'shadow:fanout-failure', 'merge-transaction']) {
       const block = extractJobBlock(yml.content, name);
       assert.match(
         block,
@@ -253,10 +265,84 @@ describe('.gitlab-ci.yml — I-030 story-vs-standalone gating', () => {
     assert.match(sh.content, /source_branch/);
   });
 
-  test('detect script writes STORY_ID to detect.env for downstream dotenv artifact', () => {
+  test('detect script writes STORY_ID and TRIGGER_MODE to detect.env for downstream dotenv artifact', () => {
     const project = loadFixture('todo-m-base.yaml');
     const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
     assert.match(sh.content, /^echo "STORY_ID=\$STORY_ID" > detect\.env$/m);
+    assert.match(sh.content, /^echo "TRIGGER_MODE=\$TRIGGER_MODE" >> detect\.env$/m);
+  });
+});
+
+describe('.gitlab-ci.yml — I-031 pre-AOT invalidation', () => {
+  test('shadow:invalidate-status lives on the detect stage', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
+    const block = extractJobBlock(yml.content, 'shadow:invalidate-status');
+    assert.match(block, /^ {2}stage: detect$/m);
+  });
+
+  test('shadow:invalidate-status runs report-shadow-status.sh pending', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
+    const block = extractJobBlock(yml.content, 'shadow:invalidate-status');
+    assert.match(block, /sh scripts\/report-shadow-status\.sh pending/);
+  });
+
+  test('shadow:compose needs shadow:invalidate-status so pending lands before AOT starts', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
+    const block = extractJobBlock(yml.content, 'shadow:compose');
+    assert.match(block, /- job: shadow:invalidate-status/);
+  });
+});
+
+describe('.gitlab-ci.yml — I-032 pipeline-failure fan-out', () => {
+  test('shadow:fanout-failure lives on the report-status stage', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
+    const block = extractJobBlock(yml.content, 'shadow:fanout-failure');
+    assert.match(block, /^ {2}stage: report-status$/m);
+  });
+
+  test('shadow:fanout-failure runs report-shadow-status.sh failed', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
+    const block = extractJobBlock(yml.content, 'shadow:fanout-failure');
+    assert.match(block, /sh scripts\/report-shadow-status\.sh failed/);
+  });
+
+  test('shadow:fanout-failure does NOT depend on shadow:compose (skips compose on pipeline-failure path)', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
+    const block = extractJobBlock(yml.content, 'shadow:fanout-failure');
+    assert.doesNotMatch(block, /- job: shadow:compose/);
+  });
+
+  test('detect script branches on $EVENT_KIND and defaults to mr', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    assert.match(sh.content, /EVENT_KIND="\$\{EVENT_KIND:-mr\}"/);
+    assert.match(sh.content, /if \[ "\$EVENT_KIND" = "pipeline" \]/);
+  });
+
+  test('detect script (pipeline path) queries source project pipelines and filters failed status', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    assert.match(sh.content, /\/projects\/\$SOURCE_PROJECT_ID\/pipelines\?per_page=\d+/);
+    assert.match(sh.content, /p\.status === 'failed'/);
+  });
+
+  test('detect script (pipeline path) extracts story ID from failed pipeline ref and validates readiness', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    assert.match(sh.content, /grep -oE '\[A-Z\]\+-\[0-9\]\+'/);
+    assert.match(sh.content, /TRIGGER_MODE="pipeline-failure"/);
+  });
+
+  test('detect script (mr path) sets TRIGGER_MODE=story when an active readiness tracker matches', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    assert.match(sh.content, /TRIGGER_MODE="story"/);
   });
 });
 

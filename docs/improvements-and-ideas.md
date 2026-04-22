@@ -66,8 +66,8 @@ listed for completeness — their write-ups remain below as reference.
 | I-013 | Compose from story branches | Eager model via resolve-story-branches.sh. |
 | I-020 | Root repo sub-task mandatory | decompose-story enforces root sub-task. |
 | I-021 | PAT validation loop in steering | Steering template updated. |
-| I-031 | Stale green race condition | ⚠️ Regressed 2026-04-22 — I-036 extraction dropped `shadow:invalidate-status`. Scheduled for v0.8.0. |
-| I-032 | Pipeline failure webhook | ⚠️ Regressed 2026-04-22 — I-036 extraction dropped the pipeline_failure branch of `detect-trigger`. Scheduled for v0.8.0. |
+| I-031 | Stale green race condition | `shadow:invalidate-status` restored as a detect-stage job gated on `TRIGGER_MODE=story`; `shadow:compose` needs it so `pending` lands on all sibling MRs before AOT starts. Regression-tested in `ci/gitlab.test.mjs`. v0.8.0. |
+| I-032 | Pipeline failure webhook | `shadow:detect-trigger` branches on `$EVENT_KIND` (mr \| pipeline) set by per-event webhook URLs. On `pipeline` events with a failed source pipeline on an active story branch, `TRIGGER_MODE=pipeline-failure` routes straight to `shadow:fanout-failure`, pushing `failed` to every sibling story MR without waiting for the next MR event. `wire-orchestration` now installs two webhooks per managed repo (one MR, one pipeline) with distinct `variables[EVENT_KIND]` values. Regression-tested in `ci/gitlab.test.mjs`. v0.8.0. |
 | I-033 | 90s invalidation window | Accepted limitation. Documented. |
 | I-039 | Decomposition auto-establishes AOT gate | decompose-story Step 4: auto-compile PAT → Cypress, raise root MR. |
 | I-006 | API stubs for frontend repos | `pats/stubs/api-*.js` generated per dependency in scaffold-repo (express/cors, shared state). |
@@ -2152,15 +2152,16 @@ integration, fan-out, and cascade merge. There's no support for:
 ## I-031: Race condition — stale green status allows merge during story integrity change
 
 **Category:** Orchestration / implementation detail
-**Priority:** Water-tightness (pulled into MVP v0.8.0, 2026-04-22)
-**Status:** ⚠️ Regressed 2026-04-22 — the pass1 implementation shipped
-`shadow:invalidate-status` as the first job in the shadow stage. The
-v0.5.0 I-036 extraction moved pipeline rendering into `ci/gitlab.mjs`
-and silently dropped this job (no explicit design decision recorded).
-Wire-orchestration SKILL still documents it, but `ci/gitlab.mjs`
-doesn't render it. Stale-green windows reappear on every AOT kick.
-Scheduled for re-implementation in v0.8.0 alongside I-032 — both live
-in the same detect-trigger machinery that v0.7.0 introduces.
+**Priority:** Water-tightness
+**Status:** ✅ Resolved in v0.8.0 (2026-04-22). `shadow:invalidate-status`
+is emitted by `ci/gitlab.mjs` as a detect-stage job gated on
+`TRIGGER_MODE=story`. It calls `report-shadow-status.sh pending` to
+push `pending` to every open story MR (root + managed), and
+`shadow:compose` declares `needs: [shadow:invalidate-status]` so
+invalidation always lands before AOT begins. Regression tests in
+`ci/gitlab.test.mjs` (`I-031 pre-AOT invalidation`) lock the job
+contract so the v0.5.0-style silent simplification can't drop it
+again.
 **Original resolution:** 2026-04-07 — instant status invalidation pushes pending to all story MRs before AOT runs.
 **Discovered:** 2026-04-07, during demo rehearsal
 
@@ -2206,16 +2207,22 @@ For the reference implementation and demo, the race window is acceptable
 ## I-032: Pipeline failure webhook — immediate invalidation when repo tests fail
 
 **Category:** Orchestration / water-tightness
-**Priority:** Water-tightness (pulled into MVP v0.8.0, 2026-04-22)
-**Status:** ⚠️ Regressed 2026-04-22 — the webhook configuration still
-enables `pipeline_events: true` (scaffold-repo + wire-orchestration
-provision it), but the v0.5.0 I-036 CI extraction dropped the
-`detect-trigger` job that used to dispatch on `object_kind=pipeline`
-to fan out failure status. Today pipeline-failure webhooks fire into
-a root pipeline with no handler — sibling story MRs retain stale
-green until the next MR event. Scheduled for re-implementation in
-v0.8.0 alongside I-031 via the detect-trigger job that v0.7.0
-introduces.
+**Priority:** Water-tightness
+**Status:** ✅ Resolved in v0.8.0 (2026-04-22). `wire-orchestration`
+now installs two webhooks per managed repo — one `merge_request`-only
+webhook tagged `variables[EVENT_KIND]=mr` and one `pipeline`-only
+webhook tagged `variables[EVENT_KIND]=pipeline` — so every trigger
+carries an unambiguous event-kind signal as a CI variable.
+`shadow:detect-trigger` branches on `$EVENT_KIND`: on pipeline events
+it queries the source project's recent pipelines for a failed status,
+extracts any `[A-Z]+-[0-9]+` story ID from the failing pipeline's
+ref, validates the readiness tracker, and emits
+`TRIGGER_MODE=pipeline-failure`. A new `shadow:fanout-failure` job in
+the report-status stage gates on that mode, skips compose +
+integration-test entirely, and calls `report-shadow-status.sh failed`
+to push `failed` to every sibling story MR. Regression tests in
+`ci/gitlab.test.mjs` (`I-032 pipeline-failure fan-out`) lock the
+branch and the job contract.
 **Original resolution:** 2026-04-11 — pipeline_events added to webhooks, detect-trigger handles pipeline_failure, fan-out to all story MRs.
 **Discovered:** 2026-04-07, during demo rehearsal
 

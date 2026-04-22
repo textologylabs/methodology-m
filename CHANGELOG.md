@@ -4,6 +4,74 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-04-22
+
+### Added
+
+- **I-031 — pre-AOT invalidation restored.** `ci/gitlab` now emits a
+  new `shadow:invalidate-status` job on the `detect` stage, gated on
+  `TRIGGER_MODE=story`. It runs `report-shadow-status.sh pending` to
+  push `pending` to every open story MR (root + managed) before
+  `shadow:compose` starts. `shadow:compose` declares
+  `needs: [shadow:invalidate-status]` so invalidation always lands
+  first — stale green can no longer race the gate while compose +
+  integration-test run. Closes the regression the v0.5.0 I-036
+  extraction introduced by silently dropping this job from the
+  renderer.
+
+- **I-032 — managed-repo pipeline-failure fan-out restored.** Two
+  surface changes:
+
+  1. **`wire-orchestration` Step 3** now installs **two webhooks per
+     managed repo** — one `merge_request`-only webhook with
+     `variables[EVENT_KIND]=mr` and one `pipeline`-only webhook with
+     `variables[EVENT_KIND]=pipeline`. GitLab pipeline triggers
+     (`/trigger/pipeline`) do not forward webhook payloads into
+     triggered pipelines — only URL query variables become CI
+     variables — so `EVENT_KIND` is the only way for
+     `shadow:detect-trigger` to know which event fired.
+
+  2. **`shadow:detect-trigger` branches on `$EVENT_KIND`.** On
+     pipeline events it queries the source project's recent pipelines
+     (`GET /projects/:id/pipelines?per_page=10`), filters
+     `status=failed`, extracts any `[A-Z]+-\d+` story ID from the
+     failing pipeline's ref, validates it against the root repo's
+     readiness tracker, and emits `TRIGGER_MODE=pipeline-failure` +
+     `STORY_ID`. Non-failure pipeline events, failures on non-story
+     branches, and failures against completed stories all fall through
+     to `TRIGGER_MODE=standalone` (no shadow work runs).
+
+  A new `shadow:fanout-failure` job on the `report-status` stage gates
+  on `TRIGGER_MODE=pipeline-failure`, skips compose + integration-test
+  entirely, and calls `report-shadow-status.sh failed` to fan out
+  `failed` to every sibling story MR. Closes the regression where
+  managed-repo pipeline failures left sibling MRs with stale green
+  status until the next MR event.
+
+### Changed
+
+- **`shadow:detect-trigger` emits both `STORY_ID` and `TRIGGER_MODE`**
+  to `detect.env`. Downstream jobs no longer skip on empty `STORY_ID`
+  — they skip unless `TRIGGER_MODE` matches their expected mode
+  (`story` for compose/integration-test/report/merge-transaction;
+  `pipeline-failure` for `shadow:fanout-failure`). The tri-state
+  classification (`story` | `pipeline-failure` | `standalone`) is
+  explicit at the dotenv boundary rather than inferred from a single
+  flag.
+
+- **`wire-orchestration` SKILL updated** to document the two-webhook
+  topology, the new `shadow:invalidate-status` and
+  `shadow:fanout-failure` jobs, and the `TRIGGER_MODE` gating
+  discipline. The "Known regressions scheduled for v0.8.0" callout is
+  retired.
+
+### Regression coverage
+
+- `ci/gitlab.test.mjs` adds two new test suites — `I-031 pre-AOT
+  invalidation` and `I-032 pipeline-failure fan-out` — so the v0.5.0
+  silent-simplification pattern cannot drop either behaviour again
+  without the test suite failing.
+
 ## [0.7.0] — 2026-04-22
 
 ### Added
