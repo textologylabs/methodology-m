@@ -54,26 +54,63 @@ integration pipelines on the root repo.
 
 Store the trigger token value for webhook configuration.
 
-### Step 3 — Install webhooks on managed repos
+### Step 3 — Install webhooks on managed repos with per-repo context variables
+
+For each managed repo, construct a webhook URL that encodes the repo's
+identity as **static pipeline trigger variables**, then install the
+webhook pointing at that URL.
+
+GitLab pipeline trigger endpoints natively accept `variables[KEY]=value`
+in the query string, and GitLab webhooks preserve URL query strings
+verbatim when they POST. The managed repo's identity therefore arrives
+at the root pipeline as pre-populated CI variables — no middleman
+service, no Premium features.
 
 For each managed repo:
 
-```
-scm.create_webhook(
-  repo: <managed-repo>,
-  url: <trigger-url-with-token>,
-  events: { merge_request: true, pipeline: true, push: false },
-  ssl_verify: true
-)
-```
+1. Resolve the managed repo's SCM project ID and project path:
+
+   ```
+   managed_id   = scm.resolve_project_id(<managed-repo-location>)
+   managed_path = <group>/<project>-<component-name>
+   ```
+
+2. Construct the webhook URL. URL-encode the project path (`/` → `%2F`)
+   so the query string parses cleanly:
+
+   ```
+   webhook_url = https://<scm-host>/api/v4/projects/<root-id>/ref/main/trigger/pipeline
+                 ?token=<trigger-token>
+                 &variables[SOURCE_PROJECT_ID]=<managed_id>
+                 &variables[SOURCE_PROJECT_PATH]=<url-encoded managed_path>
+   ```
+
+   These static values identify **which** managed repo's webhook fired
+   the trigger. The dynamic story-vs-standalone classification happens
+   at runtime inside `shadow:detect-trigger` (see Pipeline structure
+   below), which cross-checks open MRs against the root repo's
+   readiness trackers — no branch-name convention is imposed.
+
+3. Install the webhook:
+
+   ```
+   scm.create_webhook(
+     repo: <managed-repo>,
+     url: <webhook_url from step 2>,
+     events: { merge_request: true, pipeline: true, push: false },
+     ssl_verify: true
+   )
+   ```
 
 **Important:** Push events MUST be explicitly disabled to avoid
 triggering the root repo pipeline on every push to managed repos.
 
-Pipeline events (`pipeline: true`) are required so that when a managed
-repo's own pipeline fails, the root repo is notified and can propagate
-the failure to all story MRs. Without this, sibling MRs retain stale
-green status until the next MR event.
+Pipeline events (`pipeline: true`) are kept enabled because v0.8.0
+(I-032 re-implementation) will consume `object_kind=pipeline` in the
+detect-trigger job to propagate managed-repo pipeline failures to
+sibling story MRs. Until v0.8.0 lands, pipeline events fire into the
+root pipeline but detect-trigger doesn't distinguish them from MR
+events — this is tracked as a regression.
 
 ### Step 4 — Store access tokens as CI secrets
 
@@ -107,25 +144,41 @@ This is the **reference implementation** using GitLab CI + Docker Compose.
 Other compose strategies (k8s, serverless, etc.) would replace this
 section while preserving the same lifecycle contract.
 
-**Stages:** install → build → test → compose → integration-test → report-status → merge-transaction
+**Stages:** install → build → test → detect → compose → integration-test → report-status → merge-transaction
 
 **Shell lifecycle jobs** (run on MR events and main pushes, skip triggers):
 - `install` — `npm ci` for root and shell package
 - `build` — build the shell
 - `test` — shell unit tests
 
-**Shadow integration jobs** (run only on trigger events from managed repo webhooks):
-- `detect-trigger` — determines event type: `aot_integration`, `cascade_merge`, or `pipeline_failure`
-- `shadow:invalidate-status` — immediately pushes `pending` to ALL story MRs (including root) to block merge during AOT window
-- `shadow:integration` — clone siblings, Docker build, start, health check, run tests. Skips compose for `cascade_merge` and `pipeline_failure` (exits with failure for pipeline_failure to trigger report-failure)
-- `shadow:report-status` — push `success` commit status to ALL story MRs (including root)
-- `shadow:report-failure` — push `failed` commit status to ALL story MRs (including root)
+**Detect stage — story-vs-standalone classification** (v0.7.0 / I-030):
+- `shadow:detect-trigger` — runs on every trigger. Queries the GitLab
+  API for open MRs across root + all managed repos, extracts any
+  `[A-Z]+-\d+` story ID from each source branch, cross-checks against
+  the root repo's `stories/<story-id>.yaml` readiness tracker, and
+  writes the first **active** story ID (`status != completed`) into
+  `detect.env` as a dotenv artifact. If no active story MR exists
+  anywhere in the topology, the trigger is classified as **standalone**
+  and `STORY_ID` is emitted empty.
+
+**Shadow integration jobs** (run only on trigger events; each gates
+on `STORY_ID` via `shadow:detect-trigger`'s dotenv artifact and
+early-exits when empty):
+- `shadow:compose` — clone siblings, Docker build, start, health check
+- `shadow:integration-test` — run story-level Cypress spec
+- `shadow:report-status` (on_success) — push `success` commit status to all story MRs via `report-shadow-status.sh`
+- `shadow:report-failure` (on_failure) — push `failed` commit status to all story MRs
+- `merge-transaction` (manual) — merge managed MRs atomically, update topology
 
 **Validation jobs** (run on MR events and main pushes, skip triggers):
-- `validate:integration` — compose, health check, run story-level tests. On MR pipelines, the `after_script` extracts the story ID from the branch name and fans out the result (success/failure) to all story MRs via `report-shadow-status.sh`. This ensures that a root MR pipeline failure makes all sibling MRs go red.
+- `validate:compose` — compose, health check
+- `validate:integration-test` — run story-level tests. On MR pipelines, the `after_script` extracts the story ID from the branch name and fans out the result (success/failure) to all story MRs via `report-shadow-status.sh`. This ensures that a root MR pipeline failure makes all sibling MRs go red.
 
-**Merge transaction** (manual trigger):
-- `merge-transaction` — merge managed MRs atomically, update topology
+**Known regressions scheduled for v0.8.0** (I-031 + I-032 — dropped
+during the v0.5.0 I-036 CI extraction; tracked as regressed in the
+backlog):
+- `shadow:invalidate-status` — pre-AOT push of `pending` to all story MRs so stale green can't race the gate.
+- Pipeline-failure branch of `shadow:detect-trigger` — when a managed repo's own pipeline fails (`object_kind=pipeline` webhook), root should propagate failure to siblings without waiting for the next MR event. Webhook config enables `pipeline_events: true` but the root pipeline has no handler today.
 
 #### Compose job contract (methodology)
 

@@ -20,7 +20,6 @@ listed for completeness — their write-ups remain below as reference.
 | Item | Title | Rationale |
 |------|-------|-----------|
 | I-004 | Merge transaction, auto-tag, auto-bump (remaining) | Shadow status works. Post-merge lifecycle is entirely manual. Other half of the M promise. |
-| I-030 | Standalone and follow-up MRs | Any real project has non-story MRs. Currently these trigger full AOT and fail. Quick fix, big usability impact. |
 | I-040 | Topology changes | Adding/removing components mid-project is undefined. Depends on I-036 for clean implementation. |
 | I-041 | Pessimistic invalidation on pipeline start | Push `pending` to all story MRs when any constituent pipeline starts. Tightens the gate. |
 | I-045 | Extend PAT yaml to multi-framework assertions | PAT yaml's step types are Cypress-shaped (data-testid, click, type). Structural stories, backend-only stories, and component-level health checks need HTTP-style step types compiling to curl/supertest. Surfaced by the TODOM-S01 structural test. |
@@ -67,8 +66,8 @@ listed for completeness — their write-ups remain below as reference.
 | I-013 | Compose from story branches | Eager model via resolve-story-branches.sh. |
 | I-020 | Root repo sub-task mandatory | decompose-story enforces root sub-task. |
 | I-021 | PAT validation loop in steering | Steering template updated. |
-| I-031 | Stale green race condition | Instant invalidation pushes pending before AOT. |
-| I-032 | Pipeline failure webhook | pipeline_events on webhooks, detect-trigger handles pipeline_failure. |
+| I-031 | Stale green race condition | ⚠️ Regressed 2026-04-22 — I-036 extraction dropped `shadow:invalidate-status`. Scheduled for v0.8.0. |
+| I-032 | Pipeline failure webhook | ⚠️ Regressed 2026-04-22 — I-036 extraction dropped the pipeline_failure branch of `detect-trigger`. Scheduled for v0.8.0. |
 | I-033 | 90s invalidation window | Accepted limitation. Documented. |
 | I-039 | Decomposition auto-establishes AOT gate | decompose-story Step 4: auto-compile PAT → Cypress, raise root MR. |
 | I-006 | API stubs for frontend repos | `pats/stubs/api-*.js` generated per dependency in scaffold-repo (express/cors, shared state). |
@@ -80,6 +79,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-036 | project.yaml as live config | `render-topology-artefacts` capability + `compose.*` and `ci.*` provider namespaces. Bootstrap-root-repo and decompose-story both call the renderer. All four topology-derived files (`docker-compose.yml`, `scripts/integration-test.sh`, `.gitlab-ci.yml`, `scripts/report-shadow-status.sh`) are pure functions of `project.yaml`. v0.5.0. |
 | I-051 | `scm.push_files` lifecycle gap — can't update existing files | `scm.push_or_update_files` added to the provider interface; implemented in `scm/gitlab.md` (atomic preferred + interim N-call fallback) and `scm/log-only.md`; wired into `decompose-story` S-4. Live-validated via e2e harness. v0.5.1. |
 | I-042 | Reshuffle decompose-story and generate-pats | Lifecycle reshuffled to decompose-story → generate-pats → compile-story-pats. New `compile-story-pats` capability + `test.cat.*` provider namespace (`cypress` + `log-only` reference providers). PAT yaml schema patterns fixed to yaml-valid Option-B format; workshop PAT fixtures rewritten. v0.6.0. |
+| I-030 | Standalone and follow-up MRs | `shadow:detect-trigger` classifies story-vs-standalone via readiness tracker authority (no branch-name convention). Downstream shadow + merge-transaction jobs gate on `$STORY_ID`. Webhook URLs encode per-repo identity via query-string variables — free-tier GitLab, no middleman. v0.7.0. |
 | I-038 | Sub-task PATs in YAML | Sub-task branch of `pat.schema.json` wired up by I-042: `generate-pats` produces one `<sub-task-id>.pat.yaml` per sub-task with `parent-story:` + `component:` anchoring. PAT stubs in sub-task markdown retired. `scaffold-repo` and `generate-acceptance-tests` read the yaml directly. v0.6.0. |
 
 ---
@@ -2086,6 +2086,16 @@ enough to review. Each entry has a clear action statement.
 
 **Category:** Orchestration / methodology
 **Priority:** Important (affects real-world usage)
+**Status:** ✅ Resolved (2026-04-22, v0.7.0) — `shadow:detect-trigger`
+job classifies every trigger as story-MR or standalone via
+authority-based detection (readiness tracker cross-check, no
+branch-name convention). All downstream shadow + merge-transaction
+jobs gate on `$STORY_ID` via dotenv artifact and early-exit on
+empty. Also addresses follow-up MRs to completed stories as
+standalone by the same rule. Webhook URL construction in
+`wire-orchestration` Step 3 now encodes `SOURCE_PROJECT_ID` and
+`SOURCE_PROJECT_PATH` as static query-string variables — free-tier
+GitLab, no middleman service required.
 **Discovered:** 2026-04-07, during demo rehearsal
 
 ### Problem
@@ -2142,8 +2152,16 @@ integration, fan-out, and cascade merge. There's no support for:
 ## I-031: Race condition — stale green status allows merge during story integrity change
 
 **Category:** Orchestration / implementation detail
-**Priority:** Nice to have (theoretical in small teams, real in large ones)
-**Status:** ✅ Resolved (2026-04-07) — instant status invalidation pushes pending to all story MRs before AOT runs
+**Priority:** Water-tightness (pulled into MVP v0.8.0, 2026-04-22)
+**Status:** ⚠️ Regressed 2026-04-22 — the pass1 implementation shipped
+`shadow:invalidate-status` as the first job in the shadow stage. The
+v0.5.0 I-036 extraction moved pipeline rendering into `ci/gitlab.mjs`
+and silently dropped this job (no explicit design decision recorded).
+Wire-orchestration SKILL still documents it, but `ci/gitlab.mjs`
+doesn't render it. Stale-green windows reappear on every AOT kick.
+Scheduled for re-implementation in v0.8.0 alongside I-032 — both live
+in the same detect-trigger machinery that v0.7.0 introduces.
+**Original resolution:** 2026-04-07 — instant status invalidation pushes pending to all story MRs before AOT runs.
 **Discovered:** 2026-04-07, during demo rehearsal
 
 ### Problem
@@ -2188,8 +2206,17 @@ For the reference implementation and demo, the race window is acceptable
 ## I-032: Pipeline failure webhook — immediate invalidation when repo tests fail
 
 **Category:** Orchestration / water-tightness
-**Priority:** Nice to have (closes timing gap)
-**Status:** ✅ Resolved (2026-04-11) — pipeline_events added to webhooks, detect-trigger handles pipeline_failure, fan-out to all story MRs
+**Priority:** Water-tightness (pulled into MVP v0.8.0, 2026-04-22)
+**Status:** ⚠️ Regressed 2026-04-22 — the webhook configuration still
+enables `pipeline_events: true` (scaffold-repo + wire-orchestration
+provision it), but the v0.5.0 I-036 CI extraction dropped the
+`detect-trigger` job that used to dispatch on `object_kind=pipeline`
+to fan out failure status. Today pipeline-failure webhooks fire into
+a root pipeline with no handler — sibling story MRs retain stale
+green until the next MR event. Scheduled for re-implementation in
+v0.8.0 alongside I-031 via the detect-trigger job that v0.7.0
+introduces.
+**Original resolution:** 2026-04-11 — pipeline_events added to webhooks, detect-trigger handles pipeline_failure, fan-out to all story MRs.
 **Discovered:** 2026-04-07, during demo rehearsal
 
 ### Problem

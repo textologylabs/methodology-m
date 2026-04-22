@@ -15,21 +15,36 @@ function filesByPath(files) {
   return Object.fromEntries(files.map((f) => [f.path, f]));
 }
 
+/**
+ * Extract a single top-level job block from a rendered .gitlab-ci.yml.
+ * Jobs in the provider are joined with '\n\n', so block ends at the next
+ * blank line. Append a sentinel blank line so the last job still matches.
+ */
+function extractJobBlock(yml, jobName) {
+  const escaped = jobName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const padded = yml + '\n\n';
+  const m = padded.match(new RegExp(`^${escaped}:\\n([\\s\\S]*?)\\n\\n`, 'm'));
+  if (!m) throw new Error(`Job '${jobName}' not found in yaml`);
+  return m[1];
+}
+
 describe('ci/gitlab — render_pipeline', () => {
-  test('returns .gitlab-ci.yml and report-shadow-status.sh', () => {
+  test('returns .gitlab-ci.yml, detect-story-trigger.sh, report-shadow-status.sh', () => {
     const project = loadFixture('todo-m-base.yaml');
     const files = render_pipeline(project, 'gitlab');
     const paths = files.map((f) => f.path).sort();
     assert.deepStrictEqual(paths, [
       '.gitlab-ci.yml',
+      'scripts/detect-story-trigger.sh',
       'scripts/report-shadow-status.sh',
     ]);
   });
 
-  test('report-shadow-status.sh has executable mode (0o755)', () => {
+  test('both generated shell scripts have executable mode (0o755)', () => {
     const project = loadFixture('todo-m-base.yaml');
     const files = filesByPath(render_pipeline(project, 'gitlab'));
     assert.strictEqual(files['scripts/report-shadow-status.sh'].mode, 0o755);
+    assert.strictEqual(files['scripts/detect-story-trigger.sh'].mode, 0o755);
   });
 
   test('.gitlab-ci.yml has non-executable mode (0o644)', () => {
@@ -70,14 +85,14 @@ describe('.gitlab-ci.yml — header and preamble', () => {
 });
 
 describe('.gitlab-ci.yml — shell lifecycle (embedded frontend-host present)', () => {
-  test('stages include install/build/test + orchestration', () => {
+  test('stages include install/build/test + detect + orchestration', () => {
     const project = loadFixture('todo-m-base.yaml');
     const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
     const stagesBlock = yml.content.match(/^stages:\n([\s\S]*?)(?:\n\n|\ncache:)/m)[1];
     const stages = stagesBlock.split('\n').map((l) => l.replace(/^ +- /, '').trim()).filter(Boolean);
     assert.deepStrictEqual(stages, [
       'install', 'build', 'test',
-      'compose', 'integration-test', 'report-status', 'merge-transaction',
+      'detect', 'compose', 'integration-test', 'report-status', 'merge-transaction',
     ]);
   });
 
@@ -110,13 +125,13 @@ describe('.gitlab-ci.yml — shell lifecycle (embedded frontend-host present)', 
 });
 
 describe('.gitlab-ci.yml — no embedded frontend-host', () => {
-  test('stages omit install/build/test', () => {
+  test('stages omit install/build/test but still include detect + orchestration', () => {
     const project = loadFixture('todo-m-no-shell.yaml');
     const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
     const stagesBlock = yml.content.match(/^stages:\n([\s\S]*?)(?=\n\w|\nshadow:)/m)[1];
     const stages = stagesBlock.split('\n').map((l) => l.replace(/^ +- /, '').trim()).filter(Boolean);
     assert.deepStrictEqual(stages, [
-      'compose', 'integration-test', 'report-status', 'merge-transaction',
+      'detect', 'compose', 'integration-test', 'report-status', 'merge-transaction',
     ]);
   });
 
@@ -136,9 +151,10 @@ describe('.gitlab-ci.yml — no embedded frontend-host', () => {
 });
 
 describe('.gitlab-ci.yml — orchestration jobs', () => {
-  test('shadow:compose, shadow:integration-test, shadow:report-{status,failure} all present', () => {
+  test('shadow:detect-trigger, shadow:compose, shadow:integration-test, shadow:report-{status,failure} all present', () => {
     const project = loadFixture('todo-m-base.yaml');
     const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
+    assert.match(yml.content, /^shadow:detect-trigger:$/m);
     assert.match(yml.content, /^shadow:compose:$/m);
     assert.match(yml.content, /^shadow:integration-test:$/m);
     assert.match(yml.content, /^shadow:report-status:$/m);
@@ -163,6 +179,84 @@ describe('.gitlab-ci.yml — orchestration jobs', () => {
     const project = loadFixture('todo-m-base.yaml');
     const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
     assert.match(yml.content, /GROUP: methodology-m\/todo-m-workshop/);
+  });
+});
+
+describe('.gitlab-ci.yml — I-030 story-vs-standalone gating', () => {
+  test('shadow:detect-trigger lives on the detect stage and emits a dotenv artifact', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
+    const detectBlock = yml.content.match(/^shadow:detect-trigger:([\s\S]*?)(?=^shadow:compose:)/m)[1];
+    assert.match(detectBlock, /\n {2}stage: detect\n/);
+    assert.match(detectBlock, /sh scripts\/detect-story-trigger\.sh/);
+    assert.match(detectBlock, /\n {2}artifacts:\n {4}reports:\n {6}dotenv: detect\.env\n/);
+    assert.match(detectBlock, /\n {4}- if: \$CI_PIPELINE_SOURCE == "trigger"/);
+  });
+
+  test('every shadow:* job early-exits when STORY_ID is empty', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
+    const gated = ['shadow:compose', 'shadow:integration-test', 'shadow:report-status', 'shadow:report-failure', 'merge-transaction'];
+    for (const name of gated) {
+      const block = extractJobBlock(yml.content, name);
+      assert.match(
+        block,
+        /if \[ -z "\$\{STORY_ID:-\}" \]; then/,
+        `${name} is missing the STORY_ID skip-gate`,
+      );
+      assert.match(
+        block,
+        /Standalone trigger \(no active story MR\) — skipping shadow/,
+        `${name} skip-gate must explain what it's skipping`,
+      );
+    }
+  });
+
+  test('gated shadow jobs consume the detect dotenv via needs: artifacts', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { '.gitlab-ci.yml': yml } = filesByPath(render_pipeline(project, 'gitlab'));
+    for (const name of ['shadow:compose', 'shadow:integration-test', 'shadow:report-status', 'shadow:report-failure', 'merge-transaction']) {
+      const block = extractJobBlock(yml.content, name);
+      assert.match(
+        block,
+        /needs:\n(?: {4}-[^\n]+\n(?: {6}[^\n]+\n)*)* {4}- job: shadow:detect-trigger\n {6}artifacts: true/,
+        `${name} must need shadow:detect-trigger with artifacts`,
+      );
+    }
+  });
+
+  test('detect-story-trigger.sh queries all managed repos plus root', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    assert.match(sh.content, /^#!\/bin\/sh\n/);
+    assert.match(sh.content, /Generated by ci\/gitlab provider — do not edit by hand\./);
+    assert.match(
+      sh.content,
+      /^REPOS="todo-m-root todo-m-mfe todo-m-api-read todo-m-api-write"$/m,
+    );
+    assert.match(sh.content, /^ROOT_ENCODED_PATH="methodology-m%2Ftodo-m-workshop%2Ftodo-m-root"$/m);
+  });
+
+  test('detect script looks up readiness tracker and checks status', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    assert.match(sh.content, /stories%2F\$candidate\.yaml\/raw\?ref=main/);
+    assert.match(sh.content, /grep -E '\^status:'/);
+    assert.match(sh.content, /\|completed\)/);
+  });
+
+  test('detect script regex-extracts any story ID from branch names', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    // Authority-based detection: any [A-Z]+-\d+ pattern, no prefix convention.
+    assert.match(sh.content, /\[A-Z\]\+-/);
+    assert.match(sh.content, /source_branch/);
+  });
+
+  test('detect script writes STORY_ID to detect.env for downstream dotenv artifact', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    assert.match(sh.content, /^echo "STORY_ID=\$STORY_ID" > detect\.env$/m);
   });
 });
 

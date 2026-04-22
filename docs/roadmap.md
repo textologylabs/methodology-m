@@ -29,7 +29,7 @@ the Tier 2 order on the grounds outlined below.
 ## The MVP threshold
 
 For M to be usable on a real multi-repo project without constant
-hand-holding, five things must be true that aren't today:
+hand-holding, six things must be true that aren't today:
 
 1. **Sub-task PAT authoring actually works.** Currently a lifecycle
    gap: decompose-story runs before generate-pats has the parent in
@@ -37,25 +37,30 @@ hand-holding, five things must be true that aren't today:
 2. **Non-story MRs don't break the loop.** Today every MR triggers
    AOT integration; hotfixes, infra tweaks, dependency bumps fail
    immediately. Any real project hits this in the first week.
-3. **PAT yaml is the single source of truth for story assertions.**
+3. **The gate is genuinely tight, not aspirationally tight.** Two
+   water-tightness behaviours (pre-AOT invalidation, pipeline-failure
+   fan-out) were documented as shipped but silently regressed during
+   the v0.5.0 CI extraction. Stale-green windows reappear on every
+   AOT kick.
+4. **PAT yaml is the single source of truth for story assertions.**
    Today it's Cypress-shaped only; structural and backend-only
    stories lean on a workaround aliveness probe outside the PAT
    system. Real projects will mix browser and non-browser stories
    on day one.
-4. **The project shape can evolve.** Adding, removing, or renaming
+5. **The project shape can evolve.** Adding, removing, or renaming
    a component mid-project is undefined. A project restart is the
    current workaround — unacceptable for anything past day one.
-5. **The post-merge loop closes.** Today merging a story MR leaves
+6. **The post-merge loop closes.** Today merging a story MR leaves
    tagging, version bumps, and topology-level reconciliation as
    manual steps. The cadence of real use would drown in this.
 
-These five define v1.0. Everything else is post-MVP polish.
+These six define v1.0. Everything else is post-MVP polish.
 
 ## Phased plan
 
 Each phase is one backlog item, shipped as one minor release. No
 bundling — the discipline of "one item per minor" keeps scope honest
-and gives five natural gut-checks before the MVP tag.
+and gives six natural gut-checks before the MVP tag.
 
 ### v0.6.0 — I-042: reshuffle decompose-story / generate-pats + extract compile-story-pats
 
@@ -76,7 +81,7 @@ a new `test.cat.*` provider namespace. Ship two reference providers:
 - Smallest of the four by scope, even after the provider extraction.
 - Unblocks I-040 — topology structural stories often have sub-tasks
   whose PATs would land in the lifecycle gap this fixes.
-- Lays the provider plumbing that I-045 (v0.8.0) plugs into without
+- Lays the provider plumbing that I-045 (v0.9.0) plugs into without
   touching `compile-story-pats` itself.
 
 **Exit criterion:** a story with two sub-tasks can have one PAT per
@@ -90,10 +95,21 @@ output to the pre-extraction implementation.
 
 **Goal:** non-story MRs don't trigger AOT.
 
-Distinguish story MRs (have a branch name and/or labels that tie them
-to a story issue) from standalone MRs (hotfix, dependency bump, infra
-tweak, follow-up). Skip AOT integration for standalone MRs; they
-merge on their own CI only.
+Distinguish story MRs (branch contains an active story ID anchored to
+an open readiness tracker in the root repo) from standalone MRs
+(hotfix, dependency bump, infra tweak, follow-up to a completed
+story). Skip AOT integration for standalone MRs; they merge on their
+own CI only. Detection is **authority-based** — the readiness
+tracker is the single source of truth for "is this story active?".
+No branch-name convention imposed.
+
+Implementation shape:
+- New `shadow:detect-trigger` job extracts a story ID regex from the
+  source branch, cross-checks against `stories/<story-id>.yaml` in the
+  root repo, and populates `$STORY_ID` via a dotenv artifact.
+- Downstream shadow jobs gate on `$STORY_ID != ""`.
+- Aligns `wire-orchestration` SKILL doc with what `ci/gitlab` actually
+  renders (v0.6.0 left drift between the two).
 
 **Selected from Tier 2.** Second because:
 
@@ -102,13 +118,57 @@ merge on their own CI only.
 - Isolated from other MVP items (doesn't depend on or block them).
 - Small (1–2 days).
 
-**Exit criterion:** an MR without a story branch naming convention
-can be raised, pass CI, and merge without the AOT pipeline blocking
-on missing story context.
+**Exit criterion:** an MR with no story ID in its branch name, or an
+MR whose branch references a story that's already completed, can be
+raised, pass CI, and merge without AOT running on the root repo.
 
 ---
 
-### v0.8.0 — I-045: multi-framework PAT yaml
+### v0.8.0 — I-031 + I-032: restore pre-AOT invalidation and pipeline-failure handling
+
+**Goal:** close the water-tightness gaps that the v0.5.0 I-036 CI
+extraction silently regressed.
+
+Two behaviours documented in `wire-orchestration` SKILL and marked
+resolved (I-031 Apr 2026, I-032 Apr 2026) **were not preserved** when
+the hand-crafted pass1 pipeline became the pure-function `ci/gitlab`
+provider:
+
+- **I-031:** `shadow:invalidate-status` — push `pending` to every
+  story MR the moment AOT starts, so stale green can't race the gate.
+  Currently absent; stale-green windows reappear on every AOT kick.
+- **I-032:** `pipeline_failure` branch of `shadow:detect-trigger` —
+  when a managed repo's OWN pipeline fails, webhook fires with
+  `object_kind=pipeline`, root should propagate failure to siblings.
+  Webhook config enables `pipeline_events` but nothing on the root
+  consumes them.
+
+Re-implement both in `ci/gitlab` (and `ci/log-only` traces). Add
+regression tests so the I-036 pattern (silent simplification) can't
+drop them again.
+
+**Pulled into MVP from the deferred list (2026-04-22).** These are
+water-tightness fixes for a gate that already functions — but the
+discipline of "the gate must be real" is part of MVP's usability
+promise. Both were already considered shipped; restoring them honours
+the original resolution rather than deferring indefinitely.
+
+**Sequencing after I-030:** I-030 adds `shadow:detect-trigger` for
+story/standalone classification. I-032's `pipeline_failure` branch
+extends the same job. I-031's `shadow:invalidate-status` hangs off
+the same early-stage hook. Landing them together after I-030 means
+we touch the detect-trigger machinery once.
+
+**Exit criterion:** (a) AOT invalidation pushes `pending` to all
+story MRs before integration runs; (b) a managed-repo pipeline
+failure on a story branch triggers fan-out of `failed` status to all
+sibling story MRs without waiting for the next MR event; (c)
+`ci/gitlab.test.mjs` covers both paths and the v0.5.0 simplification
+would fail the regression suite today.
+
+---
+
+### v0.9.0 — I-045: multi-framework PAT yaml
 
 **Goal:** PAT yaml can articulate non-browser assertions natively.
 
@@ -138,7 +198,7 @@ standalone aliveness probe in `integration-test.sh`.
 
 ---
 
-### v0.9.0 — I-040: topology changes (add/remove/rename components)
+### v0.10.0 — I-040: topology changes (add/remove/rename components)
 
 **Goal:** a project's component set can evolve mid-project.
 
@@ -147,7 +207,7 @@ MERGE/SPLIT). Each runs through decompose-story → generate-pats →
 compile-story-pats → AOT as normal, with the renderer regenerating
 topology artefacts deterministically from the new `project.yaml`.
 The renderer being real code (shipped in v0.5.1) and the
-`test.cat.*` providers for HTTP assertions (shipped in v0.8.0) are
+`test.cat.*` providers for HTTP assertions (shipped in v0.9.0) are
 what make this tractable.
 
 **Selected from Tier 2.** Benefits from the three prior phases:
@@ -167,7 +227,7 @@ standard CAT provider path.
 
 ---
 
-### v0.10.0 — I-004 remaining: post-merge lifecycle
+### v0.11.0 — I-004 remaining: post-merge lifecycle
 
 **Goal:** merging a story MR auto-completes the transactional tail.
 
@@ -195,10 +255,10 @@ No new features. Half-day of:
 
 - Docs pass — update `methodology.md`, CHANGELOG, SKILL contracts
   that reference MVP behaviour.
-- e2e harness run across the five MVP scenarios (I-042 + I-030 +
-  I-045 + I-040 + I-004). Passing harness is the gate.
+- e2e harness run across the six MVP scenarios (I-042 + I-030 +
+  I-031+I-032 + I-045 + I-040 + I-004). Passing harness is the gate.
 - Tag on main, `npm publish`, GitHub Release with the assembled
-  v0.6–v0.10 changes presented as the v1.0 capability baseline.
+  v0.6–v0.11 changes presented as the v1.0 capability baseline.
 
 **Exit criterion (MVP go-live):** M v1.0 installed from npm runs
 through a realistic end-to-end scenario on a real project — a story
@@ -220,7 +280,7 @@ real use.
 | **I-049 full** (migrate remaining deterministic units to code) | PAT→CAT compilation, schema validation, scm/* pure-dispatch — all work today as SKILLs. Architectural cleanup, not loop closure. |
 | **I-041** (pessimistic invalidation on pipeline start) | Tightens the gate; loose gate still functions. |
 | **I-050 full harness** | v0.5.1's thin seed defends the renderer + push lifecycle. Full harness is post-MVP protection work. |
-| **I-009 test/deploy plugin dimensions** | Pull-driven — add when a real project demands a test stack or deploy target M doesn't cover. Note: the `test.cat.*` namespace introduced in v0.6.0 and extended in v0.8.0 is a partial down-payment on this. |
+| **I-009 test/deploy plugin dimensions** | Pull-driven — add when a real project demands a test stack or deploy target M doesn't cover. Note: the `test.cat.*` namespace introduced in v0.6.0 and extended in v0.9.0 is a partial down-payment on this. |
 | **I-052** (`m init --user`) | Only MVP-critical if Outpost M-injection (Phase D) runs concurrently. Captain 2026-04-20: Phase D is post-M-MVP. I-052 follows it. |
 | **I-016** (methodology paper overhaul) | Post real use — the paper should reflect truth, not plan. |
 | **Tier 4 items** | Polish. Not MVP. |
@@ -232,7 +292,7 @@ real use.
 **Outpost Phase D (M injection into agents, backlog #56) is gated on
 M v1.0.** Do not plan Phase D work until M is tagged v1.0.
 
-Outpost Phases A, B, C can run concurrently with M v0.6–v0.10
+Outpost Phases A, B, C can run concurrently with M v0.6–v0.11
 (interleaved, not same-day parallel — context switching between the
 two codebases has real cost). Outpost's own roadmap in
 `../outpost/docs/roadmap.md` reflects this gate.
@@ -246,15 +306,16 @@ entirely one-way: Outpost waits for M.
 
 | Phase | Item | Estimate |
 |---|---|---|
-| v0.6.0 | I-042 + compile-story-pats extraction + `test.cat.*` providers | 3–4 days |
+| v0.6.0 | I-042 + compile-story-pats extraction + `test.cat.*` providers | 3–4 days (shipped 2026-04-21) |
 | v0.7.0 | I-030 | 1–2 days |
-| v0.8.0 | I-045 | 2–3 days |
-| v0.9.0 | I-040 | 3–5 days |
-| v0.10.0 | I-004 | 3–5 days |
+| v0.8.0 | I-031 + I-032 regression fix | 2–3 days |
+| v0.9.0 | I-045 | 2–3 days |
+| v0.10.0 | I-040 | 3–5 days |
+| v0.11.0 | I-004 | 3–5 days |
 | v1.0.0 | MVP tag | 0.5 day |
-| **Total critical path** | | **~12.5–19.5 focused days** |
+| **Total critical path** | | **~14.5–22.5 focused days** |
 
-Calendar, with Outpost A/B interleaved in the same window: **~3.5–4 weeks**.
+Calendar, with Outpost A/B interleaved in the same window: **~4 weeks**.
 
 ## Non-goals for v1.0
 
