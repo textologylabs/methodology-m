@@ -31,6 +31,11 @@ export function render_pipeline(project, scm) {
       mode: 0o644,
     },
     {
+      path: 'scripts/detect-story-trigger.sh',
+      content: renderDetectStoryTrigger(project),
+      mode: 0o755,
+    },
+    {
       path: 'scripts/report-shadow-status.sh',
       content: renderReportShadowStatus(project),
       mode: 0o755,
@@ -109,7 +114,7 @@ function renderWorkflow() {
 function renderStages(hasShell) {
   const stages = [];
   if (hasShell) stages.push('install', 'build', 'test');
-  stages.push('compose', 'integration-test', 'report-status', 'merge-transaction');
+  stages.push('detect', 'compose', 'integration-test', 'report-status', 'merge-transaction');
 
   return ['stages:', ...stages.map((s) => `  - ${s}`)].join('\n');
 }
@@ -163,6 +168,36 @@ function renderOrchestration(project, hasShell) {
     return `    - git clone --depth 1 --branch main "https://gitlab-ci-token:\${CI_JOB_TOKEN}@${host}/\${GROUP}/${repoName}.git" ../${repoName}`;
   });
 
+  // I-030: classify the trigger as story-MR-present vs standalone before
+  // running any expensive shadow work. Writes STORY_ID to detect.env; when
+  // empty, downstream shadow jobs early-exit so standalone MRs don't burn
+  // through compose + integration-test for nothing.
+  const shadowDetectTrigger = [
+    `shadow:detect-trigger:`,
+    `  stage: detect`,
+    `  image: alpine:3.19`,
+    `  before_script:`,
+    `    - apk add --no-cache curl nodejs`,
+    `  script:`,
+    `    - sh scripts/detect-story-trigger.sh`,
+    `  artifacts:`,
+    `    reports:`,
+    `      dotenv: detect.env`,
+    `  rules:`,
+    `    - if: $CI_PIPELINE_SOURCE == "trigger"`,
+  ].join('\n');
+
+  // Skip-gate emitted at the top of every shadow:* job's script. Empty
+  // STORY_ID means the detect step found no active story MRs in the
+  // topology — treat as standalone, exit cleanly.
+  const skipIfStandalone = [
+    `    - |`,
+    `      if [ -z "\${STORY_ID:-}" ]; then`,
+    `        echo "Standalone trigger (no active story MR) — skipping shadow"`,
+    `        exit 0`,
+    `      fi`,
+  ];
+
   const shadowCompose = [
     `shadow:compose:`,
     `  stage: compose`,
@@ -175,7 +210,8 @@ function renderOrchestration(project, hasShell) {
     `  before_script:`,
     `    - apk add --no-cache git curl`,
     `  script:`,
-    `    - echo "Shadow compose for $SOURCE_PROJECT_PATH"`,
+    ...skipIfStandalone,
+    `    - echo "Shadow compose for story $STORY_ID (triggered by $SOURCE_PROJECT_PATH)"`,
     `    - echo "Cloning sibling repos..."`,
     ...cloneLines,
     `    - echo "Building Docker images..."`,
@@ -186,6 +222,9 @@ function renderOrchestration(project, hasShell) {
     `    - sh scripts/integration-test.sh`,
     `  after_script:`,
     `    - docker compose down 2>/dev/null || true`,
+    `  needs:`,
+    `    - job: shadow:detect-trigger`,
+    `      artifacts: true`,
     `  rules:`,
     `    - if: $CI_PIPELINE_SOURCE == "trigger"`,
   ].join('\n');
@@ -194,8 +233,12 @@ function renderOrchestration(project, hasShell) {
     `shadow:integration-test:`,
     `  stage: integration-test`,
     `  script:`,
+    ...skipIfStandalone,
     `    - npm run integration-test --if-present`,
-    `  needs: [shadow:compose]`,
+    `  needs:`,
+    `    - job: shadow:detect-trigger`,
+    `      artifacts: true`,
+    `    - job: shadow:compose`,
     `  rules:`,
     `    - if: $CI_PIPELINE_SOURCE == "trigger"`,
   ].join('\n');
@@ -204,8 +247,12 @@ function renderOrchestration(project, hasShell) {
     `shadow:report-status:`,
     `  stage: report-status`,
     `  script:`,
+    ...skipIfStandalone,
     `    - sh scripts/report-shadow-status.sh success`,
-    `  needs: [shadow:integration-test]`,
+    `  needs:`,
+    `    - job: shadow:detect-trigger`,
+    `      artifacts: true`,
+    `    - job: shadow:integration-test`,
     `  rules:`,
     `    - if: $CI_PIPELINE_SOURCE == "trigger"`,
     `  when: on_success`,
@@ -215,8 +262,12 @@ function renderOrchestration(project, hasShell) {
     `shadow:report-failure:`,
     `  stage: report-status`,
     `  script:`,
+    ...skipIfStandalone,
     `    - sh scripts/report-shadow-status.sh failed`,
-    `  needs: [shadow:compose]`,
+    `  needs:`,
+    `    - job: shadow:detect-trigger`,
+    `      artifacts: true`,
+    `    - job: shadow:compose`,
     `  rules:`,
     `    - if: $CI_PIPELINE_SOURCE == "trigger"`,
     `  when: on_failure`,
@@ -226,7 +277,11 @@ function renderOrchestration(project, hasShell) {
     `merge-transaction:`,
     `  stage: merge-transaction`,
     `  script:`,
+    ...skipIfStandalone,
     `    - npm run merge-transaction --if-present`,
+    `  needs:`,
+    `    - job: shadow:detect-trigger`,
+    `      artifacts: true`,
     `  rules:`,
     `    - if: $CI_PIPELINE_SOURCE == "trigger"`,
     `      when: manual`,
@@ -273,6 +328,7 @@ function renderOrchestration(project, hasShell) {
   ].join('\n');
 
   return [
+    shadowDetectTrigger,
     shadowCompose,
     shadowIntegrationTest,
     shadowReportStatus,
@@ -281,6 +337,103 @@ function renderOrchestration(project, hasShell) {
     validateCompose,
     validateIntegrationTest,
   ].join('\n\n');
+}
+
+// ---------------------------------------------------------------------------
+// scripts/detect-story-trigger.sh
+// ---------------------------------------------------------------------------
+
+function renderDetectStoryTrigger(project) {
+  const group = project.group;
+  const host = gitlabHost(project);
+  const repos = [`${project.project}-root`, ...referencedRepoNames(project)];
+  const reposLine = repos.join(' ');
+  const api = `https://${host}/api/v4`;
+  const rootPath = `${group}/${project.project}-root`;
+  const encodedRootPath = rootPath.replace(/\//g, '%2F');
+
+  return `#!/bin/sh
+# M shadow integration trigger classifier.
+# Generated by ci/gitlab provider — do not edit by hand.
+# Source of truth: project.yaml.
+#
+# Determines if this trigger corresponds to an active story MR (any open
+# MR across the project's repos whose source branch references a story
+# whose readiness tracker shows status != completed) or a standalone MR
+# (no such match). Closes I-030.
+#
+# Emits STORY_ID=<id> to detect.env as a dotenv artifact. Downstream
+# shadow:* jobs early-exit when STORY_ID is empty.
+
+set -eu
+
+if [ -z "\${M_GROUP_TOKEN:-}" ]; then
+  echo "M_GROUP_TOKEN not set — cannot query MRs, aborting classification"
+  exit 1
+fi
+
+API="${api}"
+GROUP="${group}"
+REPOS="${reposLine}"
+ROOT_ENCODED_PATH="${encodedRootPath}"
+
+STORY_ID=""
+
+for repo in $REPOS; do
+  PROJECT_PATH="$GROUP/$repo"
+  ENCODED_PATH=$(printf '%s' "$PROJECT_PATH" | sed 's|/|%2F|g')
+
+  MR_DATA=$(curl -sf \\
+    --header "PRIVATE-TOKEN: $M_GROUP_TOKEN" \\
+    "$API/projects/$ENCODED_PATH/merge_requests?state=opened&per_page=50" \\
+    || echo "[]")
+
+  CANDIDATES=$(printf '%s' "$MR_DATA" | node -e "
+    const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+    if (!Array.isArray(data)) process.exit(0);
+    const seen = new Set();
+    for (const mr of data) {
+      const m = (mr.source_branch || '').match(/[A-Z]+-\\\\d+/);
+      if (m && !seen.has(m[0])) { seen.add(m[0]); console.log(m[0]); }
+    }
+  ")
+
+  for candidate in $CANDIDATES; do
+    READINESS=$(curl -sf \\
+      --header "PRIVATE-TOKEN: $M_GROUP_TOKEN" \\
+      "$API/projects/$ROOT_ENCODED_PATH/repository/files/stories%2F$candidate.yaml/raw?ref=main" \\
+      || echo "")
+
+    if [ -z "$READINESS" ]; then
+      echo "  $repo/$candidate: no readiness tracker in root repo — skipping"
+      continue
+    fi
+
+    STATUS=$(printf '%s' "$READINESS" | grep -E '^status:' | awk '{print $2}' | tr -d '"')
+
+    case "$STATUS" in
+      ""|completed)
+        echo "  $repo/$candidate: readiness status='$STATUS' — skipping"
+        ;;
+      *)
+        echo "  $repo/$candidate: readiness status='$STATUS' — active story"
+        STORY_ID="$candidate"
+        break 2
+        ;;
+    esac
+  done
+done
+
+if [ -n "$STORY_ID" ]; then
+  echo ""
+  echo "Active story detected: $STORY_ID"
+else
+  echo ""
+  echo "Standalone trigger — no active story MRs found across the topology"
+fi
+
+echo "STORY_ID=$STORY_ID" > detect.env
+`;
 }
 
 // ---------------------------------------------------------------------------

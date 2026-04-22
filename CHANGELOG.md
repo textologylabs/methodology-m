@@ -4,6 +4,81 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-04-22
+
+### Added
+
+- **I-030 — story vs standalone MR classification.** Every managed-repo
+  MR used to fire the root pipeline's shadow stages unconditionally.
+  Hotfixes, dependency bumps, refactors, and follow-up MRs to merged
+  stories all burned through compose + integration-test for nothing.
+  v0.7.0 adds a `detect` stage with a new `shadow:detect-trigger` job
+  that classifies each trigger as either **story MR** or **standalone
+  MR** using **authority-based detection**:
+
+  1. Query the GitLab API for all open MRs across root + managed repos
+  2. Extract any `[A-Z]+-\d+` pattern from each source branch
+  3. Cross-check against the root repo's `stories/<story-id>.yaml`
+     readiness tracker
+  4. If any match has `status != completed` → story MR; emit
+     `STORY_ID=<id>` to `detect.env`
+  5. Otherwise → standalone; emit empty `STORY_ID`
+
+  No branch-name convention is imposed. The readiness tracker is the
+  single source of truth for "is this story active?" — which covers
+  branches with no story ID, branches referencing non-existent stories,
+  and follow-up MRs to completed stories as a single rule.
+
+  Each downstream `shadow:*` and `merge-transaction` job consumes the
+  dotenv artifact via `needs: … artifacts: true` and early-exits when
+  `$STORY_ID` is empty. Standalone MRs' triggers now run `detect-trigger`
+  only (a single curl loop, ~10s) and stop cleanly.
+
+- **New `scripts/detect-story-trigger.sh`** emitted by `ci/gitlab`
+  alongside `scripts/report-shadow-status.sh`. Pure function of
+  `project.yaml`; same determinism guarantees as the rest of the
+  provider's output.
+
+### Changed
+
+- **`wire-orchestration` Step 3 — webhook URL construction.** The
+  capability now builds webhook URLs that encode per-repo context as
+  static pipeline-trigger variables in the query string:
+
+        https://<host>/api/v4/projects/<root>/ref/main/trigger/pipeline
+              ?token=<token>
+              &variables[SOURCE_PROJECT_ID]=<managed-id>
+              &variables[SOURCE_PROJECT_PATH]=<url-encoded-path>
+
+  GitLab webhooks preserve URL query strings verbatim when POSTing, and
+  the trigger endpoint accepts `variables[KEY]=value` pairs natively.
+  No middleman service, no Premium features — pure webhook wiring on
+  Free tier. Closes the silent gap where `$SOURCE_PROJECT_ID` /
+  `$SOURCE_PROJECT_PATH` referenced by the shadow pipeline were never
+  actually set.
+
+- **`.gitlab-ci.yml` stages** now include `detect` between `test` and
+  `compose`: `install → build → test → detect → compose →
+  integration-test → report-status → merge-transaction`.
+
+- **`wire-orchestration` SKILL** aligned to what `ci/gitlab.mjs`
+  actually renders. Removed aspirational references to pre-v0.5.0
+  jobs (`shadow:invalidate-status`, `shadow:integration`, and the old
+  `detect-trigger` with `aot_integration`/`cascade_merge`/`pipeline_failure`
+  classification) that were dropped during the I-036 extraction but
+  still appeared in the doc.
+
+### Deferred
+
+- **I-031 + I-032 reopened as regressed and scheduled for v0.8.0.**
+  Both were marked ✅ Resolved in the backlog but their behaviours
+  (pre-AOT invalidation; pipeline-failure detect-trigger branch) were
+  silently dropped during the v0.5.0 I-036 CI extraction. Now tracked
+  as `⚠️ Regressed 2026-04-22` in `docs/improvements-and-ideas.md` and
+  bundled as v0.8.0 in the roadmap. They piggyback on the
+  `shadow:detect-trigger` machinery this release introduces — same
+  touchpoint, one dotenv, minimal additional surface.
+
 ## [0.6.0] — 2026-04-21
 
 ### Added
