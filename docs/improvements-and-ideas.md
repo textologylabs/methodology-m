@@ -39,6 +39,8 @@ listed for completeness — their write-ups remain below as reference.
 | I-026 | Onboarding flows | Greenfield vs existing org adoption paths. |
 | I-027 | Installation mechanics | Concrete distribution: npm, CLI, power bundle. |
 | I-052 | `m init --user` — user-scope install for agent containers | M CLI currently only installs at project scope. Agentic consumers (e.g. Outpost's hut image) need M baked into the agent user's home so every agent container ships with M skills regardless of which repo it checks out. Requires wrapper path to be scope-aware. |
+| I-053 | CI variable protection prereq — shadow pipeline silent break on unprotected main | `wire-orchestration` stores `M_GROUP_TOKEN` + `M_TOKEN_*` with `protected: true`, which is correct for production but makes them inaccessible to trigger pipelines on unprotected main (testbeds). `shadow:detect-trigger` aborts with `M_GROUP_TOKEN not set`. SKILL now documents the prerequisite + carve-out; future follow-up could add a capability-level main-protection check. |
+| I-054 | Standalone trigger pipelines hang in `manual` + burn CI minutes on skip-only containers | GitLab rules evaluate before dotenv artifacts exist, so `merge-transaction`'s `when: manual` can't be gated on `TRIGGER_MODE`. Standalone triggers leave an unclicked manual job indefinitely. Also, every gated shadow:* job pulls alpine and apks curl+nodejs before executing its skip-gate, burning ~2.5 min of CI per standalone trigger. Cosmetic + cost concern, not functional. |
 
 ### Tier 4 — Polish and nice-to-haves
 
@@ -3612,3 +3614,173 @@ Tier 3. Not blocking the M delivery loop (Tier 1/2 items still take precedence),
 - Outpost backlog #56 (M methodology injection — agents work M-native) depends on this.
 - Outpost backlog #57 (BA agent) is the most M-dependent agent role and benefits most from user-scope install.
 - Does not block Tier 1/2 M work — can land independently whenever the CLI has spare cycles.
+
+
+---
+
+## I-053: CI variable protection prerequisite — shadow pipeline silently breaks if root main is unprotected
+
+**Category:** Methodology / wire-orchestration prerequisite
+**Tier:** 3 — Documentation gap with a concrete reproduction path
+**Discovered:** 2026-04-23, during L3 standalone-MR smoke test on todo-m-workshop
+
+### Problem
+
+`wire-orchestration` Step 4 stores `M_GROUP_TOKEN` and each
+`M_TOKEN_*` as CI variables with `protected: true, masked: true` —
+the right default for production M projects.
+
+GitLab, however, exposes `protected: true` CI variables **only** to
+pipelines running on protected refs. If the root repo's main branch
+is intentionally unprotected (e.g. a testbed where the dev wants
+force-push freedom), trigger pipelines run on ref `main` but with
+every protected variable **silently inaccessible**.
+
+Result: `shadow:detect-trigger` aborts immediately with `M_GROUP_TOKEN
+not set — cannot query MRs, aborting classification` on the very first
+trigger. Every downstream shadow job is skipped (missing dotenv
+artifact). The whole v0.7.0/v0.8.0 trigger classification machinery is
+dead-on-arrival without the variable being accessible.
+
+The old hand-written pipeline didn't surface this because it used
+`M_GROUP_TOKEN` only to push commit statuses, and early-exited on
+empty `$SOURCE_PROJECT_ID` before ever needing the token. The v0.7.0
+detect stage promotes the token from optional-for-statuses to
+required-for-classification, so the missing-on-unprotected-ref
+behaviour becomes load-bearing.
+
+### What was silent
+
+- No renderer-level surface to catch this — the renderer doesn't own CI
+  variable provisioning.
+- No capability-level check in `wire-orchestration` — the SKILL didn't
+  document the precondition (fixed by this issue).
+- GitLab itself doesn't flag the gap — the variable is happily
+  configured, just not exposed at runtime.
+
+Diagnosis required reading the failed detect-trigger job log. Without
+that, the failure looks like a mysterious silent token miss.
+
+### Fix in wire-orchestration SKILL (already applied in this issue's PR)
+
+Added to Step 4:
+
+> **Prerequisite — protected ref + protected variable.** GitLab exposes
+> `protected: true` CI variables only to pipelines running on protected
+> refs. If the root repo has intentionally-unprotected main, set both
+> `M_GROUP_TOKEN` and every `M_TOKEN_*` with `protected: false,
+> masked: true` instead. Token values are still redacted from logs.
+
+Plus a "do not mix" warning — every shadow-pipeline variable must
+agree on the protected flag.
+
+### Candidate follow-ups (not in this issue's scope)
+
+- **Capability-level check** — teach `wire-orchestration` to inspect
+  the root repo's main-branch protection state before storing CI
+  variables, and default `protected: false` if main is unprotected
+  (plus emit a warning). Small code change; closes the silent-failure
+  loop with runtime detection.
+- **Provider contract** — `scm.store_ci_secret` could accept an
+  `ensure_accessible: true` option that auto-decides the protected
+  flag based on the target repo's branch protection. More invasive.
+
+### Priority
+
+Tier 3. One-line docs fix closes the immediate gap. The capability-level
+check would be the full fix but isn't blocking — the SKILL note is
+enough for humans + AI agents invoking `wire-orchestration`. Revisit
+if we hit this again in a different guise.
+
+
+---
+
+## I-054: Standalone trigger pipelines hang in `manual` + burn CI minutes on skip-only containers
+
+**Category:** Methodology / orchestration cost + UX
+**Tier:** 4 — Polish. No functional impact, but visible.
+**Discovered:** 2026-04-23, during L3 standalone-MR smoke test on todo-m-workshop
+
+### Problem A — pipeline hangs in `manual`
+
+`merge-transaction`'s rule on every trigger pipeline is:
+
+```yaml
+rules:
+  - if: $CI_PIPELINE_SOURCE == "trigger"
+    when: manual
+```
+
+GitLab rules are evaluated at pipeline-creation time using predefined
+variables — they can't see dotenv artifacts produced by earlier jobs.
+So there's no way to hide `merge-transaction` when
+`TRIGGER_MODE=standalone`.
+
+Result: every standalone trigger pipeline creates a `merge-transaction`
+job in `manual` state that nobody will ever click. The pipeline's
+overall status reads `manual` in the UI, looking incomplete. Functionally
+fine (the managed-repo MR merges on its own CI; the trigger pipeline
+is informational), but cosmetically noisy and it clutters the pipelines
+list with waiting-for-action items that never action.
+
+### Problem B — skip-gate overhead
+
+Every gated `shadow:*` job (invalidate-status, compose,
+integration-test, report-status, report-failure, fanout-failure) emits
+a container that:
+
+1. Pulls its image (`alpine:3.19` or `docker:latest`).
+2. Runs `apk add --no-cache curl nodejs` in `before_script` (16
+   packages, ~15s).
+3. Executes the skip-gate at the top of `script:`.
+4. Exits 0 in <1s because TRIGGER_MODE doesn't match.
+
+A standalone trigger therefore burns ~15-30s × 5 containers (≈2–3 min
+of CI wall-time, and all of it measured against the runner quota) just
+to echo "skipping". Not free — but bounded.
+
+### Why both problems share a root cause
+
+GitLab's `rules:` keyword is the only place a job's entire existence
+can be gated. `rules:` are static per-pipeline-creation. Dotenv
+variables from `shadow:detect-trigger` are only visible via `needs:`,
+which can skip a job's **script** but not its **creation**. So the
+skip-gate is the best tool available — but it has both failure modes
+above.
+
+### Options
+
+1. **Cancel the manual job programmatically.** Teach
+   `shadow:detect-trigger` to POST to the pipeline's `merge-transaction`
+   job to cancel/skip it when `TRIGGER_MODE != story`. Removes Problem A.
+   Doesn't help Problem B (those jobs already ran). Requires the detect
+   job to hold a CI API token with scope for manipulating the current
+   pipeline — more surface area.
+
+2. **Two-phase pipeline via `trigger:` child pipeline.** Make
+   `shadow:detect-trigger` emit a child pipeline yaml (via
+   `artifacts.reports.dotenv` + `trigger: strategy: depend`) that only
+   contains the jobs relevant to the classified TRIGGER_MODE. Standalone
+   → empty child pipeline → nothing runs. Story → full shadow pipeline.
+   Solves both problems. Much more invasive — the renderer goes from
+   one static `.gitlab-ci.yml` to a generator + child templates.
+
+3. **Reduce per-job overhead.** Use a shared base image that already
+   has curl + nodejs installed (instead of apk-installing on every
+   job). Halves the skip-only CI cost but doesn't fix the manual-state
+   hang.
+
+4. **Accept it.** Standalone triggers are supposed to be rare; the
+   cost is bounded; the hang is ugly but not harmful.
+
+### Priority
+
+Tier 4 — polish. Revisit if:
+- Standalone triggers stop being rare (e.g. real projects with lots
+  of hotfix / dep-bump MRs flooding the trigger pipeline list).
+- CI quota on the workshop becomes a visible concern.
+- Child-pipeline approach is attractive for another reason (e.g. finer
+  control over story-vs-pipeline-failure fan-out).
+
+Option 2 is the only one that solves both. Not worth the scope unless
+there's a second reason.

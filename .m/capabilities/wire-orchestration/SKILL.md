@@ -149,6 +149,41 @@ scm.store_ci_secret(
 These tokens are used by the merge transaction pipeline to merge MRs
 on managed repos via the SCM API.
 
+Also ensure `M_GROUP_TOKEN` (a GitLab PAT or group token with `api`
+scope) is set as a CI variable on the root repo. This token is the
+single secret that the shadow pipeline uses to query MRs, pipelines,
+and readiness trackers — `shadow:detect-trigger`, `shadow:invalidate-status`,
+`shadow:report-status`, `shadow:report-failure`, and `shadow:fanout-failure`
+all require it. Store it with the same flags:
+
+```
+scm.store_ci_secret(
+  repo: <root-repo>,
+  key: "M_GROUP_TOKEN",
+  value: <group-level pat with api scope>,
+  protected: true,
+  masked: true
+)
+```
+
+#### Prerequisite — protected ref + protected variable
+
+GitLab exposes `protected: true` CI variables **only** to pipelines
+running on protected refs (typically `main`). The defaults above
+(`protected: true`, `masked: true`) assume the root repo's main
+branch is protected — standard practice for production M projects.
+
+If the root repo has intentionally-unprotected main (e.g. a testbed
+or demo project where `main` is freely force-pushable), the protected
+variables are inaccessible to trigger pipelines and
+`shadow:detect-trigger` will abort with `M_GROUP_TOKEN not set —
+cannot query MRs`. In that case, store both `M_GROUP_TOKEN` and each
+`M_TOKEN_*` with `protected: false, masked: true` — token values are
+still redacted from logs, just no longer gated on a protected ref.
+
+**Do not mix**: every CI variable used by the shadow pipeline must
+agree on the protected flag, or partial misfires become the norm.
+
 ### Step 5 — Push root repo CI pipeline
 
 Push `.gitlab-ci.yml` to the root repo. The pipeline has three concerns:
