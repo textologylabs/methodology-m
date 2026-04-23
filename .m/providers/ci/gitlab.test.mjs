@@ -254,7 +254,11 @@ describe('.gitlab-ci.yml — I-030 story-vs-standalone gating', () => {
     const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
     assert.match(sh.content, /stories%2F\$candidate\.yaml\/raw\?ref=main/);
     assert.match(sh.content, /grep -E '\^status:'/);
-    assert.match(sh.content, /\|completed\)/);
+    // I-055 Option Y — `completed` is a case branch used only to filter
+    // out follow-up MRs to merged stories. Under Option Y it is NOT
+    // combined with empty-tracker as a shared skip case (those are
+    // different conditions now).
+    assert.match(sh.content, /^ +completed\)$/m);
   });
 
   test('detect script regex-extracts any story ID from branch names', () => {
@@ -270,6 +274,77 @@ describe('.gitlab-ci.yml — I-030 story-vs-standalone gating', () => {
     const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
     assert.match(sh.content, /^echo "STORY_ID=\$STORY_ID" > detect\.env$/m);
     assert.match(sh.content, /^echo "TRIGGER_MODE=\$TRIGGER_MODE" >> detect\.env$/m);
+  });
+});
+
+describe('.gitlab-ci.yml — I-055 Option Y classification semantics', () => {
+  // Under Option Y, classification is based on LIVE open-MR enumeration.
+  // The readiness tracker on main is consulted ONLY to filter out follow-up
+  // MRs targeting already-completed stories. A tracker absent from main
+  // does NOT disqualify a story — it's expected during the story's lifetime
+  // (the tracker lives on the gate MR branch until merge-transaction lands).
+
+  test('MR path: tracker absent from main → active story (not skip)', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    // The empty-status case must set TRIGGER_MODE=story, not skip.
+    const mrPathBlock = sh.content.match(/EVENT_KIND=mr \(default\)([\s\S]*?)fi\n\necho ""/);
+    assert.ok(mrPathBlock, 'MR path block not found in detect script');
+    const body = mrPathBlock[1];
+    // Empty-tracker case is present and sets story mode.
+    assert.match(body, /"" *\)[\s\S]*?TRIGGER_MODE="story"/);
+    // Empty-tracker case narrates the Option Y reasoning so it can't be
+    // accidentally inverted back to the pre-I-055 "no tracker = skip" shape.
+    assert.match(body, /active story[\s\S]*?open MR present/);
+  });
+
+  test('MR path: tracker on main with status=completed → skip (follow-up to merged story)', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    const mrPathBlock = sh.content.match(/EVENT_KIND=mr \(default\)([\s\S]*?)fi\n\necho ""/);
+    assert.ok(mrPathBlock);
+    const body = mrPathBlock[1];
+    // completed case explicitly present and does NOT set story mode.
+    assert.match(body, /completed\)[\s\S]*?follow-up MR to a merged story/);
+    // Within the completed case, TRIGGER_MODE is NOT set to "story" — i.e.
+    // the completed branch doesn't contain a TRIGGER_MODE="story" assignment.
+    const completedBranch = body.match(/completed\)([\s\S]*?);;/);
+    assert.ok(completedBranch);
+    assert.doesNotMatch(completedBranch[1], /TRIGGER_MODE="story"/);
+  });
+
+  test('pipeline path: tracker absent from main → pipeline-failure (not skip)', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    const pipelinePathBlock = sh.content.match(/EVENT_KIND" = "pipeline"([\s\S]*?)^else$/m);
+    assert.ok(pipelinePathBlock, 'pipeline path block not found in detect script');
+    const body = pipelinePathBlock[1];
+    // The catch-all `*)` branch of the STATUS case sets pipeline-failure mode
+    // — i.e. tracker-absent AND tracker-present-with-non-complete-status
+    // both count as active.
+    assert.match(body, /\*\)[\s\S]*?TRIGGER_MODE="pipeline-failure"/);
+    // Narration confirms intent, blocks accidental revert to the pre-I-055
+    // "empty or completed → skip" shape.
+    assert.match(body, /active story[\s\S]*?fanning out failure/);
+  });
+
+  test('pipeline path: tracker on main with status=completed → skip (stale pipeline on merged story)', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    const pipelinePathBlock = sh.content.match(/EVENT_KIND" = "pipeline"([\s\S]*?)^else$/m);
+    assert.ok(pipelinePathBlock);
+    const body = pipelinePathBlock[1];
+    assert.match(body, /completed\)[\s\S]*?stale pipeline on a merged story/);
+  });
+
+  test('classification-semantics preamble is present in the generated script', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    // The Option Y semantics comment block locks the intent against silent
+    // reversion. If the comment is refactored, update both comment and tests.
+    assert.match(sh.content, /Classification semantics \(I-055 — Option Y, v0\.9\.0\)/);
+    assert.match(sh.content, /LIVE open-MR enumeration/);
+    assert.match(sh.content, /tracker on main is consulted ONLY to distinguish follow-up MRs/);
   });
 });
 

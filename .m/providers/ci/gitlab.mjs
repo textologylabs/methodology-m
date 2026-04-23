@@ -415,6 +415,22 @@ function renderDetectStoryTrigger(project) {
 #   pipeline-failure — managed-repo pipeline failed on an active story
 #                      branch; fan out failed status to siblings (I-032)
 #   standalone       — no active story MR; skip all shadow work (I-030)
+#
+# Classification semantics (I-055 — Option Y, v0.9.0):
+#
+# Active-story detection is based on LIVE open-MR enumeration across
+# the topology. An open MR whose branch references a story ID is the
+# proof that the story is in flight. The readiness tracker
+# (stories/<id>.yaml) is orchestration metadata for merge-transaction,
+# not a classification input — it lives on the story's gate MR branch
+# during development and only lands on main at story completion.
+#
+# The tracker on main is consulted ONLY to distinguish follow-up MRs
+# targeting already-completed stories (hotfix/TODOM-001-x on a merged
+# story) from in-flight story MRs. If the tracker on main shows
+# status=complete, the trigger is treated as standalone. In every
+# other case (tracker absent from main, or present with a non-complete
+# status), the story is treated as active.
 
 set -eu
 
@@ -479,11 +495,14 @@ if [ "$EVENT_KIND" = "pipeline" ]; then
       else
         STATUS=$(readiness_status "$CANDIDATE")
         case "$STATUS" in
-          ""|completed)
-            echo "  failed pipeline on '$FAILED_REF' → $CANDIDATE: readiness status='$STATUS' — skipping"
+          completed)
+            echo "  failed pipeline on '$FAILED_REF' → $CANDIDATE: tracker on main shows status=complete — stale pipeline on a merged story, skipping"
             ;;
           *)
-            echo "  failed pipeline on '$FAILED_REF' → $CANDIDATE: active story — fanning out failure"
+            # Tracker absent from main (in-flight story) or present with a
+            # non-completed status. Failing pipeline on an active story
+            # branch — fan out failure to sibling story MRs.
+            echo "  failed pipeline on '$FAILED_REF' → $CANDIDATE: active story (tracker status='$STATUS') — fanning out failure"
             STORY_ID="$CANDIDATE"
             TRIGGER_MODE="pipeline-failure"
             ;;
@@ -515,14 +534,21 @@ else
     for candidate in $CANDIDATES; do
       STATUS=$(readiness_status "$candidate")
       case "$STATUS" in
-        "")
-          echo "  $repo/$candidate: no readiness tracker in root repo — skipping"
-          ;;
         completed)
-          echo "  $repo/$candidate: readiness status='completed' — skipping"
+          echo "  $repo/$candidate: tracker on main shows status=complete — follow-up MR to a merged story, skipping"
+          ;;
+        "")
+          # No tracker on main. Active story — the open MR we enumerated IS
+          # the proof. Tracker lives on the gate MR branch until completion.
+          echo "  $repo/$candidate: active story (open MR present; no completion record on main)"
+          STORY_ID="$candidate"
+          TRIGGER_MODE="story"
+          break 2
           ;;
         *)
-          echo "  $repo/$candidate: readiness status='$STATUS' — active story"
+          # Non-completed status on main (e.g. in-progress or pending).
+          # Story is still active.
+          echo "  $repo/$candidate: active story (tracker on main with status='$STATUS')"
           STORY_ID="$candidate"
           TRIGGER_MODE="story"
           break 2

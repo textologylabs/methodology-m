@@ -81,7 +81,7 @@ a new `test.cat.*` provider namespace. Ship two reference providers:
 - Smallest of the four by scope, even after the provider extraction.
 - Unblocks I-040 — topology structural stories often have sub-tasks
   whose PATs would land in the lifecycle gap this fixes.
-- Lays the provider plumbing that I-045 (v0.9.0) plugs into without
+- Lays the provider plumbing that I-045 (v0.10.0) plugs into without
   touching `compile-story-pats` itself.
 
 **Exit criterion:** a story with two sub-tasks can have one PAT per
@@ -168,7 +168,35 @@ would fail the regression suite today.
 
 ---
 
-### v0.9.0 — I-045: multi-framework PAT yaml
+### v0.9.0 — I-055: AOT classification bootstrap paradox (Option Y)
+
+**Shipped 2026-04-23.** Surfaced during L4 E2E testing of TODOM-001 on
+the todo-m-workshop testbed. Pre-v0.9.0 `shadow:detect-trigger`
+treated "no readiness tracker on main" as a skip signal, but the
+tracker during a story's lifetime lives exclusively on the gate MR
+branch — never on main until the gate MR merges at story completion.
+Circular dependency: story MRs couldn't classify as active until the
+tracker reached main, but the tracker didn't reach main until the
+story completed. AOT effectively never ran.
+
+Option Y resolution: classification is now based on **live open-MR
+enumeration**; the readiness tracker on main is a filter for
+follow-up MRs to completed stories, not a classification input.
+Separates two conflated concerns — "is this active?" (live SCM
+state) and "what's the story's orchestration metadata?" (tracker).
+
+Subsequent items shift one release: **original v0.9.0 (I-045) now
+v0.10.0, etc.** See `improvements-and-ideas.md` I-055 for full
+context.
+
+**Exit criterion (met):** L4 story-E2E test (TODOM-001) classifies
+first sub-task MR as `TRIGGER_MODE=story`, runs compiled CAT through
+shadow integration; `ci/gitlab.test.mjs` I-055 regression suite
+prevents silent reversion.
+
+---
+
+### v0.10.0 — I-045: multi-framework PAT yaml
 
 **Goal:** PAT yaml can articulate non-browser assertions natively.
 
@@ -198,7 +226,7 @@ standalone aliveness probe in `integration-test.sh`.
 
 ---
 
-### v0.10.0 — I-040: topology changes (add/remove/rename components)
+### v0.11.0 — I-040: topology changes (add/remove/rename components)
 
 **Goal:** a project's component set can evolve mid-project.
 
@@ -207,7 +235,7 @@ MERGE/SPLIT). Each runs through decompose-story → generate-pats →
 compile-story-pats → AOT as normal, with the renderer regenerating
 topology artefacts deterministically from the new `project.yaml`.
 The renderer being real code (shipped in v0.5.1) and the
-`test.cat.*` providers for HTTP assertions (shipped in v0.9.0) are
+`test.cat.*` providers for HTTP assertions (shipped in v0.10.0) are
 what make this tractable.
 
 **Selected from Tier 2.** Benefits from the three prior phases:
@@ -227,7 +255,7 @@ standard CAT provider path.
 
 ---
 
-### v0.11.0 — I-004 remaining: post-merge lifecycle
+### v0.12.0 — I-004 remaining: post-merge lifecycle
 
 **Goal:** merging a story MR auto-completes the transactional tail.
 
@@ -258,7 +286,7 @@ No new features. Half-day of:
 - e2e harness run across the six MVP scenarios (I-042 + I-030 +
   I-031+I-032 + I-045 + I-040 + I-004). Passing harness is the gate.
 - Tag on main, `npm publish`, GitHub Release with the assembled
-  v0.6–v0.11 changes presented as the v1.0 capability baseline.
+  v0.6–v0.12 changes presented as the v1.0 capability baseline.
 
 **Exit criterion (MVP go-live):** M v1.0 installed from npm runs
 through a realistic end-to-end scenario on a real project — a story
@@ -280,7 +308,7 @@ real use.
 | **I-049 full** (migrate remaining deterministic units to code) | PAT→CAT compilation, schema validation, scm/* pure-dispatch — all work today as SKILLs. Architectural cleanup, not loop closure. |
 | **I-041** (pessimistic invalidation on pipeline start) | Tightens the gate; loose gate still functions. |
 | **I-050 full harness** | v0.5.1's thin seed defends the renderer + push lifecycle. Full harness is post-MVP protection work. |
-| **I-009 test/deploy plugin dimensions** | Pull-driven — add when a real project demands a test stack or deploy target M doesn't cover. Note: the `test.cat.*` namespace introduced in v0.6.0 and extended in v0.9.0 is a partial down-payment on this. |
+| **I-009 test/deploy plugin dimensions** | Pull-driven — add when a real project demands a test stack or deploy target M doesn't cover. Note: the `test.cat.*` namespace introduced in v0.6.0 and extended in v0.10.0 is a partial down-payment on this. |
 | **I-052** (`m init --user`) | Only MVP-critical if Outpost M-injection (Phase D) runs concurrently. Captain 2026-04-20: Phase D is post-M-MVP. I-052 follows it. |
 | **I-016** (methodology paper overhaul) | Post real use — the paper should reflect truth, not plan. |
 | **Tier 4 items** | Polish. Not MVP. |
@@ -292,7 +320,7 @@ real use.
 **Outpost Phase D (M injection into agents, backlog #56) is gated on
 M v1.0.** Do not plan Phase D work until M is tagged v1.0.
 
-Outpost Phases A, B, C can run concurrently with M v0.6–v0.11
+Outpost Phases A, B, C can run concurrently with M v0.6–v0.12
 (interleaved, not same-day parallel — context switching between the
 two codebases has real cost). Outpost's own roadmap in
 `../outpost/docs/roadmap.md` reflects this gate.
@@ -308,12 +336,13 @@ entirely one-way: Outpost waits for M.
 |---|---|---|
 | v0.6.0 | I-042 + compile-story-pats extraction + `test.cat.*` providers | 3–4 days (shipped 2026-04-21) |
 | v0.7.0 | I-030 | 1–2 days |
-| v0.8.0 | I-031 + I-032 regression fix | 2–3 days |
-| v0.9.0 | I-045 | 2–3 days |
-| v0.10.0 | I-040 | 3–5 days |
-| v0.11.0 | I-004 | 3–5 days |
+| v0.8.0 | I-031 + I-032 regression fix | 2–3 days (shipped 2026-04-22) |
+| v0.9.0 | I-055 (AOT classification bootstrap fix, Option Y) | S (shipped 2026-04-23) |
+| v0.10.0 | I-045 | 2–3 days |
+| v0.11.0 | I-040 | 3–5 days |
+| v0.12.0 | I-004 | 3–5 days |
 | v1.0.0 | MVP tag | 0.5 day |
-| **Total critical path** | | **~14.5–22.5 focused days** |
+| **Total critical path** | | **~15–23 focused days** |
 
 Calendar, with Outpost A/B interleaved in the same window: **~4 weeks**.
 

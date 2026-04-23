@@ -41,6 +41,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-052 | `m init --user` — user-scope install for agent containers | M CLI currently only installs at project scope. Agentic consumers (e.g. Outpost's hut image) need M baked into the agent user's home so every agent container ships with M skills regardless of which repo it checks out. Requires wrapper path to be scope-aware. |
 | I-053 | CI variable protection prereq — shadow pipeline silent break on unprotected main | `wire-orchestration` stores `M_GROUP_TOKEN` + `M_TOKEN_*` with `protected: true`, which is correct for production but makes them inaccessible to trigger pipelines on unprotected main (testbeds). `shadow:detect-trigger` aborts with `M_GROUP_TOKEN not set`. SKILL now documents the prerequisite + carve-out; future follow-up could add a capability-level main-protection check. |
 | I-054 | Standalone trigger pipelines hang in `manual` + burn CI minutes on skip-only containers | GitLab rules evaluate before dotenv artifacts exist, so `merge-transaction`'s `when: manual` can't be gated on `TRIGGER_MODE`. Standalone triggers leave an unclicked manual job indefinitely. Also, every gated shadow:* job pulls alpine and apks curl+nodejs before executing its skip-gate, burning ~2.5 min of CI per standalone trigger. Cosmetic + cost concern, not functional. |
+| I-055 | Bootstrap paradox — detect-trigger couldn't classify story MRs as active until gate MR merged | Pre-v0.9.0 `detect-story-trigger.sh` treated "no readiness tracker on main" as a skip signal, but the tracker only reaches main when the gate MR merges. Story MRs were perpetually classified as standalone, no AOT ever ran. Option Y: classification is based on live open-MR enumeration; tracker on main is consulted ONLY to filter out follow-up MRs to completed stories. v0.9.0. |
 
 ### Tier 4 — Polish and nice-to-haves
 
@@ -3784,3 +3785,137 @@ Tier 4 — polish. Revisit if:
 
 Option 2 is the only one that solves both. Not worth the scope unless
 there's a second reason.
+
+
+---
+
+## I-055: Bootstrap paradox — detect-trigger couldn't classify story MRs as active until gate MR merged
+
+**Category:** Methodology / AOT classification
+**Tier:** 1 — Core AOT correctness (shipped as v0.9.0)
+**Status:** ✅ Resolved in v0.9.0 (2026-04-23). Classification now
+treats live open-MR enumeration as the authority for active-story
+state; readiness tracker on main is consulted only to filter out
+follow-up MRs to already-completed stories. SKILL doc and
+`ci/gitlab.mjs` both updated; regression tests added.
+**Discovered:** 2026-04-23, during L4 story-E2E test on
+todo-m-workshop. First sub-task MR (#7 on todo-m-api-read) fired
+the root trigger pipeline, `shadow:detect-trigger` classified the
+story as `standalone` despite the MR clearly referencing an active
+story ID.
+
+### Problem
+
+Pre-v0.9.0 `detect-story-trigger.sh` classified a trigger as
+`story` only if the readiness tracker `stories/<id>.yaml` was
+present on `ref=main` with a non-completed status:
+
+```sh
+case "$STATUS" in
+  "" | completed)
+    # Tracker absent from main → skip. This was the bug.
+    ;;
+  *)
+    STORY_ID="$candidate"
+    TRIGGER_MODE="story"
+    ;;
+esac
+```
+
+But the tracker's normal development location is the gate MR's
+branch (staged by `decompose-story`, bundled into the gate MR by
+`compile-story-pats`) — **not** main. The tracker only reaches main
+when the gate MR merges, which per `compile-story-pats` SKILL is
+supposed to happen **after** the story is whole and verified:
+
+> The root MR exists from the moment the story is decomposed.
+> Shadow integration will see it in the completeness check. The
+> compiled CAT will fail until all components implement their parts
+> — this is correct behaviour. The gate is red until the story is
+> genuinely complete.
+
+Result: an unsatisfiable precondition. Story MRs can't be classified
+as active until the tracker is on main, but the tracker doesn't reach
+main until the gate MR merges, which is supposed to happen after the
+story completes, which requires shadow integration, which requires
+classification as active. Circular.
+
+### Root cause
+
+Two distinct concerns were conflated in the pre-I-055 design:
+
+1. **Classification** — "is this MR part of an active story?" — which
+   is a question about live SCM state (open MRs).
+2. **Orchestration metadata** — "what are the constituents,
+   high-water-marks, CAT reference?" — which the tracker provides
+   for `merge-transaction`.
+
+The tracker was being used for both. I-055 separates them: live
+MR enumeration answers the classification question; the tracker
+is a completion record + merge-transaction input, consulted only
+when relevant.
+
+### Fix (shipped in v0.9.0)
+
+`detect-story-trigger.sh` now classifies based on LIVE open-MR
+enumeration. For each candidate story ID extracted from open MRs
+across the topology, the tracker on main is consulted ONLY to
+detect follow-up MRs targeting already-completed stories:
+
+- Tracker on main with `status: complete` → follow-up to a merged
+  story → skip (standalone).
+- Tracker absent from main → active story (the open MR IS the proof).
+- Tracker on main with non-complete status → active story.
+
+Symmetric treatment applies to the `EVENT_KIND=pipeline` branch —
+a failing pipeline whose ref encodes an active story ID (where
+"active" is defined as "not marked complete on main") triggers the
+`pipeline-failure` fan-out.
+
+### Changes in v0.9.0
+
+- **`.m/providers/ci/gitlab.mjs`** — `renderDetectStoryTrigger`
+  rewritten to reflect Option Y semantics. Classification-semantics
+  comment block added to the generated script, locking the intent
+  against silent reversion.
+- **`wire-orchestration` SKILL** — "Detect stage — trigger
+  classification" section expanded with an explicit Option Y
+  paragraph explaining the new contract and the paradox it resolves.
+- **`ci/gitlab.test.mjs`** — new regression suite `I-055 Option Y
+  classification semantics` with five tests covering both the MR and
+  pipeline paths + a preamble-presence test that guards the
+  intent-narrating comment.
+
+### Alternatives considered and rejected
+
+- **Option A** (land the gate MR first to get tracker on main) —
+  violates story-atomic merge: the CAT ships to main before any
+  component has proven it satisfies the contract.
+- **Option X** (detect-trigger reads tracker from open MR branches
+  as well as main) — smaller code change but keeps the
+  classification/metadata conflation. Retains the tracker as a
+  classification input when it shouldn't be.
+- **Option Z** (split gate MR into a quick declaration MR +
+  integration-gate MR) — preserves all principles but pays a
+  two-MR-per-story tax forever. Also leaves tracker-on-main as a
+  classification input, which remains conflated.
+
+Option Y is the cleanest because it resolves the conflation at
+the source.
+
+### Impact on dependent SKILLs
+
+- **`decompose-story`** — unchanged. Still stages the tracker in
+  the root working directory; still makes zero SCM calls.
+- **`compile-story-pats`** — unchanged. Still bundles the tracker
+  onto the gate MR branch. The tracker is in the MR because
+  `merge-transaction` needs it there at completion time.
+- **`wire-orchestration`** — classification description updated
+  (see above) — no runtime behaviour change to this capability.
+
+### Migration note
+
+Any existing M-type project on v0.8.x needs to re-render
+`scripts/detect-story-trigger.sh` from the v0.9.0 provider and push
+it to root repo main. The workshop retrofit MR accompanying this
+release demonstrates the procedure; see the v0.9.0 release notes.
