@@ -4,6 +4,26 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+### Docs
+
+- **`wire-orchestration` SKILL — CI variable protection prerequisite**
+  (I-053). Step 4 now documents that `protected: true` CI variables
+  are only exposed to pipelines on protected refs; `shadow:detect-trigger`
+  silently fails if the root repo's main branch is unprotected and
+  `M_GROUP_TOKEN` is marked protected. Adds a carve-out for testbed
+  projects (use `protected: false, masked: true`) and a "do not mix"
+  warning — all shadow-pipeline variables must agree on the protected
+  flag. Surfaced during L3 standalone-MR smoke test on the
+  todo-m-workshop testbed.
+
+- **Backlog entries for two L3 findings:**
+  - **I-053** — CI variable protection prerequisite (resolved in this
+    release as a SKILL note).
+  - **I-054** — standalone trigger pipelines hang in `manual` state
+    (GitLab rules can't gate `when: manual` on dotenv variables) and
+    burn ~2–3 min of CI on skip-only containers. Cosmetic + cost
+    concern, not functional. Tier 4 / deferred.
+
 ## [0.8.0] — 2026-04-22
 
 ### Added
