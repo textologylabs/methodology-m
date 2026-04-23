@@ -206,24 +206,43 @@ section while preserving the same lifecycle contract.
 - `build` — build the shell
 - `test` — shell unit tests
 
-**Detect stage — trigger classification** (v0.7.0 / I-030 + v0.8.0 / I-031 / I-032):
+**Detect stage — trigger classification** (v0.7.0 / I-030 + v0.8.0 / I-031 / I-032 + v0.9.0 / I-055):
 - `shadow:detect-trigger` — runs on every trigger. Branches on
   `$EVENT_KIND` (set by the webhook URL query string, see Step 3):
   - **`mr`** — queries the GitLab API for open MRs across root + all
-    managed repos, extracts any `[A-Z]+-\d+` story ID from each source
-    branch, cross-checks against the root repo's
-    `stories/<story-id>.yaml` readiness tracker, and emits the first
-    **active** story ID (`status != completed`) as `STORY_ID`.
-    `TRIGGER_MODE=story` if an active story is found, otherwise
+    managed repos and extracts any `[A-Z]+-\d+` story ID from each
+    source branch. The first candidate that isn't a follow-up to a
+    completed story is emitted as `STORY_ID` with
+    `TRIGGER_MODE=story`. If no candidate qualifies,
     `TRIGGER_MODE=standalone`.
   - **`pipeline`** (I-032) — queries the source managed repo's recent
     pipelines, filters for `status=failed`, and if the failing
-    pipeline's ref encodes an active story ID, emits
-    `TRIGGER_MODE=pipeline-failure` plus the matching `STORY_ID`.
-    Success/running pipelines and failures on non-story branches yield
-    `TRIGGER_MODE=standalone`.
+    pipeline's ref encodes a story ID that isn't a follow-up to a
+    completed story, emits `TRIGGER_MODE=pipeline-failure` plus the
+    matching `STORY_ID`. Success/running pipelines and failures on
+    non-story branches yield `TRIGGER_MODE=standalone`.
   - Either way, `STORY_ID` and `TRIGGER_MODE` are written to
     `detect.env` as a dotenv artifact consumed by downstream jobs.
+
+  **Classification semantics (I-055 — Option Y, v0.9.0).** The
+  active-story signal is the **live existence of an open MR** whose
+  source branch references the story ID. The readiness tracker
+  (`stories/<id>.yaml`) is orchestration metadata for
+  `merge-transaction`, not a classification input — it lives on the
+  gate MR branch during development and only lands on main at story
+  completion. The tracker on main is consulted ONLY to filter out
+  follow-up MRs targeting already-completed stories (e.g.
+  `hotfix/TODOM-001-typo` on a story whose tracker shows
+  `status: complete`). A tracker absent from main does NOT
+  disqualify a story from activeness — that's the normal state
+  during the story's lifetime.
+
+  Pre-I-055, an empty tracker on main classified the trigger as
+  standalone, which created a bootstrap paradox: story MRs could
+  never be classified as active until the gate MR's tracker was
+  already on main, but the gate MR was supposed to stay open
+  throughout the story. I-055 breaks that deadlock by treating
+  live open MRs as authoritative.
 - `shadow:invalidate-status` (I-031) — runs in the detect stage as a
   sibling of `shadow:detect-trigger`, gated on
   `TRIGGER_MODE=story`. Pushes `pending` to every open story MR

@@ -4,6 +4,61 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-04-23
+
+### Fixed
+
+- **I-055 — bootstrap paradox in shadow:detect-trigger.** Pre-v0.9.0
+  classification treated "no readiness tracker on main" as a skip
+  signal, but during a story's active lifetime the tracker lives
+  exclusively on the gate MR's branch — never on main until the gate
+  MR merges at story completion. Story MRs were therefore
+  permanently classified as `standalone`, and AOT never ran.
+
+  Fix (Option Y): classification now uses **live open-MR enumeration**
+  as the authority for active-story state. The readiness tracker on
+  main is consulted ONLY to filter out follow-up MRs targeting
+  already-completed stories (e.g. `hotfix/TODOM-001-x` on a merged
+  story's ID). A tracker absent from main no longer disqualifies a
+  story — that's the normal state during development.
+
+  Same fix applied symmetrically to the `EVENT_KIND=pipeline` branch:
+  a failing pipeline whose ref encodes a story ID triggers the
+  `pipeline-failure` fan-out unless the story is already marked
+  complete on main.
+
+  Changes:
+  - `.m/providers/ci/gitlab.mjs` — `renderDetectStoryTrigger`
+    rewritten with Option Y semantics. Classification-semantics
+    comment block added to the generated script.
+  - `.m/capabilities/wire-orchestration/SKILL.md` — "Detect stage"
+    section expanded with an explicit Option Y paragraph.
+  - `.m/providers/ci/gitlab.test.mjs` — new regression suite `I-055
+    Option Y classification semantics` (5 tests) locking the new
+    contract and guarding the intent-narrating comment against silent
+    reversion.
+
+  Discovered during L4 story-E2E testing on the todo-m-workshop
+  testbed — the first sub-task MR of TODOM-001 triggered AOT but
+  detect-trigger classified it as standalone, leaving the entire
+  story unwatchable.
+
+### Methodology
+
+- `decompose-story` and `compile-story-pats` SKILLs unchanged.
+  Tracker continues to be staged locally by decompose-story and
+  bundled onto the gate MR branch by compile-story-pats —
+  `merge-transaction` reads it from there at completion time.
+  Separating classification (live MR state) from orchestration
+  metadata (the tracker) is the v0.9.0 reconceptualisation.
+
+### Migration
+
+- Any M-type project on v0.8.x must re-render
+  `scripts/detect-story-trigger.sh` from the v0.9.0 provider and push
+  it to root repo main before opening further story MRs. The workshop
+  retrofit accompanying this release is the reference procedure.
+
 ### Docs
 
 - **`wire-orchestration` SKILL — CI variable protection prerequisite**
