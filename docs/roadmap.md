@@ -41,7 +41,9 @@ hand-holding, six things must be true that aren't today:
    water-tightness behaviours (pre-AOT invalidation, pipeline-failure
    fan-out) were documented as shipped but silently regressed during
    the v0.5.0 CI extraction. Stale-green windows reappear on every
-   AOT kick.
+   AOT kick. Pipeline-failure fan-out's **delivery mechanism** — not
+   just its logic — also needs to actually work on GitLab.com (I-056
+   discovery, 2026-04-24).
 4. **PAT yaml is the single source of truth for story assertions.**
    Today it's Cypress-shaped only; structural and backend-only
    stories lean on a workaround aliveness probe outside the PAT
@@ -196,7 +198,62 @@ prevents silent reversion.
 
 ---
 
-### v0.10.0 — I-045: multi-framework PAT yaml
+### v0.10.0 — I-056: pipeline-failure fan-out delivery (CI-job replaces pipeline webhook)
+
+**Goal:** restore I-032's pipeline-failure fan-out promise on
+GitLab.com.
+
+**Why this slot:** I-032's renderer-side behaviour shipped in v0.8.0
+was correct. But L4 workshop E2E (2026-04-24) showed that the
+delivery mechanism — a `pipeline_events` webhook whose URL is root's
+trigger endpoint — is blocked by GitLab.com with `403 Forbidden`
+because the request carries `X-Gitlab-Event: Pipeline Hook`, which
+GitLab's trigger endpoint rejects as loop-prevention. The MR webhook
+(identical URL, `Merge Request Hook` header) passes through. Manual
+reproduction confirmed the `X-Gitlab-Event` header is the
+discriminator.
+
+Practical consequence of leaving this: a managed-repo pipeline
+failure on a story branch leaves sibling story MRs showing `pending`
+until the next MR event re-kicks AOT — the stale-green race I-031
+closed at story start re-opens at story mid-flight, weaker (pending
+not failed) and bounded by MR event cadence.
+
+**Implementation shape:**
+- Add a `report-failure-to-root` job to the managed-repo pipeline
+  template (`.m/providers/ci/gitlab.mjs`) — `when: on_failure`,
+  runs under CI job context (no `X-Gitlab-Event` header), curl-POSTs
+  root's trigger endpoint with `EVENT_KIND=pipeline` +
+  `SOURCE_PIPELINE_ID`.
+- Update `wire-orchestration` SKILL — install **one** webhook per
+  managed repo (MR events only); ensure `ROOT_PROJECT_ID` +
+  `ROOT_TRIGGER_TOKEN` are CI variables on managed repos.
+- Root side — no changes; `shadow:detect-trigger` already handles
+  `EVENT_KIND=pipeline`, it just starts receiving real traffic.
+- Regression tests in `ci/gitlab.test.mjs` for the new job shape.
+
+**Selected for MVP.** This is the completion of I-032, not a new
+feature. Without it, v0.8.0's documented-as-shipped behaviour is
+silently broken on GitLab.com — the same pattern MVP threshold (3)
+exists to prevent.
+
+**Sequencing before I-045:** I-056 is a focused correctness fix on
+a path that was supposed to be closed already; I-045 is new
+capability that expands what PATs can express. Close the gap first.
+
+**Exit criterion:** a managed-repo pipeline failure on an active
+story branch fires the `report-failure-to-root` job, root's shadow
+pipeline runs with `TRIGGER_MODE=pipeline-failure`, and
+`shadow:fanout-failure` pushes `failed` to all sibling story MRs
+within the same CI pipeline window. `ci/gitlab.test.mjs` covers the
+new job shape and the v0.8.0 webhook-based path is gone.
+
+**Subsequent items shift one release:** I-045 → v0.11.0,
+I-040 → v0.12.0, I-004 → v0.13.0.
+
+---
+
+### v0.11.0 — I-045: multi-framework PAT yaml
 
 **Goal:** PAT yaml can articulate non-browser assertions natively.
 
@@ -226,7 +283,7 @@ standalone aliveness probe in `integration-test.sh`.
 
 ---
 
-### v0.11.0 — I-040: topology changes (add/remove/rename components)
+### v0.12.0 — I-040: topology changes (add/remove/rename components)
 
 **Goal:** a project's component set can evolve mid-project.
 
@@ -255,7 +312,7 @@ standard CAT provider path.
 
 ---
 
-### v0.12.0 — I-004 remaining: post-merge lifecycle
+### v0.13.0 — I-004 remaining: post-merge lifecycle
 
 **Goal:** merging a story MR auto-completes the transactional tail.
 
@@ -283,8 +340,9 @@ No new features. Half-day of:
 
 - Docs pass — update `methodology.md`, CHANGELOG, SKILL contracts
   that reference MVP behaviour.
-- e2e harness run across the six MVP scenarios (I-042 + I-030 +
-  I-031+I-032 + I-045 + I-040 + I-004). Passing harness is the gate.
+- e2e harness run across the MVP scenarios (I-042 + I-030 +
+  I-031+I-032 + I-056 + I-045 + I-040 + I-004). Passing harness is
+  the gate.
 - Tag on main, `npm publish`, GitHub Release with the assembled
   v0.6–v0.12 changes presented as the v1.0 capability baseline.
 
@@ -338,11 +396,12 @@ entirely one-way: Outpost waits for M.
 | v0.7.0 | I-030 | 1–2 days |
 | v0.8.0 | I-031 + I-032 regression fix | 2–3 days (shipped 2026-04-22) |
 | v0.9.0 | I-055 (AOT classification bootstrap fix, Option Y) | S (shipped 2026-04-23) |
-| v0.10.0 | I-045 | 2–3 days |
-| v0.11.0 | I-040 | 3–5 days |
-| v0.12.0 | I-004 | 3–5 days |
+| v0.10.0 | I-056 (pipeline-failure delivery — CI job replaces webhook) | S–M |
+| v0.11.0 | I-045 | 2–3 days |
+| v0.12.0 | I-040 | 3–5 days |
+| v0.13.0 | I-004 | 3–5 days |
 | v1.0.0 | MVP tag | 0.5 day |
-| **Total critical path** | | **~15–23 focused days** |
+| **Total critical path** | | **~17–26 focused days** |
 
 Calendar, with Outpost A/B interleaved in the same window: **~4 weeks**.
 
