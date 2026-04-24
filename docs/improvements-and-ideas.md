@@ -12,6 +12,7 @@ listed for completeness — their write-ups remain below as reference.
 
 | Item | Title | Rationale |
 |------|-------|-----------|
+| I-056 | Pipeline-failure fan-out delivery — GitLab blocks pipeline-hook → trigger-endpoint (403) | I-032's design installs a `pipeline_events` webhook on each managed repo whose URL is the root trigger endpoint. GitLab.com specifically rejects any request to its trigger endpoint that carries `X-Gitlab-Event: Pipeline Hook` (pipeline-hook loop-prevention), returning 403. Repeated 403s cause GitLab to auto-disable the webhook. I-032's renderer-side logic (EVENT_KIND branching, `TRIGGER_MODE=pipeline-failure`, `shadow:fanout-failure`) is correct; only the delivery mechanism is broken. Fix direction: replace pipeline-webhook delivery with a CI-job-based trigger on the managed repo (`when: on_failure` job that curl-POSTs root's trigger endpoint under CI job context, no Pipeline Hook header). Discovered 2026-04-24 during L4 workshop E2E. |
 | I-047 | project.yaml is AI-generated from Story Zero | Currently hand-authored. Nothing owns interpretation of topology/persistence/deployment intent from story prose. Renderer (I-036) is complete; this is the next step to close the bootstrap authoring loop. |
 | I-049 | Deterministic capabilities as code, interpretive as SKILLs — **partial: renderer scope done v0.5.1** | Pure-function operations (renderer, PAT→CAT compilation, schema validation, integrity checks) should live in executable code (cli/), not as SKILL documents an agent interprets. Agents call them. Fixes the determinism gap I-036 exposed. **Renderer + compose/ci providers migrated in v0.5.1. PAT→CAT compilation, schema validation, scm/* pure-dispatch still open — migrate incrementally per-capability.** |
 
@@ -70,7 +71,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-020 | Root repo sub-task mandatory | decompose-story enforces root sub-task. |
 | I-021 | PAT validation loop in steering | Steering template updated. |
 | I-031 | Stale green race condition | `shadow:invalidate-status` restored as a detect-stage job gated on `TRIGGER_MODE=story`; `shadow:compose` needs it so `pending` lands on all sibling MRs before AOT starts. Regression-tested in `ci/gitlab.test.mjs`. v0.8.0. |
-| I-032 | Pipeline failure webhook | `shadow:detect-trigger` branches on `$EVENT_KIND` (mr \| pipeline) set by per-event webhook URLs. On `pipeline` events with a failed source pipeline on an active story branch, `TRIGGER_MODE=pipeline-failure` routes straight to `shadow:fanout-failure`, pushing `failed` to every sibling story MR without waiting for the next MR event. `wire-orchestration` now installs two webhooks per managed repo (one MR, one pipeline) with distinct `variables[EVENT_KIND]` values. Regression-tested in `ci/gitlab.test.mjs`. v0.8.0. |
+| I-032 | Pipeline failure webhook — **renderer-side ✅ v0.8.0; delivery ⚠️ regressed, see I-056** | Renderer side complete: `shadow:detect-trigger` branches on `$EVENT_KIND` (mr \| pipeline), `TRIGGER_MODE=pipeline-failure` routes to `shadow:fanout-failure`. **Delivery side broken on GitLab.com**: the two-webhook-per-repo design in `wire-orchestration` installs a pipeline-events webhook whose URL is the trigger endpoint — GitLab rejects that with 403 (Pipeline Hook loop prevention). Tracked as I-056 for replacement with CI-job-based delivery. |
 | I-033 | 90s invalidation window | Accepted limitation. Documented. |
 | I-039 | Decomposition auto-establishes AOT gate | decompose-story Step 4: auto-compile PAT → Cypress, raise root MR. |
 | I-006 | API stubs for frontend repos | `pats/stubs/api-*.js` generated per dependency in scaffold-repo (express/cors, shared state). |
@@ -3919,3 +3920,162 @@ Any existing M-type project on v0.8.x needs to re-render
 `scripts/detect-story-trigger.sh` from the v0.9.0 provider and push
 it to root repo main. The workshop retrofit MR accompanying this
 release demonstrates the procedure; see the v0.9.0 release notes.
+
+## I-056: Pipeline-failure fan-out delivery — GitLab blocks pipeline-hook → trigger-endpoint calls (403)
+
+**Category:** Methodology / AOT delivery mechanism
+**Tier:** 1 — Core AOT correctness
+**Status:** Open. Discovered 2026-04-24 during L4 workshop E2E
+(todo-m-workshop, three sub-task MRs open for TODOM-001). The
+renderer-side behaviour I-032 introduced is correct; the webhook
+delivery path it assumed is not reachable on GitLab SaaS.
+
+### Problem
+
+`wire-orchestration` installs two webhooks per managed repo (I-032):
+
+1. A `merge_request_events` webhook whose URL encodes
+   `variables[EVENT_KIND]=mr` — fires on MR open/update/close.
+2. A `pipeline_events` webhook whose URL encodes
+   `variables[EVENT_KIND]=pipeline` — fires on every pipeline
+   status change.
+
+Both webhooks point at the **same** root-repo trigger endpoint with
+the **same** trigger token. The MR webhook works as designed — each
+delivery returns `201 Created` and fires a root shadow pipeline.
+The pipeline webhook delivery consistently returns `403 Forbidden`
+from the trigger endpoint. After a few consecutive failures GitLab
+auto-disables the webhook (`alert_status: temporarily_disabled`),
+so even once the root cause is understood the delivery path is
+latency-throttled by GitLab's webhook health tracking.
+
+### Root cause
+
+GitLab.com's trigger endpoint specifically rejects any incoming
+request that carries `X-Gitlab-Event: Pipeline Hook`. Reproduced
+cleanly:
+
+```bash
+# 201 Created — same URL, no special header
+curl -X POST "https://gitlab.com/api/v4/projects/$ROOT_ID/ref/main/trigger/pipeline?token=$T&variables[EVENT_KIND]=pipeline"
+
+# 201 Created — Merge Request Hook header passes through
+curl -X POST -H 'X-Gitlab-Event: Merge Request Hook' "$URL"
+
+# 403 Forbidden — Pipeline Hook header is the discriminator
+curl -X POST -H 'X-Gitlab-Event: Pipeline Hook' "$URL"
+```
+
+This is a loop-prevention guard on GitLab's side: a pipeline hook
+firing into a pipeline-trigger endpoint would create a pipeline
+whose completion fires another pipeline hook, which would trigger
+another pipeline, and so on. GitLab closes the loop by rejecting
+the class of request at the endpoint, regardless of intent.
+
+No documented setting toggles this behaviour, and the rejection
+is request-shape-based (header), not token-based, so token
+rotation or scope changes do not help.
+
+### Evidence
+
+- Webhook event log on mfe hook `76370079`:
+  every delivery on 2026-04-23 and 2026-04-24 returns
+  `response_status: "403"` with body `{"message":"403 Forbidden"}`.
+  Same token, same URL as hook `76370078` (MR events), which
+  returns `201` on every delivery.
+- Manual reproduction via curl with only the `X-Gitlab-Event`
+  header varying — see bash snippet above.
+- `alert_status: temporarily_disabled` on the pipeline webhook
+  after the 403 run, confirming GitLab's auto-disable kicked in.
+
+### Impact
+
+I-032's renderer artefacts still work — `shadow:detect-trigger`
+correctly classifies `EVENT_KIND=pipeline` events into
+`TRIGGER_MODE=pipeline-failure` and `shadow:fanout-failure`
+correctly pushes `failed` to sibling MR heads — but no such
+event ever reaches detect-trigger, so the code path is dead in
+production.
+
+Practical consequence: when a managed repo pipeline fails while a
+story is in flight, sibling story MRs show `pending` until the
+next MR-event triggers re-evaluation. The stale-green race I-031
+addresses at story start is re-introduced at story mid-flight,
+weaker (because `pending` not `failed`) and bounded by the next
+MR event rather than unbounded.
+
+### Fix direction — CI-job-based delivery
+
+Replace the pipeline-events webhook with a CI job on each managed
+repo that fires on pipeline failure and calls root's trigger
+endpoint directly. Under CI job context the request has no
+`X-Gitlab-Event` header and so is not subject to the loop-prevention
+guard.
+
+Renderer-side (per managed repo pipeline):
+
+```yaml
+report-failure-to-root:
+  stage: .post
+  when: on_failure
+  image: alpine:3.19
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - |
+      curl -fsSL -X POST \
+        "$ROOT_TRIGGER_URL&variables[SOURCE_PROJECT_ID]=$CI_PROJECT_ID&variables[SOURCE_PROJECT_PATH]=$CI_PROJECT_PATH&variables[SOURCE_PIPELINE_ID]=$CI_PIPELINE_ID&variables[EVENT_KIND]=pipeline"
+  variables:
+    ROOT_TRIGGER_URL: "https://gitlab.com/api/v4/projects/$ROOT_PROJECT_ID/ref/main/trigger/pipeline?token=$ROOT_TRIGGER_TOKEN"
+```
+
+Wire-orchestration side:
+
+- Install only **one** webhook per managed repo (MR events).
+- Stop installing the pipeline-events webhook.
+- Ensure `ROOT_PROJECT_ID` and `ROOT_TRIGGER_TOKEN` are available
+  as CI variables on the managed repo — probably set by
+  `wire-orchestration` at the same time it sets `M_GROUP_TOKEN`.
+
+Root-side — no changes needed. `shadow:detect-trigger` already
+handles `EVENT_KIND=pipeline`; it will simply start receiving
+real traffic once the delivery mechanism swaps.
+
+### Alternatives considered
+
+- **Do nothing** — accept that pipeline-failure fan-out is a
+  GitLab-self-hosted-only feature. Rejected: most M adopters
+  will be on GitLab.com at first.
+- **External forwarder** (Lambda / Cloudflare Worker that strips
+  the `X-Gitlab-Event` header and re-issues the request) —
+  works but adds an external infra dependency and a trust
+  boundary. Reserve for orgs that specifically can't run CI
+  jobs on failure for policy reasons.
+- **Use a different event class** (e.g. `push_events`) — does
+  not carry pipeline status, so fails the I-032 contract.
+
+### Scope
+
+Medium. Changes touch:
+
+- `.m/providers/ci/gitlab.mjs` — add `report-failure-to-root` job
+  to the managed-repo pipeline template (conditional on
+  `rootRepo: false`).
+- `.m/capabilities/wire-orchestration/SKILL.md` — drop
+  second webhook; ensure trigger token + root project ID are
+  wired as CI variables on managed repos.
+- `ci/gitlab.test.mjs` — new regression tests for the
+  `report-failure-to-root` job shape.
+- Workshop retrofit + one cut release after the change lands.
+
+### Migration note
+
+Once I-056 ships, existing workshops need to:
+
+1. Re-render `.gitlab-ci.yml` on each managed repo from the new
+   provider.
+2. Delete the `pipeline_events` webhook on each managed repo
+   (keep the `merge_request_events` one).
+3. Confirm the managed repo has `ROOT_PROJECT_ID` and
+   `ROOT_TRIGGER_TOKEN` CI variables set.
+
