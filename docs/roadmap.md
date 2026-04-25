@@ -374,6 +374,7 @@ entirely one-way: Outpost waits for M.
 | v0.8.0 | I-031 + I-032 regression fix | 2–3 days (shipped 2026-04-22) |
 | v0.9.0 | I-055 (AOT classification bootstrap fix, Option Y) | S (shipped 2026-04-23) |
 | v0.10.0 | I-056 (pipeline-failure delivery — CI job replaces webhook) | S (shipped 2026-04-25) |
+| v0.10.1 | I-057 (`report-failure-to-root` curl-globoff regression caught in L5) | XS (shipped 2026-04-25) |
 | v0.11.0 | I-045 | 2–3 days |
 | v0.12.0 | I-040 | 3–5 days |
 | v0.13.0 | I-004 | 3–5 days |
