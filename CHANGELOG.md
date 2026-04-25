@@ -4,6 +4,58 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-04-25
+
+### Fixed
+
+- **I-056 — pipeline-failure fan-out delivery on GitLab.com.** v0.8.0
+  shipped I-032's renderer-side correctly, but the delivery mechanism
+  it assumed (a `pipeline_events` webhook on each managed repo whose
+  URL is root's trigger endpoint) is 403-blocked on GitLab.com. The
+  trigger endpoint specifically rejects any request carrying
+  `X-Gitlab-Event: Pipeline Hook` (loop-prevention guard). The MR
+  webhook (identical URL, `Merge Request Hook` header) passes
+  through cleanly. Repeated 403s also caused GitLab to auto-disable
+  the webhook. Discovered 2026-04-24 during L4 workshop E2E.
+
+  Fix: replace the pipeline-events webhook with a
+  `report-failure-to-root` CI job in scaffold-repo's managed-repo
+  pipeline template. The job runs in the implicit `.post` stage
+  with `when: on_failure` on MR pipelines and main pushes,
+  curl-POSTs root's trigger endpoint with `EVENT_KIND=pipeline`,
+  `SOURCE_PROJECT_ID`, `SOURCE_PROJECT_PATH`, and
+  `SOURCE_PIPELINE_ID`. Running under CI job context strips the
+  `X-Gitlab-Event` header and the request goes through.
+
+  Changes:
+  - `.m/capabilities/scaffold-repo/SKILL.md` — managed-repo pipeline
+    template gains the `report-failure-to-root` job; lifecycle phase
+    contract table extended with the `.post` row.
+  - `.m/capabilities/wire-orchestration/SKILL.md` — Step 3 collapses
+    to one MR webhook per managed repo (push + pipeline events
+    explicitly disabled). Step 4 adds a new subsection wiring
+    `M_TRIGGER_TOKEN` and `ROOT_PROJECT_ID` as CI variables on each
+    managed repo so the new job can authenticate against root.
+    Detect-stage description updated to describe the dual delivery
+    (MR webhook for `mr` events, CI-job for `pipeline` events).
+  - `.m/providers/ci/gitlab.mjs` — comment touch-ups on the detect
+    script and `shadow:detect-trigger` job naming both delivery
+    paths. No code change to the rendered root pipeline.
+  - `docs/improvements-and-ideas.md` — I-056 marked Resolved with
+    a "Changes in v0.10.0" subsection and migration note. I-032's
+    Resolved-table entry consolidated to span both halves of the
+    fix (renderer in v0.8.0, delivery in v0.10.0).
+  - `docs/roadmap.md` — v0.10.0 row marked shipped; remaining
+    critical-path estimate updated.
+
+  Migration note: existing M-type projects on v0.8.x or v0.9.x
+  need to (1) re-scaffold or re-render `.gitlab-ci.yml` on each
+  managed repo so it gets the new `report-failure-to-root` job,
+  (2) delete the `pipeline_events` webhook on each managed repo
+  (keep the `merge_request_events` one), (3) set `M_TRIGGER_TOKEN`
+  and `ROOT_PROJECT_ID` as CI variables on each managed repo
+  (re-running `wire-orchestration` does this idempotently).
+
 ## [0.9.0] — 2026-04-23
 
 ### Fixed
