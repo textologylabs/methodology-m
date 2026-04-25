@@ -170,6 +170,7 @@ stages:
   - test
   - snapshot
   - tag
+  # `.post` is implicit — `report-failure-to-root` lives there (I-056)
 
 # Default cache: every job pulls node_modules from cache.
 # Only the install job pushes (pull-push policy).
@@ -220,6 +221,37 @@ tag:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   needs: [test]
+
+# --- Pipeline-failure fan-out trigger (I-056) ---
+# Runs on any pipeline failure. Calls the root repo's trigger
+# endpoint directly with EVENT_KIND=pipeline so root's
+# shadow:detect-trigger can route the event into the
+# pipeline-failure fan-out path (I-032). Replaces the
+# pipeline-events webhook from v0.8.0, which GitLab.com rejects
+# at the trigger endpoint with 403 (Pipeline Hook header is
+# loop-prevention-blocked). Running under CI job context
+# means no Pipeline Hook header — request goes through.
+
+report-failure-to-root:
+  stage: .post
+  image: alpine:3.19
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - |
+      if [ -z "${M_TRIGGER_TOKEN:-}" ] || [ -z "${ROOT_PROJECT_ID:-}" ]; then
+        echo "M_TRIGGER_TOKEN or ROOT_PROJECT_ID not set — skipping fan-out"
+        exit 0
+      fi
+      ENCODED_PATH=$(printf '%s' "$CI_PROJECT_PATH" | sed 's|/|%2F|g')
+      URL="$CI_API_V4_URL/projects/$ROOT_PROJECT_ID/ref/main/trigger/pipeline?token=$M_TRIGGER_TOKEN&variables[SOURCE_PROJECT_ID]=$CI_PROJECT_ID&variables[SOURCE_PROJECT_PATH]=$ENCODED_PATH&variables[SOURCE_PIPELINE_ID]=$CI_PIPELINE_ID&variables[EVENT_KIND]=pipeline"
+      echo "Notifying root of pipeline failure"
+      curl -fsSL -X POST -o /dev/null "$URL"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: on_failure
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: on_failure
 ```
 
 ### Lifecycle scripts (package.json)
@@ -268,6 +300,7 @@ working defaults.
 | `test`     | Every pipeline           | Run repo-level PATs and unit tests   | Pipeline fails, MR blocked |
 | `snapshot` | MR pipelines only        | Publish pre-release artefact         | MR can't shadow-integrate |
 | `tag`      | Merge to main only       | Create semver tag on the new commit  | Manual tag required       |
+| `.post` (`report-failure-to-root`) | MR + main pipelines, only `when: on_failure` | Notify root that this repo's pipeline failed (I-056) so the root shadow chain fans `failed` to sibling story MRs immediately, without waiting for the next MR event | Best-effort — if root unreachable, sibling MRs simply revert to MR-event cadence |
 
 **CI image:** The pipeline must specify `image: node:20` (or the
 appropriate runtime for the repo-type). Without an explicit image,

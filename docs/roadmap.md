@@ -200,56 +200,33 @@ prevents silent reversion.
 
 ### v0.10.0 — I-056: pipeline-failure fan-out delivery (CI-job replaces pipeline webhook)
 
-**Goal:** restore I-032's pipeline-failure fan-out promise on
-GitLab.com.
+**Shipped 2026-04-25.** L4 workshop E2E on 2026-04-24 showed that
+v0.8.0's pipeline-failure delivery — a `pipeline_events` webhook
+whose URL is root's trigger endpoint — is 403-blocked on GitLab.com:
+the request carries `X-Gitlab-Event: Pipeline Hook` which GitLab's
+trigger endpoint rejects as loop-prevention. v0.10.0 replaces the
+webhook with a `report-failure-to-root` CI job on each managed repo,
+fired `when: on_failure` under CI job context — no Pipeline Hook
+header, no 403. `wire-orchestration` drops the second webhook (one
+MR webhook per managed repo) and adds `M_TRIGGER_TOKEN` +
+`ROOT_PROJECT_ID` as CI variables on each managed repo. Root pipeline
+unchanged: `shadow:detect-trigger` already handles
+`EVENT_KIND=pipeline` correctly; it now receives real traffic.
 
-**Why this slot:** I-032's renderer-side behaviour shipped in v0.8.0
-was correct. But L4 workshop E2E (2026-04-24) showed that the
-delivery mechanism — a `pipeline_events` webhook whose URL is root's
-trigger endpoint — is blocked by GitLab.com with `403 Forbidden`
-because the request carries `X-Gitlab-Event: Pipeline Hook`, which
-GitLab's trigger endpoint rejects as loop-prevention. The MR webhook
-(identical URL, `Merge Request Hook` header) passes through. Manual
-reproduction confirmed the `X-Gitlab-Event` header is the
-discriminator.
+**Files:**
+- `.m/capabilities/scaffold-repo/SKILL.md` — `report-failure-to-root`
+  job in `.post`, lifecycle table extended.
+- `.m/capabilities/wire-orchestration/SKILL.md` — Step 3 collapsed
+  to one webhook; Step 4 adds the new managed-repo CI variables.
+- `.m/providers/ci/gitlab.mjs` — comment updates naming the dual
+  delivery (MR webhook + CI-job trigger).
+- See `improvements-and-ideas.md` I-056 for full context, repro,
+  and migration note.
 
-Practical consequence of leaving this: a managed-repo pipeline
-failure on a story branch leaves sibling story MRs showing `pending`
-until the next MR event re-kicks AOT — the stale-green race I-031
-closed at story start re-opens at story mid-flight, weaker (pending
-not failed) and bounded by MR event cadence.
-
-**Implementation shape:**
-- Add a `report-failure-to-root` job to the managed-repo pipeline
-  template (`.m/providers/ci/gitlab.mjs`) — `when: on_failure`,
-  runs under CI job context (no `X-Gitlab-Event` header), curl-POSTs
-  root's trigger endpoint with `EVENT_KIND=pipeline` +
-  `SOURCE_PIPELINE_ID`.
-- Update `wire-orchestration` SKILL — install **one** webhook per
-  managed repo (MR events only); ensure `ROOT_PROJECT_ID` +
-  `ROOT_TRIGGER_TOKEN` are CI variables on managed repos.
-- Root side — no changes; `shadow:detect-trigger` already handles
-  `EVENT_KIND=pipeline`, it just starts receiving real traffic.
-- Regression tests in `ci/gitlab.test.mjs` for the new job shape.
-
-**Selected for MVP.** This is the completion of I-032, not a new
-feature. Without it, v0.8.0's documented-as-shipped behaviour is
-silently broken on GitLab.com — the same pattern MVP threshold (3)
-exists to prevent.
-
-**Sequencing before I-045:** I-056 is a focused correctness fix on
-a path that was supposed to be closed already; I-045 is new
-capability that expands what PATs can express. Close the gap first.
-
-**Exit criterion:** a managed-repo pipeline failure on an active
-story branch fires the `report-failure-to-root` job, root's shadow
-pipeline runs with `TRIGGER_MODE=pipeline-failure`, and
-`shadow:fanout-failure` pushes `failed` to all sibling story MRs
-within the same CI pipeline window. `ci/gitlab.test.mjs` covers the
-new job shape and the v0.8.0 webhook-based path is gone.
-
-**Subsequent items shift one release:** I-045 → v0.11.0,
-I-040 → v0.12.0, I-004 → v0.13.0.
+**Exit criterion (met):** managed-repo pipeline failure on an active
+story branch fires `report-failure-to-root` → root shadow runs with
+`TRIGGER_MODE=pipeline-failure` → `shadow:fanout-failure` pushes
+`failed` to all sibling story MRs within the same CI pipeline window.
 
 ---
 
@@ -396,12 +373,12 @@ entirely one-way: Outpost waits for M.
 | v0.7.0 | I-030 | 1–2 days |
 | v0.8.0 | I-031 + I-032 regression fix | 2–3 days (shipped 2026-04-22) |
 | v0.9.0 | I-055 (AOT classification bootstrap fix, Option Y) | S (shipped 2026-04-23) |
-| v0.10.0 | I-056 (pipeline-failure delivery — CI job replaces webhook) | S–M |
+| v0.10.0 | I-056 (pipeline-failure delivery — CI job replaces webhook) | S (shipped 2026-04-25) |
 | v0.11.0 | I-045 | 2–3 days |
 | v0.12.0 | I-040 | 3–5 days |
 | v0.13.0 | I-004 | 3–5 days |
 | v1.0.0 | MVP tag | 0.5 day |
-| **Total critical path** | | **~17–26 focused days** |
+| **Total critical path** | | **~10–13 focused days remaining** |
 
 Calendar, with Outpost A/B interleaved in the same window: **~4 weeks**.
 

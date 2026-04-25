@@ -54,7 +54,7 @@ integration pipelines on the root repo.
 
 Store the trigger token value for webhook configuration.
 
-### Step 3 — Install webhooks on managed repos with per-repo context variables
+### Step 3 — Install MR webhook on each managed repo with per-repo context variables
 
 For each managed repo, construct a webhook URL that encodes the repo's
 identity as **static pipeline trigger variables**, then install the
@@ -66,6 +66,19 @@ verbatim when they POST. The managed repo's identity therefore arrives
 at the root pipeline as pre-populated CI variables — no middleman
 service, no Premium features.
 
+**One webhook per managed repo (MR events only).** The
+pipeline-failure fan-out path (I-032) used to live in a second
+`pipeline_events` webhook. As of v0.10.0 (I-056) it lives in a
+`report-failure-to-root` CI job on the managed repo itself —
+GitLab.com's trigger endpoint rejects requests carrying
+`X-Gitlab-Event: Pipeline Hook` (loop-prevention guard, returns
+`403 Forbidden`), so a pipeline-events webhook pointing at the
+trigger endpoint is unreachable on SaaS. Running the trigger call
+under CI job context strips the offending header and the request
+goes through. See `scaffold-repo` SKILL for the job's shape and
+the I-056 entry in `improvements-and-ideas.md` for the full
+rationale.
+
 For each managed repo:
 
 1. Resolve the managed repo's SCM project ID and project path:
@@ -75,9 +88,8 @@ For each managed repo:
    managed_path = <group>/<project>-<component-name>
    ```
 
-2. Construct **two** webhook URLs — one for MR events, one for pipeline
-   events. URL-encode the project path (`/` → `%2F`) so the query
-   string parses cleanly:
+2. Construct the webhook URL. URL-encode the project path
+   (`/` → `%2F`) so the query string parses cleanly:
 
    ```
    webhook_url_mr = https://<scm-host>/api/v4/projects/<root-id>/ref/main/trigger/pipeline
@@ -85,30 +97,21 @@ For each managed repo:
                     &variables[SOURCE_PROJECT_ID]=<managed_id>
                     &variables[SOURCE_PROJECT_PATH]=<url-encoded managed_path>
                     &variables[EVENT_KIND]=mr
-
-   webhook_url_pipeline = https://<scm-host>/api/v4/projects/<root-id>/ref/main/trigger/pipeline
-                          ?token=<trigger-token>
-                          &variables[SOURCE_PROJECT_ID]=<managed_id>
-                          &variables[SOURCE_PROJECT_PATH]=<url-encoded managed_path>
-                          &variables[EVENT_KIND]=pipeline
    ```
 
    These static values identify **which** managed repo's webhook fired
-   the trigger and **which kind of event** it fired for. `EVENT_KIND`
-   is required because GitLab pipeline triggers (`/trigger/pipeline`)
+   the trigger and tag the event as an MR event for
+   `shadow:detect-trigger`'s classification path. `EVENT_KIND` is
+   required because GitLab pipeline triggers (`/trigger/pipeline`)
    do not forward webhook payloads into the triggered pipeline —
    only URL-encoded `variables[KEY]=value` pairs become CI variables.
-   Two webhooks with distinct `EVENT_KIND` values give
-   `shadow:detect-trigger` the event-type signal it needs to route
-   MR events into the story/standalone classification and pipeline
-   events into the I-032 failure-fan-out path.
 
    The dynamic story-vs-standalone classification happens at runtime
    inside `shadow:detect-trigger` (see Pipeline structure below), which
    cross-checks open MRs against the root repo's readiness trackers —
    no branch-name convention is imposed.
 
-3. Install both webhooks:
+3. Install the webhook:
 
    ```
    scm.create_webhook(
@@ -117,20 +120,14 @@ For each managed repo:
      events: { merge_request: true, pipeline: false, push: false },
      ssl_verify: true
    )
-
-   scm.create_webhook(
-     repo: <managed-repo>,
-     url: <webhook_url_pipeline from step 2>,
-     events: { merge_request: false, pipeline: true, push: false },
-     ssl_verify: true
-   )
    ```
 
-**Important:** Push events MUST be explicitly disabled on both
-webhooks to avoid triggering the root repo pipeline on every push
-to managed repos. Each webhook enables exactly one event type so
-that `EVENT_KIND` in the URL query string unambiguously tags every
-trigger with its originating event.
+**Important:** Push and pipeline events MUST be explicitly disabled
+on the webhook. Push events would trigger the root pipeline on every
+managed-repo push (noise). Pipeline events were used pre-v0.10.0 for
+the I-032 fan-out path; that delivery is now owned by the
+`report-failure-to-root` CI job and an installed pipeline-events
+webhook would either duplicate or 403-loop.
 
 ### Step 4 — Store access tokens as CI secrets
 
@@ -165,6 +162,44 @@ scm.store_ci_secret(
   masked: true
 )
 ```
+
+#### Variables for the pipeline-failure fan-out CI job (I-056)
+
+The `report-failure-to-root` job that `scaffold-repo` writes onto
+every managed repo (see scaffold-repo SKILL, I-056) needs two CI
+variables on the **managed** repo so it can call the root repo's
+trigger endpoint when its own pipeline fails:
+
+```
+scm.store_ci_secret(
+  repo: <managed-repo>,
+  key: "M_TRIGGER_TOKEN",
+  value: <trigger-token from Step 2>,
+  protected: false,    # see notes below
+  masked: true
+)
+
+scm.store_ci_secret(
+  repo: <managed-repo>,
+  key: "ROOT_PROJECT_ID",
+  value: <root-repo numeric SCM project ID>,
+  protected: false,
+  masked: false        # not a secret; numeric ID is public information
+)
+```
+
+Set these on **every managed repo**, not the root. They are read by
+the managed repo's CI job, not by the root pipeline.
+
+**Why `protected: false`.** The fan-out job runs on MR pipelines
+and main pushes — both unprotected ref kinds (MR refs are never
+protected; main is protected on production projects but the failure
+notification needs to fire from MR pipelines too, otherwise we lose
+mid-flight failure delivery). The `M_TRIGGER_TOKEN` is a pipeline
+trigger token specifically scoped to firing root pipelines on a
+single ref (root's `main`); it grants no other API capability.
+`ROOT_PROJECT_ID` is non-secret. Storing both unprotected matches
+the use case.
 
 #### Prerequisite — protected ref + protected variable
 
@@ -206,9 +241,11 @@ section while preserving the same lifecycle contract.
 - `build` — build the shell
 - `test` — shell unit tests
 
-**Detect stage — trigger classification** (v0.7.0 / I-030 + v0.8.0 / I-031 / I-032 + v0.9.0 / I-055):
+**Detect stage — trigger classification** (v0.7.0 / I-030 + v0.8.0 / I-031 / I-032 + v0.9.0 / I-055 + v0.10.0 / I-056):
 - `shadow:detect-trigger` — runs on every trigger. Branches on
-  `$EVENT_KIND` (set by the webhook URL query string, see Step 3):
+  `$EVENT_KIND` (set by the webhook URL query string from Step 3 for
+  MR events, or by the managed repo's `report-failure-to-root` CI
+  job query string for pipeline-failure events — see Step 4 / I-056):
   - **`mr`** — queries the GitLab API for open MRs across root + all
     managed repos and extracts any `[A-Z]+-\d+` story ID from each
     source branch. The first candidate that isn't a follow-up to a
@@ -220,7 +257,9 @@ section while preserving the same lifecycle contract.
     pipeline's ref encodes a story ID that isn't a follow-up to a
     completed story, emits `TRIGGER_MODE=pipeline-failure` plus the
     matching `STORY_ID`. Success/running pipelines and failures on
-    non-story branches yield `TRIGGER_MODE=standalone`.
+    non-story branches yield `TRIGGER_MODE=standalone`. Delivery
+    of pipeline events is via the managed repo's CI-job trigger
+    (I-056), not a webhook — see scaffold-repo SKILL.
   - Either way, `STORY_ID` and `TRIGGER_MODE` are written to
     `detect.env` as a dotenv artifact consumed by downstream jobs.
 
