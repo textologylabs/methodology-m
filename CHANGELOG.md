@@ -58,6 +58,26 @@ All notable changes to Methodology M are documented in this file.
   validate and compile byte-identically. Authors who want HTTP
   assertions add the new step verbs to new ACs.
 
+  **L4 evidence (2026-04-26).** Validated against the live
+  `todo-m-workshop` testbed (`/tmp/m-l1/todo-m-root`). A
+  three-AC PAT (two HTTP-only ACs against `api-read:3002/health`
+  and `api-write:3003/health`, one mixed AC combining `navigate:`
+  with an HTTP probe) compiled cleanly through the v0.11.0
+  cypress provider and was executed via the
+  `cypress/included:14.5.4` container on the
+  `todo-m-root_default` compose network. **Both pure-HTTP ACs
+  passed end-to-end** — `cy.request(...).as('lastResponse')`,
+  `expect-status: 200`, and `expect-body-contains: 'ok'` all
+  evaluated correctly against the running services. The mixed AC
+  failed at `cy.visit('/')` with a `ScriptExternalLoadError` on
+  the shell's `main.js` — this reproduces on the existing
+  TODOM-000 spec on the same stack, so it's a pre-existing
+  workshop runtime issue (Module Federation chunk loading under
+  headless Cypress) and not an I-045 regression. Filed as I-058.
+  Conclusion: v0.11.0 HTTP step types are functionally validated;
+  full structural-ADD-flow exit criterion still requires I-040
+  to land in v0.12.0.
+
 ## [0.10.1] — 2026-04-25
 
 ### Fixed

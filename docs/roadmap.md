@@ -263,11 +263,20 @@ I-040 collapses the structural CAT-compilation path into the standard
 PAT compilation flow — cleaner implementation of I-040 and no more
 workaround.
 
-**Exit criterion (met):** a structural ADD story compiles to an HTTP
-health-check CAT via the cypress provider (`http:` +
-`expect-status:`) and runs successfully in the integration-gate MR,
-without relying on the standalone aliveness probe in
-`integration-test.sh`.
+**Exit criterion (partially met):** the cypress provider's HTTP
+step-type plumbing is validated end-to-end. L4 evidence
+(2026-04-26): a three-AC PAT against the live `todo-m-workshop`
+testbed compiled through `cypress.mjs` and ran in
+`cypress/included:14.5.4` on the compose network — both pure-HTTP
+ACs (`http:` + `expect-status:` + `expect-body-contains:`) passed.
+A mixed AC failed on `cy.visit('/')` because of a pre-existing
+workshop Module Federation issue (filed as I-058, reproduces on
+TODOM-000), not an I-045 regression. The full criterion ("a
+structural ADD story compiles to an HTTP health-check CAT and
+runs successfully in the integration-gate MR, without relying on
+the aliveness probe in `integration-test.sh`") completes when
+I-040 lands in v0.12.0 — that's when a real structural ADD story
+can drive the loop end-to-end.
 
 ---
 

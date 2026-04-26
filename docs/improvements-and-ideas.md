@@ -55,6 +55,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-035 | Duplicate pipelines on MR close | CI noise. Not blocking. |
 | I-037 | AC-to-PAT 1:many mapping | PAT expressiveness. Current model works for simple stories. |
 | I-048 | Switch report-shadow-status.sh to glab CLI | Currently uses raw curl + node (pass1 pattern). Switching to glab would clean up URL construction, JSON parsing, and make future extensions easier (other API calls). Blocked on alpine install story — glab isn't in default apk repo. Low priority, purely QoL, no functional change. |
+| I-058 | Workshop shell + mfe break Module Federation chunk loading under headless Cypress | `cy.visit('/')` against `todo-m-workshop`'s shell raises `ScriptExternalLoadError` on `main.js` while loading mfe chunks. Reproduces on existing TODOM-000 spec — pre-existing, exposed during v0.11.0 / I-045 L4 validation. Blocks browser-touching PAT validation against the live testbed. Likely a webpack `publicPath` / `Cypress.config('baseUrl')` mismatch in the shell's MF runtime. Testbed-side fix, no methodology impact. |
 
 ### Resolved
 
@@ -4194,4 +4195,98 @@ Existing M-type projects on v0.8.x or v0.9.x need to:
 3. Set `M_TRIGGER_TOKEN` + `ROOT_PROJECT_ID` as CI variables on
    each managed repo (re-running `wire-orchestration` against an
    existing project does this idempotently).
+
+## I-058: Workshop shell + mfe Module Federation chunk loading fails under headless Cypress
+
+**Category:** Workshop testbed (todo-m-workshop) — runtime config
+**Tier:** 4 — Polish (testbed-side; no methodology impact)
+**Discovered:** 2026-04-26, during v0.11.0 / I-045 L4 validation
+
+### Problem
+
+Any PAT whose `cy.visit('/')` lands on the workshop shell fails inside
+a headless Cypress 14 run with:
+
+```
+ScriptExternalLoadError
+  at … (http://shell:3000/main.js:2:139077)
+  at i (http://shell:3000/main.js:2:139560)
+  …
+  at i.f.consumes (http://shell:3000/main.js:2:145927)
+```
+
+The shell renders enough of itself for the first DOM check to pass
+(`[data-testid='app-shell'] is visible`), but the moment it tries to
+load mfe via the Module Federation `consumes` runtime, the chunk
+load throws and the test fails.
+
+### Repro
+
+Verified 2026-04-26 against the live `todo-m-workshop` testbed at
+`/tmp/m-l1/todo-m-root`:
+
+```sh
+cd /tmp/m-l1/todo-m-root
+docker compose up -d --build
+docker run --rm \
+  --network todo-m-root_default \
+  -v /tmp/m-l1/todo-m-root:/e2e -w /e2e \
+  cypress/included:14.5.4 \
+  --spec pats/TODOM-000.cy.js \
+  --config baseUrl=http://shell:3000
+```
+
+Result: 1/6 ACs pass (the one that only checks shell visibility);
+5/6 fail or skip on the cascading `before each` failure once mfe
+chunk loading triggers.
+
+The same harness was used for the I-045 L4 validation
+(`pats/TODOM-L4.cy.js`). Both pure-HTTP ACs (`cy.request`-only) passed
+cleanly — proving the failure is specifically at the shell + mfe
+runtime layer, not anywhere in the cypress provider's compiled output
+or the docker / network plumbing.
+
+### Hypothesis
+
+Most likely a webpack `publicPath` / Cypress baseUrl mismatch in the
+shell's Module Federation runtime config. The shell builds
+`remoteEntry.js` URLs assuming a specific origin and that origin
+doesn't match what Cypress sees inside the docker network (or the
+`consumes` machinery is asking for a chunk path the mfe container
+isn't serving). Other plausible causes: missing CORS headers on the
+mfe container's chunk responses; a relative path that resolves
+differently when loaded under a Cypress AUT iframe.
+
+### Impact
+
+- **Methodology:** none. M itself doesn't depend on the testbed shell
+  rendering correctly — this is a workshop-only artefact and a real
+  adopter's project would carry its own frontend with its own MF
+  config.
+- **Validation discipline:** **medium**. While I-058 is open, L4/L5
+  E2E validation against the workshop testbed is restricted to
+  HTTP-only PATs (which still cover the I-045 / I-040 structural
+  exit criteria). Browser-touching ACs can't be exercised
+  end-to-end on the testbed, so any methodology change that
+  meaningfully exercises the shell needs an alternative venue.
+- **CI gate:** unknown. The current integration-test in CI runs
+  `sh scripts/integration-test.sh` (curl probes), not Cypress, so
+  the gate itself is unaffected. If CI is later extended to run
+  Cypress (likely under v0.12.0 / I-040 work), I-058 must be
+  resolved first.
+
+### Effort
+
+S. Likely a one-line `publicPath: 'auto'` (or matching origin) in
+`packages/shell/webpack.config.js` plus possibly a corresponding
+tweak in `todo-m-mfe`'s ModuleFederationPlugin output config.
+Verification is a single re-run of TODOM-000 under the same
+`cypress/included` container.
+
+### Out of scope for v0.11.0
+
+I-058 was discovered during v0.11.0 / I-045 L4 validation but is
+testbed-side. Filing now so the next time the workshop is touched
+for E2E browser validation (likely the v0.12.0 / I-040 cycle) it's
+on the radar.
 
