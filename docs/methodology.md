@@ -981,7 +981,7 @@ acceptance:
 Conventions:
 - All interactive elements use `data-testid` attributes for stable selectors.
 - `when`/`then` are plain English — topology-agnostic, no technical implementation details.
-- `steps` are ordered and deterministic — compiled by the project's active `test.cat.*` provider (`cypress` for browser steps; `curl`/`supertest` coming with I-045).
+- `steps` are ordered and deterministic — compiled by the project's active `test.cat.*` provider. The reference `cypress` provider handles browser steps (`navigate`/`click`/`type`/`assert`/`wait`) and HTTP steps (`http`/`expect-status`/`expect-body-contains`, since v0.11.0/I-045) within a single `.cy.js` output.
 - **Step values are authored as yaml double-quoted scalars** so the selector's `[` and inner `'` parse cleanly. Inner text uses single quotes and cannot contain a single quote.
 - Story-level PATs live in the root repo under `pats/`.
 - Sub-task PATs live in each managed repo under `pats/` with the same schema but scoped to what the component can verify in isolation.

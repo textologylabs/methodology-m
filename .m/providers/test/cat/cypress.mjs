@@ -91,6 +91,12 @@ function compileStep(step) {
     case 'assert':
     case 'wait':
       return compileAssertOrWait(value);
+    case 'http':
+      return compileHttp(value);
+    case 'expect-status':
+      return compileExpectStatus(value);
+    case 'expect-body-contains':
+      return compileExpectBodyContains(value);
     case 'render':
       throw new Error(
         `cypress.compile_story_pat: 'render' step is invalid in story-level PATs ` +
@@ -141,6 +147,35 @@ function compileAssertOrWait(value) {
   if (countMatch) return `${sel}.should('have.length.greaterThan', ${countMatch[1]});`;
 
   throw new Error(`cypress.compile_story_pat: unsupported assert/wait predicate: ${rest}`);
+}
+
+function compileHttp(value) {
+  // Format: <METHOD> <url>[ body '<json>']
+  const m = value.match(/^(GET|POST|PUT|PATCH|DELETE) (\S+)(?: body '([^']*)')?$/);
+  if (!m) {
+    throw new Error(`cypress.compile_story_pat: malformed http step: ${value}`);
+  }
+  const [, method, url, body] = m;
+  if (body === undefined) {
+    return `cy.request('${method}', '${escapeSingle(url)}').as('lastResponse');`;
+  }
+  // Body is JSON; embedded directly as a JS object literal (JSON ⊂ JS).
+  return `cy.request({ method: '${method}', url: '${escapeSingle(url)}', body: ${body} }).as('lastResponse');`;
+}
+
+function compileExpectStatus(value) {
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw new Error(`cypress.compile_story_pat: expect-status must be an integer, got ${JSON.stringify(value)}`);
+  }
+  return `cy.get('@lastResponse').its('status').should('equal', ${value});`;
+}
+
+function compileExpectBodyContains(value) {
+  if (typeof value !== 'string') {
+    throw new Error(`cypress.compile_story_pat: expect-body-contains must be a string`);
+  }
+  // Body may be a string or an object — coerce to JSON text for substring match.
+  return `cy.get('@lastResponse').its('body').then((b) => expect(typeof b === 'string' ? b : JSON.stringify(b)).to.include('${escapeSingle(value)}'));`;
 }
 
 function selectorArg(value) {
