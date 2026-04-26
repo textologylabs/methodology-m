@@ -65,18 +65,22 @@ All notable changes to Methodology M are documented in this file.
   with an HTTP probe) compiled cleanly through the v0.11.0
   cypress provider and was executed via the
   `cypress/included:14.5.4` container on the
-  `todo-m-root_default` compose network. **Both pure-HTTP ACs
-  passed end-to-end** — `cy.request(...).as('lastResponse')`,
-  `expect-status: 200`, and `expect-body-contains: 'ok'` all
-  evaluated correctly against the running services. The mixed AC
-  failed at `cy.visit('/')` with a `ScriptExternalLoadError` on
-  the shell's `main.js` — this reproduces on the existing
-  TODOM-000 spec on the same stack, so it's a pre-existing
-  workshop runtime issue (Module Federation chunk loading under
-  headless Cypress) and not an I-045 regression. Filed as I-058.
-  Conclusion: v0.11.0 HTTP step types are functionally validated;
-  full structural-ADD-flow exit criterion still requires I-040
-  to land in v0.12.0.
+  `todo-m-root_default` compose network.
+
+  Initial run: 2/3 pass. Both pure-HTTP ACs evaluated correctly
+  against the running services
+  (`cy.request(...).as('lastResponse')`, `expect-status: 200`,
+  and `expect-body-contains: 'ok'`). The mixed AC failed at
+  `cy.visit('/')` with a `ScriptExternalLoadError` on the shell's
+  `main.js` — reproduced on the existing TODOM-000 spec on the
+  same stack. Pre-existing workshop runtime issue (filed and
+  resolved same-day as **I-058**, see backlog).
+
+  Post-I-058 run: **TODOM-000 6/6 pass + TODOM-L4 3/3 pass.**
+  v0.11.0 HTTP step types are functionally validated, including
+  the mixed-AC case (browser + HTTP in one `it()` block). Full
+  structural-ADD-flow exit criterion still requires I-040 to
+  land in v0.12.0.
 
 ## [0.10.1] — 2026-04-25
 

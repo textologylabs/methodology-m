@@ -55,7 +55,6 @@ listed for completeness — their write-ups remain below as reference.
 | I-035 | Duplicate pipelines on MR close | CI noise. Not blocking. |
 | I-037 | AC-to-PAT 1:many mapping | PAT expressiveness. Current model works for simple stories. |
 | I-048 | Switch report-shadow-status.sh to glab CLI | Currently uses raw curl + node (pass1 pattern). Switching to glab would clean up URL construction, JSON parsing, and make future extensions easier (other API calls). Blocked on alpine install story — glab isn't in default apk repo. Low priority, purely QoL, no functional change. |
-| I-058 | Workshop shell + mfe break Module Federation chunk loading under headless Cypress | `cy.visit('/')` against `todo-m-workshop`'s shell raises `ScriptExternalLoadError` on `main.js` while loading mfe chunks. Reproduces on existing TODOM-000 spec — pre-existing, exposed during v0.11.0 / I-045 L4 validation. Blocks browser-touching PAT validation against the live testbed. Likely a webpack `publicPath` / `Cypress.config('baseUrl')` mismatch in the shell's MF runtime. Testbed-side fix, no methodology impact. |
 
 ### Resolved
 
@@ -89,6 +88,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-056 | Pipeline-failure fan-out delivery | Pipeline-events webhook (403-blocked at GitLab's trigger endpoint by the `X-Gitlab-Event: Pipeline Hook` loop-prevention guard) replaced by a `report-failure-to-root` CI job in scaffold-repo's managed-repo template. Runs `when: on_failure` under CI job context — no Pipeline Hook header, no 403. wire-orchestration drops the second webhook and adds `M_TRIGGER_TOKEN` + `ROOT_PROJECT_ID` as CI variables on each managed repo. Renderer side (root pipeline) unchanged from v0.8.0. v0.10.0. |
 | I-057 | `report-failure-to-root` curl-globbing regression | v0.10.0's job constructs the trigger URL with `variables[KEY]=VAL` form syntax. curl interprets `[` and `]` as numeric-range glob and exits code 3 (`bad range in URL position 114`) before the request leaves the runner. Caught by L5 validation. Fix: add `-g` (`--globoff`). v0.10.1. |
 | I-045 | HTTP step types in PAT yaml | Three new step verbs (`http`, `expect-status`, `expect-body-contains`) added to `pat.schema.json`. Single-provider absorption: the cypress provider compiles them via `cy.request(...).as('lastResponse')` rather than introducing a parallel `curl`/`supertest` provider plus a framework selector. PAT step types stay framework-agnostic at the schema layer; mixed PATs (browser + HTTP) compile to a single `.cy.js`. `compose-service:` and a standalone backend-only provider remain deferred until a real project demands them. v0.11.0. |
+| I-058 | Workshop MF chunk + api fetch fail under headless cypress | Shell + MFE bundles baked in `http://localhost:300x` URLs at build time — works for host browser (port mapping) but fails inside cypress-in-docker (`localhost` from cypress container ≠ host's localhost). Same-origin proxy through shell's nginx (and webpack-dev-server in `npm run dev`): `/mfe/* → mfe:3001/*`, `/api-read/* → api-read:3002/*`, `/api-write/* → api-write:3003/*`. Bundles now use relative URLs (`todoMfe@/mfe/remoteEntry.js`, `API_URL=/api-read`). Verified: TODOM-000 6/6 + TODOM-L4 3/3 cypress tests pass. Workshop-side fix only; no methodology impact. Resolved 2026-04-26. |
 
 ---
 
@@ -4201,6 +4201,14 @@ Existing M-type projects on v0.8.x or v0.9.x need to:
 **Category:** Workshop testbed (todo-m-workshop) — runtime config
 **Tier:** 4 — Polish (testbed-side; no methodology impact)
 **Discovered:** 2026-04-26, during v0.11.0 / I-045 L4 validation
+**Status:** ✅ Resolved 2026-04-26 (same-day). Same-origin proxy through
+shell's nginx + webpack-dev-server: `/mfe/*`, `/api-read/*`,
+`/api-write/*` route to the matching containers via Docker DNS. Shell
+and mfe bundles use relative URLs by default
+(`todoMfe@/mfe/remoteEntry.js`, `API_URL=/api-read`). Verified:
+TODOM-000 6/6 and TODOM-L4 3/3 cypress tests pass against
+`cypress/included:14.5.4` on the compose network. See *Resolution*
+below.
 
 ### Problem
 
@@ -4289,4 +4297,86 @@ I-058 was discovered during v0.11.0 / I-045 L4 validation but is
 testbed-side. Filing now so the next time the workshop is touched
 for E2E browser validation (likely the v0.12.0 / I-040 cycle) it's
 on the radar.
+
+### Resolution (2026-04-26)
+
+The hypothesis above was correct in shape but pointed at
+`publicPath`; the actual lever was the `MFE_URL` and `API_URL`
+build-time defaults baked into the bundles. Fix landed same-day
+across the two workshop repos.
+
+**Root cause.** Shell's `webpack.config.js` defaulted `MFE_URL` to
+`http://localhost:3001`. MFE's `Hello.jsx` defaulted `API_URL` to
+`http://localhost:3002`. Both URLs are baked into the production
+bundle at build time. They work for a developer's host browser
+(docker-compose port mapping translates `localhost:3001` → mfe
+container) but fail inside cypress-in-docker — `localhost:3001`
+from inside the cypress container resolves to nothing.
+
+**Fix shape.** Same-origin proxy through the shell, with two
+parallel implementations:
+
+- **Production / docker-compose:** shell's `nginx.conf` gains three
+  `location` blocks: `/mfe/`, `/api-read/`, `/api-write/`, each with
+  `proxy_pass http://<service>:<port>/;` so the request is
+  forwarded across the docker network via DNS.
+- **Local development (`npm run dev` / `start-all.sh`):** shell's
+  `webpack.config.js` gains a `devServer.proxy` block with the same
+  three context-path mappings, targeting `http://localhost:300x`
+  (the host-published ports the dev process can reach).
+
+Bundles now reference the MFE remote and the API as relative URLs:
+
+- Shell: `MFE_URL` default flips to `/mfe`, so the
+  `ModuleFederationPlugin` emits `todoMfe@/mfe/remoteEntry.js`.
+- MFE: `API_URL` default flips to `/api-read`, so `Hello.jsx`
+  fetches `/api-read/hello`.
+
+Result: the same bundle runs identically on the developer's host
+browser, inside cypress-in-docker, and (eventually) in CI. No
+build-time URL drift, no environment-specific webpack rebuild.
+
+**Standalone-mfe dev** (`npx webpack serve` in the mfe repo, port
+3001 with no shell in front) loses the API fetch — the page
+renders but shows "Failed to fetch message". Acceptable: that mode
+exists for component-level dev, not E2E. If standalone-mfe ever
+needs working API access, add a matching `devServer.proxy` to the
+mfe's webpack config.
+
+### Changes (workshop repos)
+
+- **`todo-m-workshop/todo-m-root` commit `038a63d`:** shell's
+  `nginx.conf`, `webpack.config.js`, and `Dockerfile`. Adds the
+  three nginx `location` proxies, the matching webpack-dev-server
+  proxy block, and flips `MFE_URL` default to `/mfe` (in webpack
+  config and Dockerfile ARG).
+- **`todo-m-workshop/todo-m-mfe` commit `577396a`:** flips `API_URL`
+  default to `/api-read` in `Hello.jsx` and the Dockerfile ARG.
+
+### Verification
+
+```sh
+cd /tmp/m-l1/todo-m-root
+docker compose up -d --build
+docker run --rm \
+  --network todo-m-root_default \
+  -v /tmp/m-l1/todo-m-root:/e2e -w /e2e \
+  cypress/included:14.5.4 \
+  --spec 'pats/TODOM-*.cy.js' \
+  --config baseUrl=http://shell:3000
+```
+
+Result: **TODOM-000 6/6 pass + TODOM-L4 3/3 pass**. Pre-fix:
+TODOM-000 1/6 + TODOM-L4 2/3.
+
+### Methodology impact
+
+None. The fix lives in the testbed application code, not in
+methodology-m. M-type adopters carry their own frontend application
+with its own MF / origin configuration; this issue was a
+self-inflicted artefact of the workshop's specific build choices.
+
+What this *does* unblock: L4/L5 cypress validation against the
+workshop testbed for browser-touching PATs — including v0.12.0's
+structural ADD demonstration.
 
