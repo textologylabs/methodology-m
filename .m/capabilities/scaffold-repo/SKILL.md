@@ -246,7 +246,10 @@ report-failure-to-root:
       ENCODED_PATH=$(printf '%s' "$CI_PROJECT_PATH" | sed 's|/|%2F|g')
       URL="$CI_API_V4_URL/projects/$ROOT_PROJECT_ID/ref/main/trigger/pipeline?token=$M_TRIGGER_TOKEN&variables[SOURCE_PROJECT_ID]=$CI_PROJECT_ID&variables[SOURCE_PROJECT_PATH]=$ENCODED_PATH&variables[SOURCE_PIPELINE_ID]=$CI_PIPELINE_ID&variables[EVENT_KIND]=pipeline"
       echo "Notifying root of pipeline failure"
-      curl -fsSL -X POST -o /dev/null "$URL"
+      # -g (globoff) is required: GitLab's trigger endpoint takes
+      # variables in `variables[KEY]=VAL` form, and curl otherwise
+      # interprets `[` and `]` as numeric-range glob syntax (I-057).
+      curl -fsSL -g -X POST -o /dev/null "$URL"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: on_failure

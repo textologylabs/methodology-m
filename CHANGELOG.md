@@ -4,6 +4,28 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-04-25
+
+### Fixed
+
+- **I-057 — `report-failure-to-root` curl fails with "bad range in
+  URL".** v0.10.0's `report-failure-to-root` job constructs a URL
+  with `variables[KEY]=VAL` form syntax (GitLab's pipeline trigger
+  endpoint expects this form). curl interprets the `[` and `]` as
+  numeric-range glob syntax and exits code 3 with
+  `bad range in URL position 114` before sending any request, so
+  no fan-out happens. Caught immediately in L5 validation
+  (workshop api-write MR #9, pipeline 2479189751).
+
+  Fix: add `-g` (`--globoff`) to the curl invocation in
+  `.m/capabilities/scaffold-repo/SKILL.md`'s managed-repo
+  pipeline template. With globoff, brackets are treated literally
+  and the request goes through.
+
+  Migration note: existing M-type projects on v0.10.0 need to
+  re-render or hand-patch `.gitlab-ci.yml` on each managed repo
+  to add `-g` to the curl call. One-line surgical edit.
+
 ## [0.10.0] — 2026-04-25
 
 ### Fixed
