@@ -94,7 +94,7 @@
         },
         "steps": {
           "type": "array",
-          "description": "Ordered test steps. Each step is an object with exactly one verb key. Steps map directly to Cypress commands for story-level PATs.",
+          "description": "Ordered test steps. Each step is an object with exactly one verb key. The active test.cat.* provider compiles each verb to a runner-native command — for cypress, browser steps emit cy commands and HTTP steps emit cy.request().",
           "minItems": 1,
           "items": { "$ref": "#/$defs/step" }
         },
@@ -123,7 +123,10 @@
         { "required": ["type"], "properties": { "type": { "$ref": "#/$defs/step-type" } } },
         { "required": ["assert"], "properties": { "assert": { "$ref": "#/$defs/step-assert" } } },
         { "required": ["wait"], "properties": { "wait": { "$ref": "#/$defs/step-wait" } } },
-        { "required": ["render"], "properties": { "render": { "$ref": "#/$defs/step-render" } } }
+        { "required": ["render"], "properties": { "render": { "$ref": "#/$defs/step-render" } } },
+        { "required": ["http"], "properties": { "http": { "$ref": "#/$defs/step-http" } } },
+        { "required": ["expect-status"], "properties": { "expect-status": { "$ref": "#/$defs/step-expect-status" } } },
+        { "required": ["expect-body-contains"], "properties": { "expect-body-contains": { "$ref": "#/$defs/step-expect-body-contains" } } }
       ]
     },
 
@@ -156,6 +159,27 @@
       "type": "string",
       "description": "Render a component with a mock setup. Sub-task PATs only (not browser-level). Not compiled to Cypress — used for component-level testing.",
       "examples": ["Todo component with mocked API", "Todo component with empty mock API"]
+    },
+    "step-http": {
+      "type": "string",
+      "description": "HTTP request. Format: <METHOD> <url>[ body '<json>']. URL may be relative (resolved against the runner's baseUrl) or absolute. Body, when present, must be a valid JSON value embedded as a single-quoted scalar — JSON keys and string values use double quotes, so the JSON itself contains no single quotes (use \\u0027 if an apostrophe is genuinely needed). Compiles to cy.request(...).as('lastResponse').",
+      "pattern": "^(GET|POST|PUT|PATCH|DELETE) \\S+( body '[^']*')?$",
+      "examples": [
+        "GET /count",
+        "GET http://api:3002/todos",
+        "POST http://api:3002/todos body '{\"text\":\"buy milk\"}'"
+      ]
+    },
+    "step-expect-status": {
+      "type": "integer",
+      "description": "Assert the HTTP status code of the most recent http step. Compiles to cy.get('@lastResponse').its('status').should('equal', N).",
+      "minimum": 100,
+      "maximum": 599
+    },
+    "step-expect-body-contains": {
+      "type": "string",
+      "description": "Literal substring match against the response body of the most recent http step. Not a JSON path — JSON-shape bodies are stringified and matched as text, so authors include the JSON punctuation they expect (e.g. \"\\\"count\\\":0\"). Author in yaml as a double-quoted scalar; the value may not contain a single quote.",
+      "pattern": "^[^']*$"
     }
   }
 }

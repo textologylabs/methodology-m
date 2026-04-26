@@ -4,6 +4,60 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-04-26
+
+### Added
+
+- **I-045 — HTTP step types in PAT yaml.** Three new step verbs —
+  `http:`, `expect-status:`, `expect-body-contains:` — extend the
+  `pat.schema.json` step grammar with HTTP-level assertions,
+  unblocking structural stories (TODOM-S01) whose natural check is
+  "does the new component respond at /health?". The cypress provider
+  absorbs them via `cy.request(...).as('lastResponse')`; subsequent
+  `expect-status`/`expect-body-contains` steps assert against the
+  `@lastResponse` alias. Mixed PATs (browser AC + HTTP AC, or both
+  verbs in the same AC) compile to a single `.cy.js` — no
+  multi-framework coordination, no AC-level kind tag.
+
+  **Methodology stance.** This release deliberately departs from the
+  earlier roadmap plan of "add `curl`/`supertest` providers and a
+  framework selector". Instead: PAT step types stay framework-agnostic
+  at the schema layer, and the cypress provider absorbs HTTP via
+  `cy.request`. A standalone backend-only provider remains deferred
+  until a real backend-only project demands one. Rationale: one
+  runner, one CI invocation, no framework-selection logic in
+  `compile-story-pats`, and `cy.request` is genuinely capable for
+  every HTTP shape we need at MVP.
+
+  Changes:
+  - `.m/schemas/pat.schema.json` — three new entries in the `step`
+    `oneOf`, three new `$defs` (`step-http`, `step-expect-status`,
+    `step-expect-body-contains`). Existing browser step types are
+    untouched; existing PATs still validate without modification.
+  - `.m/providers/test/cat/cypress.mjs` — three new cases in the
+    `compileStep` switch and three matching helpers (`compileHttp`,
+    `compileExpectStatus`, `compileExpectBodyContains`). `compileHttp`
+    embeds the JSON body literal directly (JSON ⊂ JS) so request
+    options stay readable; `compileExpectBodyContains` coerces
+    object bodies via `JSON.stringify` before substring match.
+  - `.m/providers/test/cat/cypress.test.mjs` — new file. Closes the
+    pre-existing gap where `cypress.md` referenced a regression
+    suite that did not exist. 29 tests covering all browser steps
+    (regression net), the three new HTTP steps, mixed PATs, and
+    determinism.
+  - `.m/providers/test/cat/cypress.md` — provider doc grows an HTTP
+    steps table, grammar notes, and the methodology-stance callout.
+  - `docs/improvements-and-ideas.md` — I-045 marked Resolved with a
+    "Changes in v0.11.0" subsection and a note explaining the
+    single-provider absorption stance.
+  - `docs/roadmap.md` — v0.11.0 row marked shipped; v0.11.0 entry
+    rewritten to reflect the absorption stance; remaining
+    critical-path estimate updated.
+
+  Migration note: none. Existing PATs (`navigate`/`click`/`type`/`assert`/`wait`/`render`)
+  validate and compile byte-identically. Authors who want HTTP
+  assertions add the new step verbs to new ACs.
+
 ## [0.10.1] — 2026-04-25
 
 ### Fixed

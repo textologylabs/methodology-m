@@ -87,6 +87,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-055 | AOT classification bootstrap paradox | `detect-story-trigger.sh` rewritten under Option Y semantics: classification is based on live open-MR enumeration; the readiness tracker on main is consulted only to filter follow-up MRs to completed stories. Resolves the circular dependency where story MRs couldn't classify as active until the gate MR's tracker was already on main. v0.9.0. |
 | I-056 | Pipeline-failure fan-out delivery | Pipeline-events webhook (403-blocked at GitLab's trigger endpoint by the `X-Gitlab-Event: Pipeline Hook` loop-prevention guard) replaced by a `report-failure-to-root` CI job in scaffold-repo's managed-repo template. Runs `when: on_failure` under CI job context — no Pipeline Hook header, no 403. wire-orchestration drops the second webhook and adds `M_TRIGGER_TOKEN` + `ROOT_PROJECT_ID` as CI variables on each managed repo. Renderer side (root pipeline) unchanged from v0.8.0. v0.10.0. |
 | I-057 | `report-failure-to-root` curl-globbing regression | v0.10.0's job constructs the trigger URL with `variables[KEY]=VAL` form syntax. curl interprets `[` and `]` as numeric-range glob and exits code 3 (`bad range in URL position 114`) before the request leaves the runner. Caught by L5 validation. Fix: add `-g` (`--globoff`). v0.10.1. |
+| I-045 | HTTP step types in PAT yaml | Three new step verbs (`http`, `expect-status`, `expect-body-contains`) added to `pat.schema.json`. Single-provider absorption: the cypress provider compiles them via `cy.request(...).as('lastResponse')` rather than introducing a parallel `curl`/`supertest` provider plus a framework selector. PAT step types stay framework-agnostic at the schema layer; mixed PATs (browser + HTTP) compile to a single `.cy.js`. `compose-service:` and a standalone backend-only provider remain deferred until a real project demands them. v0.11.0. |
 
 ---
 
@@ -3434,6 +3435,11 @@ that describes the M lifecycle. Not trivial but contained.
 **Category:** Methodology / PAT schema
 **Priority:** Medium
 **Discovered:** 2026-04-13, during structural story test (TODOM-S01)
+**Status:** ✅ Resolved in v0.11.0 (2026-04-26). PAT yaml gains three
+new step verbs (`http`, `expect-status`, `expect-body-contains`) and
+the cypress provider absorbs them via `cy.request(...).as('lastResponse')`.
+Single-provider absorption replaces the original "two providers + a
+framework selector" plan — see *Methodology stance shift* below.
 
 ### Problem
 
@@ -3505,6 +3511,99 @@ Medium. Touches: `pat.schema.json` (new step types), `decompose-story`
 documentation describing the PAT format. The structural section of
 `decompose-story` becomes simpler once I-045 lands — its CAT
 compilation rules collapse into the standard PAT compilation flow.
+
+### Methodology stance shift (v0.11.0)
+
+The original proposal above sketched two new `test.cat.*` providers
+(`curl`, `supertest`) and a framework selector in `compile-story-pats`
+that would route per-step verb to the right runner, with mixed PATs
+emitting two output files (`<story>.cy.js` for browser, `<story>.http.sh`
+or `.spec.js` for HTTP).
+
+v0.11.0 deliberately departs from that plan. Instead:
+
+- **PAT step types stay framework-agnostic at the schema layer.** A
+  step's verb names what it asserts, not what runs it.
+- **The cypress provider absorbs HTTP via `cy.request`.** No parallel
+  provider, no framework selector in the compiler, no per-AC `kind`
+  tag, no two-output coordination. Mixed PATs compile to a single
+  `.cy.js` end to end.
+- **`compose-service:` is excluded.** The structural exit criterion
+  is satisfied by `http:` + `expect-status:` alone (HTTP probe
+  inside the PAT, the actually-missing piece). Compose-existence
+  checks remain in the aliveness probe in `integration-test.sh`.
+- **A standalone backend-only provider stays deferred.** `cy.request`
+  doesn't need DOM nav but does still boot Cypress. The day a
+  truly backend-only project arrives, a `curl`/`supertest`
+  provider becomes pull-driven work.
+
+Why this is better than the original two-provider plan: one runner,
+one CI invocation, one output file, no per-step framework dispatch
+in `compile-story-pats`. The "PAT yaml is the single source of
+truth for assertions" narrative is preserved without paying a
+provider-selection-architecture cost the MVP doesn't need.
+
+### Changes in v0.11.0
+
+- **`.m/schemas/pat.schema.json`** — three new entries in the `step`
+  `oneOf`, three new `$defs`:
+  - `step-http` (string, pattern `^(GET|POST|PUT|PATCH|DELETE) \S+( body '[^']*')?$`)
+    — `<METHOD> <url>[ body '<json>']`. Body, when present, must
+    be a valid JSON value embedded as a single-quoted scalar
+    (JSON ⊂ JS, so it can be inlined directly into spec source).
+  - `step-expect-status` (integer, 100–599) — assertion against
+    the most recent http step's status.
+  - `step-expect-body-contains` (string, no inner single quote) —
+    literal substring match against the body of the most recent
+    http step. Object bodies are stringified via `JSON.stringify`
+    before matching, so authors include the JSON punctuation
+    they expect (`"\"count\":0"`).
+
+  Existing browser step types are untouched; existing PATs still
+  validate without modification.
+
+- **`.m/providers/test/cat/cypress.mjs`** — three new cases in the
+  `compileStep` switch and three matching helpers (`compileHttp`,
+  `compileExpectStatus`, `compileExpectBodyContains`). `compileHttp`
+  emits the request-options form when a body is present (so the
+  JSON body literal embeds directly as a JS object) and the
+  shorthand `cy.request(method, url)` form otherwise; both call
+  `.as('lastResponse')` so subsequent assertion steps can chain
+  off `@lastResponse`. `compileExpectBodyContains` coerces the
+  body to JSON text before substring match so object responses
+  match cleanly.
+
+- **`.m/providers/test/cat/cypress.test.mjs`** — new file. Closes
+  the pre-existing gap where `cypress.md` referenced a regression
+  suite that did not exist. 29 tests:
+  - Output shape (path, mode, error cases).
+  - All browser step verbs as a regression net.
+  - All three new HTTP step verbs (positive cases, malformed
+    rejection, escaping).
+  - Mixed PAT (browser AC + HTTP AC) compiling to a single
+    `.cy.js` with declared order preserved.
+  - Determinism: same input → byte-identical output.
+
+- **`.m/providers/test/cat/cypress.md`** — provider doc grows an
+  HTTP steps mapping table, grammar notes (methods, URL forms,
+  body, alias semantics, substring vs JSON-path), and the
+  methodology-stance callout naming the single-provider absorption
+  decision.
+
+- **`docs/methodology.md`** — Section 5 PAT description updated
+  to name the cypress provider as the handler for both browser
+  and HTTP steps, retiring the "curl/supertest coming with I-045"
+  forward-looking phrase.
+
+- **`docs/roadmap.md`** — v0.11.0 entry rewritten to describe the
+  absorption stance and the explicit `compose-service:` deferral.
+  Sizing table updated (S, shipped). I-040's prior-phase callout
+  in v0.12.0 reworded to point at HTTP step types rather than
+  multi-framework compilation.
+
+Migration note: none. PATs that use only the existing browser step
+types validate and compile byte-identically. Authors who want HTTP
+assertions add the new verbs to new ACs.
 
 ---
 

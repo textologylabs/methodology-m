@@ -230,33 +230,44 @@ story branch fires `report-failure-to-root` → root shadow runs with
 
 ---
 
-### v0.11.0 — I-045: multi-framework PAT yaml
+### v0.11.0 — I-045: HTTP step types in PAT yaml (shipped 2026-04-26)
 
-**Goal:** PAT yaml can articulate non-browser assertions natively.
+**Goal (met):** PAT yaml articulates non-browser assertions natively.
 
-Extend `pat.schema.json` with step types beyond the current Cypress
-shape (`http: GET /endpoint`, `expect-status: 200`,
-`expect-body-contains: <string>`, `compose-service: <name>`). Add
-matching `test.cat.*` providers (`curl`, `supertest`) so
-`compile-story-pats` chooses the right framework from the step
-types in the PAT. Mixed PATs (browser + HTTP) compile to
-multi-framework output.
+Extended `pat.schema.json` with three new step types — `http: GET
+/endpoint`, `expect-status: 200`, `expect-body-contains: <string>`.
+**Single-provider absorption stance:** rather than introducing a
+parallel `curl`/`supertest` provider plus a framework selector in
+`compile-story-pats`, the existing cypress provider absorbed the
+new step types via `cy.request(...).as('lastResponse')`. PAT step
+types stay framework-agnostic at the schema layer; one provider,
+one runner, one CI invocation; no multi-framework coordination at
+compile time. A standalone backend-only provider is deferred until
+a real backend-only project demands it.
+
+`compose-service: <name>` is **not** in v0.11.0 — the structural
+exit criterion below is satisfied by `http:` + `expect-status:`
+alone (HTTP probe inside the PAT, the missing piece). Compose
+existence is already covered by the aliveness probe in
+`integration-test.sh`. Add `compose-service:` if a future story
+requires asserting it inside the PAT itself.
 
 **Pulled into MVP from the deferred list (2026-04-21).** Reason:
 structural stories (ADD/REMOVE/RENAME under I-040) have no
 user-facing assertion — the natural check is "does the new component
-respond at /health?", unexpressible in PAT yaml today. The current
-workaround is the curl-based aliveness probe in
-`scripts/integration-test.sh`, which keeps PAT yaml from being the
+respond at /health?", unexpressible in PAT yaml pre-v0.11.0. The
+prior workaround was the curl-based aliveness probe in
+`scripts/integration-test.sh`, which kept PAT yaml from being the
 single source of truth for story assertions. Landing I-045 **before**
 I-040 collapses the structural CAT-compilation path into the standard
 PAT compilation flow — cleaner implementation of I-040 and no more
 workaround.
 
-**Exit criterion:** a structural ADD story compiles to an HTTP
-health-check CAT via `test.cat.curl` (or `supertest`) and runs
-successfully in the integration-gate MR, without relying on the
-standalone aliveness probe in `integration-test.sh`.
+**Exit criterion (met):** a structural ADD story compiles to an HTTP
+health-check CAT via the cypress provider (`http:` +
+`expect-status:`) and runs successfully in the integration-gate MR,
+without relying on the standalone aliveness probe in
+`integration-test.sh`.
 
 ---
 
@@ -268,14 +279,14 @@ Define structural-story types for ADD, REMOVE, RENAME (and possibly
 MERGE/SPLIT). Each runs through decompose-story → generate-pats →
 compile-story-pats → AOT as normal, with the renderer regenerating
 topology artefacts deterministically from the new `project.yaml`.
-The renderer being real code (shipped in v0.5.1) and the
-`test.cat.*` providers for HTTP assertions (shipped in v0.10.0) are
-what make this tractable.
+The renderer being real code (shipped in v0.5.1) and the cypress
+provider absorbing HTTP step types (shipped in v0.11.0) are what
+make this tractable.
 
 **Selected from Tier 2.** Benefits from the three prior phases:
 
 - Sub-task PATs land cleanly on structural stories (I-042).
-- Multi-framework PAT compilation retires the integration-test.sh
+- HTTP step types in PAT yaml retire the integration-test.sh
   aliveness-probe workaround (I-045).
 - Depends on v0.5.1's renderer (done) and `push_or_update_files`
   (done).
@@ -343,7 +354,7 @@ real use.
 | **I-049 full** (migrate remaining deterministic units to code) | PAT→CAT compilation, schema validation, scm/* pure-dispatch — all work today as SKILLs. Architectural cleanup, not loop closure. |
 | **I-041** (pessimistic invalidation on pipeline start) | Tightens the gate; loose gate still functions. |
 | **I-050 full harness** | v0.5.1's thin seed defends the renderer + push lifecycle. Full harness is post-MVP protection work. |
-| **I-009 test/deploy plugin dimensions** | Pull-driven — add when a real project demands a test stack or deploy target M doesn't cover. Note: the `test.cat.*` namespace introduced in v0.6.0 and extended in v0.10.0 is a partial down-payment on this. |
+| **I-009 test/deploy plugin dimensions** | Pull-driven — add when a real project demands a test stack or deploy target M doesn't cover. Note: the `test.cat.*` namespace introduced in v0.6.0 and extended in v0.11.0 (I-045 — HTTP step types absorbed by the cypress provider) is a partial down-payment on this. |
 | **I-052** (`m init --user`) | Only MVP-critical if Outpost M-injection (Phase D) runs concurrently. Captain 2026-04-20: Phase D is post-M-MVP. I-052 follows it. |
 | **I-016** (methodology paper overhaul) | Post real use — the paper should reflect truth, not plan. |
 | **Tier 4 items** | Polish. Not MVP. |
@@ -375,7 +386,7 @@ entirely one-way: Outpost waits for M.
 | v0.9.0 | I-055 (AOT classification bootstrap fix, Option Y) | S (shipped 2026-04-23) |
 | v0.10.0 | I-056 (pipeline-failure delivery — CI job replaces webhook) | S (shipped 2026-04-25) |
 | v0.10.1 | I-057 (`report-failure-to-root` curl-globoff regression caught in L5) | XS (shipped 2026-04-25) |
-| v0.11.0 | I-045 | 2–3 days |
+| v0.11.0 | I-045 (HTTP step types absorbed by cypress provider) | S (shipped 2026-04-26) |
 | v0.12.0 | I-040 | 3–5 days |
 | v0.13.0 | I-004 | 3–5 days |
 | v1.0.0 | MVP tag | 0.5 day |
