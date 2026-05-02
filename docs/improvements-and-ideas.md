@@ -89,6 +89,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-057 | `report-failure-to-root` curl-globbing regression | v0.10.0's job constructs the trigger URL with `variables[KEY]=VAL` form syntax. curl interprets `[` and `]` as numeric-range glob and exits code 3 (`bad range in URL position 114`) before the request leaves the runner. Caught by L5 validation. Fix: add `-g` (`--globoff`). v0.10.1. |
 | I-045 | HTTP step types in PAT yaml | Three new step verbs (`http`, `expect-status`, `expect-body-contains`) added to `pat.schema.json`. Single-provider absorption: the cypress provider compiles them via `cy.request(...).as('lastResponse')` rather than introducing a parallel `curl`/`supertest` provider plus a framework selector. PAT step types stay framework-agnostic at the schema layer; mixed PATs (browser + HTTP) compile to a single `.cy.js`. `compose-service:` and a standalone backend-only provider remain deferred until a real project demands them. v0.11.0. |
 | I-040 | Topology changes (ADD) | A project's component set can evolve mid-project via the standard story flow. ADD shipped via two-phase `decompose-story` (Phase A: sub-task + readiness tracker, no SCM mutation; Phase B: `project.yaml` mutation + topology re-render) composed with v0.6.0's `generate-pats`/`compile-story-pats`/`test.cat.cypress`, v0.11.0's HTTP step types + cypress absorption, v0.5.1's pure-function topology renderer + `scm.push_or_update_files`, and #18's phase-split contract. No new code in v0.12.0 — the release ships I-040 because end-to-end ADD is now demonstrated against a real workshop testbed (TODOM-S02 → metrics on port 3004, root MR !35, pipeline 2495405820, all 5 jobs success; topology aliveness probes 5/5 pass on real GitLab CI). REMOVE / RENAME / MERGE / SPLIT / PORT-CHANGE remain deferred. v0.12.0. |
+| I-040 | Topology changes (REMOVE) | The structural-verb family extended: a project's component set can also shrink mid-project. New `expect-unreachable` step verb (cypress provider absorbs it via fused fetch+catch — cy.request can't observe network errors before chained .then). Caller pre-flight at decompose-story Step 2 enforces M's verifiability invariant: removing a component with active callers conflates structural change with behaviour change, so REMOVE-with-callers is hard-rejected with guidance to ship a prep story first. compile-story-pats's bundle assembly identifies historical compiled CATs that probe the removed component (static grep on name + ports) and includes their deletion. Regenerated detect-story-trigger.sh carries a 5-line source-repo guard so orphan-repo webhooks classify as standalone (no spurious shadow runs); managed-repo decommission proper is filed as I-061 follow-up. Demonstrated end-to-end against the live workshop (TODOM-S03 → remove metrics, root MR !36, pipeline 2495493085, validate:compose green with topology probes 4/4 — was 5/5 before). v0.12.1. |
 | I-058 | Workshop MF chunk + api fetch fail under headless cypress | Shell + MFE bundles baked in `http://localhost:300x` URLs at build time — works for host browser (port mapping) but fails inside cypress-in-docker (`localhost` from cypress container ≠ host's localhost). Same-origin proxy through shell's nginx (and webpack-dev-server in `npm run dev`): `/mfe/* → mfe:3001/*`, `/api-read/* → api-read:3002/*`, `/api-write/* → api-write:3003/*`. Bundles now use relative URLs (`todoMfe@/mfe/remoteEntry.js`, `API_URL=/api-read`). Verified: TODOM-000 6/6 + TODOM-L4 3/3 cypress tests pass. Workshop-side fix only; no methodology impact. Resolved 2026-04-26. |
 
 ---
@@ -3165,7 +3166,7 @@ step anymore. It's a side effect of decomposition.
 **Category:** Methodology / architecture
 **Priority:** Important (uncovered territory)
 **Discovered:** 2026-04-11, discussing wiring between managed repos
-**Status:** ✅ Resolved (v0.12.0, 2026-05-02) — ADD shipped, demonstrated end-to-end against the live workshop testbed (TODOM-S02 → metrics component, root MR !35, pipeline 2495405820). REMOVE / RENAME / MERGE / SPLIT / PORT-CHANGE remain deferred to v0.12.x as separate items per the Locked design below. See CHANGELOG v0.12.0 for L4/L5 evidence.
+**Status:** ✅ Resolved — ADD (v0.12.0, 2026-05-02) and REMOVE (v0.12.1, 2026-05-03) shipped, both demonstrated end-to-end against the live workshop testbed: TODOM-S02 added the metrics component (root MR !35, pipeline 2495405820); TODOM-S03 removed it (root MR !36, pipeline 2495493085, validate:compose green against the smaller topology). RENAME / MERGE / SPLIT / PORT-CHANGE remain deferred to v0.12.x as separate items per the Locked designs below. See CHANGELOG v0.12.0 / v0.12.1 for L4/L5 evidence.
 
 ### Problem
 
@@ -4859,3 +4860,163 @@ mapping onto current ones.
 None needed for normal operation. Anyone touching
 `compile-story-pats` for TODOM-000 should fix the yaml before
 recompiling.
+
+
+---
+
+## I-061: `unwire-orchestration` capability — managed-repo decommission
+
+**Category:** M capability / structural-verb completeness
+**Priority:** Low (orphan-repo source-repo guard from v0.12.1
+closes the only operational gap)
+**Discovered:** 2026-05-02, locking the v0.12.x REMOVE design
+
+### Problem
+
+When a REMOVE story merges, the to-be-removed managed repo is
+left untouched on the SCM platform — its webhook to root, its
+`M_TRIGGER_TOKEN` / `ROOT_PROJECT_ID` CI variables, and its
+branch protection all remain. M's view of the project ends at
+`project.yaml`, by design.
+
+The v0.12.1 REMOVE ship added a source-repo guard to
+`detect-story-trigger.sh` so orphan-repo MR webhooks classify as
+standalone (no spurious shadow runs), which is the only
+operational hazard. What's left is cosmetic / GitLab-tidy: the
+orphan webhook keeps firing harmless triggers, the orphan repo
+keeps appearing in the project listing, the orphan CI variables
+keep existing.
+
+### Proposal
+
+Add an `unwire-orchestration` capability that mirrors
+`wire-orchestration` for the decommission path:
+
+1. Delete the managed repo's MR webhook to root.
+2. Delete the managed repo's `M_TRIGGER_TOKEN` and
+   `ROOT_PROJECT_ID` CI variables.
+3. (Optional, behind a `--archive-repo` flag) Archive or delete
+   the managed repo on the SCM platform.
+
+The capability would be invoked by the agent at the user's
+explicit request after a REMOVE story merges (NOT auto-invoked —
+M does not delete user assets without intent).
+
+### Why low priority
+
+- The source-repo guard from v0.12.1 closes the spurious-run
+  problem. Everything else is tidiness.
+- Real M projects shouldn't accumulate orphan repos faster than
+  manual cleanup can handle.
+- Bundled cleanup adds risk to the REMOVE ship without unblocking
+  any user need.
+
+Pull-driven — implement when a real project asks for it.
+
+
+---
+
+## I-062: Historical-CAT scan as a shared utility (REMOVE today, RENAME tomorrow)
+
+**Category:** M capability / refactor
+**Priority:** Low (single-call-site for now)
+**Discovered:** 2026-05-02, locking the v0.12.x REMOVE design
+
+### Problem
+
+v0.12.1 REMOVE introduced a static grep over `pats/*.cy.js` to
+identify historical compiled CATs that probe the to-be-removed
+component. The scan lives inline in `compile-story-pats`'s bundle
+assembly. RENAME (deferred to a later v0.12.x ship) will need a
+similar but distinct scan: instead of "find files referencing
+component X for deletion," it'll be "find files referencing
+component X and rewrite them to reference component Y."
+
+### Proposal
+
+Extract the scan logic into a shared utility (likely
+`.m/capabilities/_lib/historical-cat-scan.mjs` or similar). The
+utility takes the root repo working dir + a list of "term to
+locate" patterns, returns the matching files. Callers decide what
+to do with the matches (delete vs rewrite).
+
+### Why low priority
+
+- Single caller today (REMOVE).
+- Inline is fine while the contract is unclear (the RENAME shape
+  may want different semantics).
+- Premature abstraction would lock the wrong shape.
+
+Re-evaluate once RENAME's design is locked.
+
+
+---
+
+## I-063: `scm.delete_file` MCP primitive
+
+**Category:** SCM provider tooling
+**Priority:** Medium (workaround exists but methodology-defined
+deletes ship as stubs without it)
+**Discovered:** 2026-05-03, v0.12.1 REMOVE evidence run on the
+workshop
+
+### Problem
+
+The MCP gitlab wrapper exposes `create_or_update_file` for file
+writes but has no `delete_file` action. v0.12.1's REMOVE design
+calls for the gate MR bundle to **delete** historical compiled
+CATs that probe the removed component (so cypress's
+`**/*.cy.js` glob doesn't surface them and run them against a
+topology that no longer answers their probes). With no delete
+primitive, the v0.12.1 evidence run pushed a stub `describe()`
+block in place of the real delete — functionally equivalent
+(cypress discovers the file, finds no tests, moves on) but
+doesn't match the methodology's documented semantic.
+
+The GitLab REST commits API supports `action: "delete"` natively;
+the gap is in the MCP wrapper layer, not the underlying platform.
+
+### Proposal
+
+Add `mcp__gitlab__delete_file` (or extend
+`create_or_update_file` with a `delete: true` mode) backed by:
+
+```
+DELETE /projects/:id/repository/files/:path
+```
+
+or, preferred for atomicity with other bundle operations:
+
+```
+POST /projects/:id/repository/commits
+  actions: [{ action: "delete", file_path: ... }, ...]
+```
+
+The atomic-commits-API path also enables the
+`scm.push_or_update_files` provider doc's "preferred
+implementation (atomic single commit)" path, which currently
+falls back to per-file calls because no MCP wrapper for the
+commits API exists yet.
+
+### Workaround (until fixed)
+
+Push a stub `describe()` block via `create_or_update_file`. The
+file remains on disk but contains no tests; cypress treats it as
+a no-op spec. Operationally equivalent for cypress runs; not
+equivalent for code-archaeology purposes (the file should be
+gone, not stubbed). Document the workaround in the gate MR
+description and file the gap as a known limitation.
+
+### Methodology impact
+
+The `scm.delete_file` semantic is also needed for any future M
+capability that issues file deletions through the SCM:
+
+- v0.12.x RENAME (rewrites historical CATs in place — could be
+  modeled as delete-then-create or as in-place update; either
+  works)
+- I-061 `unwire-orchestration` (deleting the managed-repo CI
+  variables uses a different MCP tool; not blocked by this)
+
+Worth shipping early so REMOVE evidence runs use the real delete
+on the next iteration.

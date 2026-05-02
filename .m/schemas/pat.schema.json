@@ -126,7 +126,8 @@
         { "required": ["render"], "properties": { "render": { "$ref": "#/$defs/step-render" } } },
         { "required": ["http"], "properties": { "http": { "$ref": "#/$defs/step-http" } } },
         { "required": ["expect-status"], "properties": { "expect-status": { "$ref": "#/$defs/step-expect-status" } } },
-        { "required": ["expect-body-contains"], "properties": { "expect-body-contains": { "$ref": "#/$defs/step-expect-body-contains" } } }
+        { "required": ["expect-body-contains"], "properties": { "expect-body-contains": { "$ref": "#/$defs/step-expect-body-contains" } } },
+        { "required": ["expect-unreachable"], "properties": { "expect-unreachable": { "$ref": "#/$defs/step-expect-unreachable" } } }
       ]
     },
 
@@ -180,6 +181,11 @@
       "type": "string",
       "description": "Literal substring match against the response body of the most recent http step. Not a JSON path — JSON-shape bodies are stringified and matched as text, so authors include the JSON punctuation they expect (e.g. \"\\\"count\\\":0\"). Author in yaml as a double-quoted scalar; the value may not contain a single quote.",
       "pattern": "^[^']*$"
+    },
+    "step-expect-unreachable": {
+      "type": "boolean",
+      "description": "Assert the most recent http step did NOT receive a 1xx-4xx response. Passes if the request failed at the network layer (DNS failure, connection refused, timeout) OR returned a 5xx. Fails if the request returned 1xx/2xx/3xx/4xx — those would mean a service answered, which contradicts 'the endpoint is gone'. Use exclusively in REMOVE story PATs to assert the negative-existence of a previously-existing endpoint. Compiles atomically with the preceding http step (cy.request throws on network errors before any chained .then runs, so the http: + expect-unreachable pair is rewritten as a single fetch+catch block rather than chaining off @lastResponse).",
+      "const": true
     }
   }
 }

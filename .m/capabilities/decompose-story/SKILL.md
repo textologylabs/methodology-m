@@ -75,10 +75,59 @@ this point in the lifecycle.
 
 ### Step 2 — Propose AC → component mapping
 
+**REMOVE pre-flight (structural REMOVE stories only).** If the story
+prose implies removal of a component (verbs like "remove", "delete",
+"drop", "decommission"), run a caller pre-flight check **before**
+proposing the AC mapping. The pre-flight enforces M's verifiability
+invariant: a structural change must be verifiable as structural in
+isolation. Removing a component that is actively called by another
+component would conflate "topology shrank" with "callers handled the
+removal correctly" — a green gate would prove neither independently.
+
+Pre-flight scans for active references to the to-be-removed
+component:
+
+- The current `pats/*.pat.yaml` and `pats/*.cy.js` on the root repo
+  for the component's name or any of its declared ports.
+- Each managed repo's `pats/*.pat.yaml` (cheap — repos are typically
+  cloned for any non-trivial story work).
+- `project.yaml` `components[].location` references (none expected
+  in normal practice — locations are independent).
+
+If any caller is found, decompose-story **refuses to proceed** and
+prints a guidance message naming the callers and the prep-story
+required:
+
+> Cannot decompose REMOVE story `<story-id>`: component `<name>` is
+> still actively called by `<caller(s)>`. Ship a prep story first
+> that either (a) adds a replacement the callers can use OR (b)
+> removes the active use. Then re-run decompose-story for this
+> REMOVE.
+
+This is a hard reject, not a warning. The methodology's verifiability
+guarantee depends on it.
+
+The pre-flight excludes the REMOVE story's own prior gate spec from
+the scan (e.g. when removing the metrics component shipped by
+TODOM-S02, references in `pats/TODOM-S02.cy.js` are expected — that
+historical CAT is handled by `compile-story-pats`'s historical-CAT
+delete; see its SKILL).
+
 Reason about which acceptance criteria each component is responsible
 for, then present the proposed mapping to the user. Mapping is
 derived from the story's AC prose and the component list — not from
 any PAT yaml.
+
+For pure REMOVE stories, **the component list is empty** — the
+change is entirely in `project.yaml` + the renderer regenerating
+topology files; no managed-repo work is required. Present this
+explicitly to the user (e.g. "TODOM-S03: pure REMOVE — zero
+sub-tasks; topology shrinks by one component"). The readiness
+tracker for a pure REMOVE has `components: []`, which is valid; the
+merge-transaction's completeness gate is vacuously satisfied (zero
+sub-tasks to wait on) and the per-AC gate proof is carried by the
+story-level PAT (one AC using `expect-unreachable`) plus the
+regenerated topology aliveness probes.
 
 **AC supersession:** If the story text indicates that an existing AC
 from a previous story is being changed or removed, flag it in the
@@ -359,6 +408,25 @@ For business stories the orchestration collapses to:
 `decompose-story → generate-pats → compile-story-pats` (no phase
 arguments; Phase B no-ops at the end of the unphased call).
 
+**Order of operations for REMOVE-type structural changes** (v0.12.x):
+
+1. `decompose-story` (unphased) → caller pre-flight (Step 2 — hard
+   reject if active callers exist), readiness tracker with empty
+   `components: []`, mutated `project.yaml` (entry deleted, health
+   endpoint removed), regenerated topology artefacts (one fewer
+   service everywhere).
+2. `generate-pats` → one-AC story PAT using `expect-unreachable`
+   against the previously-existing endpoint. No sub-task PATs (no
+   sub-tasks exist).
+3. `compile-story-pats` → compiles the PAT (the cypress provider
+   absorbs `expect-unreachable` via the fused fetch+catch block),
+   bundles the compiled CAT + readiness tracker + structural
+   artefacts + **deletions of historical compiled CATs that probe
+   the removed component** into the root-repo integration-gate MR.
+
+REMOVE has no `scaffold-repo` step (no new repo to seed) and uses
+the unphased call (no inter-phase precondition to satisfy).
+
 ### S-1 — Author the new project.yaml (stage locally)
 
 Transform the story's structural description into the new topology
@@ -367,8 +435,8 @@ manifest and write it to the root-repo working directory
 
 | Story prose | project.yaml change |
 |---|---|
-| "add a new backend component `<name>`" | Append a `components:` entry with `type: referenced`, `role: backend`, next free port (lowest unused ≥ 3002) |
-| "remove component `<name>`" | Delete that `components:` entry |
+| "add a new backend component `<name>`" | Append a `components:` entry with `type: referenced`, `role: backend`, next free port (lowest unused ≥ 3002); append `http://localhost:<port>/health` to `compose.integration.health.endpoints` |
+| "remove component `<name>`" | Delete that `components:` entry; remove the matching `http://localhost:<port>/...` entry from `compose.integration.health.endpoints`. Note: M does NOT delete or unwire the GitLab managed repo — that's a user decision (see I-061 for the optional `unwire-orchestration` capability). The regenerated `detect-story-trigger.sh` includes a source-repo guard so any orphan webhook fires harmlessly as standalone |
 | "merge `<a>` and `<b>` into `<c>`" | Delete `<a>` and `<b>`; append `<c>` with the lowest-numbered port of the two |
 | "rename `<a>` to `<b>`" | Update `name` and derived `location` on that entry |
 | "change port of `<a>` to N` | Update the `port` field |
