@@ -27,6 +27,13 @@ As of v0.6.0, the story lifecycle is:
    files, the readiness tracker, and — for structural stories —
    the new `project.yaml` + regenerated topology artefacts staged
    locally.
+
+   For structural ADD stories the capability is callable in two
+   phases: **Phase A** (sub-task authoring) before `scaffold-repo`,
+   **Phase B** (project.yaml mutation + topology regeneration) after.
+   See "Phase boundary" below. Business stories run both phases
+   back-to-back as a single call; Phase B is a no-op when the story
+   has no structural verbs.
 2. [`generate-pats`](../generate-pats/SKILL.md) — reads the enriched
    story + all sub-task markdown files. Produces
    `<story-id>.pat.yaml` and one `<sub-task-id>.pat.yaml` per
@@ -50,6 +57,7 @@ mapping, contract authoring, and gate establishment — in one place.
 | `story-file` | path | Yes | Path to the source story markdown file |
 | `workspace` | path | No | Output folder for generated artefacts |
 | `root-repo-dir` | path | No | Root-repo working directory for structural-story staging (defaults to `workspace/..`) |
+| `phase` | `a` \| `b` | No | Run only Phase A (sub-task authoring) or Phase B (structural mutations). Omit to run both back-to-back. Used for structural ADD orchestration — see "Phase boundary" below. |
 
 ## Execution
 
@@ -88,22 +96,23 @@ note so `generate-pats` picks it up when producing sub-task PATs,
 and so the CAT compilation step knows which existing tests to update
 or remove.
 
-**Mandatory root repo sub-task:** Every story MUST include a sub-task
-for the root repo, regardless of whether the shell code changes. The
-root repo owns story-level integration tests — the gate that
-validates the composed system satisfies the story's acceptance
-criteria. Without this sub-task, shadow integration has no tests to
-run and will fail structurally.
+**No root sub-task.** Sub-tasks represent developer work in a
+managed repo. The root repo's per-story contribution — the compiled
+story CAT, the readiness tracker, and (for structural stories) the
+mutated `project.yaml` + regenerated topology artefacts — is fully
+automated by `compile-story-pats` and (for structural) Phase B of
+this capability. There is no "root sub-task" because there is no
+manual root work for the typical story.
 
-The root repo sub-task always includes:
-- Story-level integration tests: a compiled CAT at
-  `pats/<story-id>.<spec-extension>` produced later by
-  `compile-story-pats`. Extension depends on the active `test.cat`
-  provider (e.g. `.cy.js` for cypress).
-- Any compose config changes needed for the story go through
-  `project.yaml` and the topology renderer — never hand-edited into
-  `docker-compose.yml`.
-- Readiness tracker updates.
+If a story is purely root-scoped (e.g. adding a stack-startup smoke
+test that lives only in root), it gets a single sub-task whose
+component is `root` — but that's the same as any other single-component
+story, not a special "root sub-task" pattern. The previous "mandatory
+root sub-task" rule (pre-I-036) was carrying responsibilities that
+moved to `compile-story-pats` in v0.6.0; the rule was retired in
+v0.12.0 to match the post-I-036 methodology and the actual
+practice (`stories/TODOM-000.yaml` and the I-036 after-business
+fixture both already operate without a root sub-task).
 
 **Note on integration-test scripts.** M has exactly ONE integration
 test script at `scripts/integration-test.sh` — it is topology-wide,
@@ -115,14 +124,9 @@ filesystem. Per-story shell scripts under
 `scripts/integration-tests/<story-id>.sh` do NOT exist in the current
 design; any historical references to that path are legacy from
 before CAT compilation and should be scrubbed. Per-story assertions
-live in the compiled CAT written by `compile-story-pats` (or, for
-HTTP-layer assertions, in future HTTP CATs via I-045).
-
-Even when the shell component has no feature changes, the root repo
-sub-task exists because the integration tests are the root repo's
-contribution to every story. This is not optional — it is how M
-ensures that shadow integration is a real gate, not a permissive
-placeholder.
+live in the compiled CAT written by `compile-story-pats` (HTTP-layer
+assertions are absorbed by the cypress provider via v0.11.0's
+`http`/`expect-status`/`expect-body-contains` step types).
 
 Present the proposed mapping to the user:
 
@@ -135,11 +139,6 @@ Proposed AC mapping for <story-id>:
 
   <component-name> (sub-task: <story-id>b)
     - <AC summary>
-
-  root (sub-task: <story-id><last-suffix>) [MANDATORY]
-    - Story-level integration tests (compiled later by compile-story-pats)
-    - Compose config changes (if any)
-    - End-to-end validation of all story ACs
 
   ...
 
@@ -252,55 +251,39 @@ criteria line so `generate-pats` carries it into the sub-task PAT's
 `replaces:` field. `generate-acceptance-tests` later uses that field
 to update or delete the old compiled test.
 
-## Root repo sub-task format
+## Phase boundary
 
-The root repo sub-task has a distinct structure because its primary
-deliverable is integration tests, not feature code:
+decompose-story has two conceptual phases. They run back-to-back for
+business stories (single call, no `phase` argument). For structural
+ADD stories they MUST run separately so that the new component's
+GitLab repo can be scaffolded between them.
 
-```
-# <story-id><suffix>: root — Story-level integration
+### Phase A — sub-task authoring (Steps 1–3)
 
-**Type:** Technical Sub-Task
-**Status:** Pending
-**Parent:** <story-id>
-**Component:** root
-**Repo:** <root-repo-name>
+Reads story prose, proposes AC→component mapping (waits for
+confirmation), generates the enriched story, sub-task markdown
+files, and the readiness tracker. Produces no SCM calls and no
+`project.yaml` mutations. Output is identical for business and
+structural stories.
 
-## Summary
+Invoked as `decompose-story --phase=a`, or implicitly first in an
+unphased call.
 
-Story-level integration validation for <story-id>. Provides the
-integration tests that gate shadow integration — no managed repo MR
-can merge until these tests pass against the composed system.
+### Phase B — structural mutations (S-1, S-2)
 
-## Deliverables
+Mutates `project.yaml` based on the structural verbs in the story
+prose, then invokes `render-topology-artefacts` to regenerate
+`docker-compose.yml`, `scripts/integration-test.sh`,
+`.gitlab-ci.yml`, and `scripts/report-shadow-status.sh`. All output
+staged locally in the root-repo working directory.
 
-1. Compiled story CAT at `pats/<story-id>.<ext>`
-   - Compiled by compile-story-pats through the project's active
-     test.cat provider — the spec is not hand-authored.
-   - Full acceptance assertions against the composed system.
-   - Committed to the root repo MR raised by compile-story-pats.
+For business stories Phase B is a no-op — there are no structural
+verbs to act on. The unphased call still runs it (cheap; ends
+immediately).
 
-2. Compose config changes (if needed)
-   - Shared volumes, new services, environment variables, ports
-   - Authored as edits to `project.yaml`; `docker-compose.yml` and
-     `scripts/integration-test.sh` are regenerated by
-     `render-topology-artefacts`. Do NOT hand-edit either of those
-     generated files.
-
-## Integration Test Contract
-
-The topology-wide `scripts/integration-test.sh` is owned by the
-compose provider and regenerated from `project.yaml`. It must:
-- Exit 0 if all topology aliveness probes pass
-- Exit non-zero if any check fails
-- Output clear descriptions of what passed and what failed
-- Be runnable from CI (POSIX `sh`, no bash-isms, no browser)
-
-Per-story assertions are the compiled CAT at
-`pats/<story-id>.<ext>` (extension set by the active test.cat
-provider). The legacy path `scripts/integration-tests/<story-id>.sh`
-is not used.
-```
+Invoked as `decompose-story --phase=b`. Phase B requires Phase A
+artefacts already exist (the enriched story drives the structural
+verbs).
 
 ## Structural stories — additional handling
 
@@ -326,39 +309,55 @@ integration-gate MR push. No SCM calls are made from this capability.
 ### Preconditions
 
 The structural section below produces correct file edits, but those
-edits are only meaningful if certain platform preconditions hold:
+edits are only meaningful if certain platform preconditions hold.
+Preconditions apply to **Phase B** (project.yaml mutation + topology
+regeneration). Phase A has no SCM-platform preconditions — it only
+reads story prose and writes sub-task artefacts.
 
-- **For ADD** (new component): the new component's repo MUST already
-  exist on the SCM platform before this story is decomposed. Run
-  `scaffold-repo` first — it creates the repo with seed files,
-  including a `/health` endpoint for backends or a baseline serving
-  shell for frontends. Without this, the regenerated
-  `docker-compose.yml` will reference a build context that doesn't
-  exist on disk, and CI will fail at `docker compose build`.
+- **For ADD** (new component): the new component's repo MUST exist
+  on the SCM platform before **Phase B** runs. The ADD orchestration
+  satisfies this by calling `scaffold-repo` between Phase A and
+  Phase B (see "Order of operations" below). `scaffold-repo` creates
+  the repo with seed files, including a `/health` endpoint for
+  backends or a baseline serving shell for frontends. Without this,
+  the regenerated `docker-compose.yml` would reference a build
+  context that doesn't exist on disk, and CI would fail at
+  `docker compose build`.
 
 - **For RENAME / MERGE / SPLIT**: the target repo(s) must exist
-  before the structural story. Same reasoning as ADD.
+  before Phase B. Same reasoning as ADD; same phase-split
+  orchestration applies.
 
 - **For REMOVE**: no precondition. M's view of the project IS
   `project.yaml` — once a component is removed from yaml, M no
-  longer cares whether the actual GitLab repo still exists.
+  longer cares whether the actual GitLab repo still exists. REMOVE
+  uses the unphased call (no scaffold-repo step required).
 
 - **For PORT CHANGE**: no special precondition beyond the component
-  already existing.
+  already existing. Uses the unphased call.
 
 **Order of operations for ADD-type structural changes:**
 
-1. Run `scaffold-repo` to create the new component's repo with seed
-   files (the seed includes a `/health` endpoint for backends — that
-   endpoint is what the topology aliveness probe will hit)
-2. Decompose the structural story (this section)
-3. Run `generate-pats` and `compile-story-pats` to author PATs and
-   raise the integration-gate MR
-4. MR merges, topology and reality are now consistent
+1. `decompose-story --phase=a` → enriched story, sub-task markdown,
+   readiness tracker (including the new component's sub-task)
+2. `generate-pats` → story-level PAT + sub-task PATs (including the
+   new component's sub-task PAT)
+3. `scaffold-repo` (for the new component) → uses the new sub-task
+   markdown + sub-task PAT to seed the new GitLab repo (with
+   `/health` endpoint for backends)
+4. `decompose-story --phase=b` → mutate `project.yaml`, regenerate
+   topology artefacts (now safe — the new repo's build context
+   exists)
+5. `compile-story-pats` → bundles compiled CAT + readiness tracker +
+   structural artefacts into the root-repo integration-gate MR
 
-Inverting steps 1 and 2 produces a story whose CI can never go green:
-compose can't build a service whose build context doesn't exist on
-disk. **Always scaffold first.**
+Inverting order produces a story whose CI cannot go green: compose
+can't build a service whose build context doesn't exist on disk.
+**Always scaffold between phases.**
+
+For business stories the orchestration collapses to:
+`decompose-story → generate-pats → compile-story-pats` (no phase
+arguments; Phase B no-ops at the end of the unphased call).
 
 ### S-1 — Author the new project.yaml (stage locally)
 
@@ -445,9 +444,9 @@ in-place.
 
 ## Notes
 
-- Sub-task IDs use alphabetic suffix: a, b, c, d (up to 26 components)
-- The root repo sub-task is always the LAST suffix (e.g. if 3 managed
-  components get a/b/c, root gets d). Convention, not a hard rule.
+- Sub-task IDs use alphabetic suffix: a, b, c, d (up to 26 components).
+  One sub-task per managed component touched by the story. No root
+  sub-task — see "No root sub-task" in Step 2.
 - No PAT stubs are authored here. Sub-task PATs are yaml contracts
   produced by `generate-pats` and live at
   `<managed-repo>/pats/<sub-task-id>.pat.yaml`. See I-038 + I-042.
@@ -457,14 +456,15 @@ in-place.
   directory and committed to the root repo by `compile-story-pats`
   under `stories/`. Without it, there is no completeness gate for
   the merge transaction.
-- Run `scaffold-repo` against each sub-task file to create each
-  managed repo.
-- The root repo sub-task is MANDATORY for every story. Shadow
-  integration will fail structurally (not logically) if no
-  story-level CAT exists for an in-flight story. This is by design —
-  it forces the team to define "done" before implementation begins.
+- Run `scaffold-repo` against each *new-component* sub-task file
+  (ADD only). Existing-component sub-tasks do not re-scaffold.
+- Shadow integration's structural gate depends on the compiled CAT
+  existing at `pats/<story-id>.<ext>` in the root repo, not on a
+  root sub-task entry. The CAT is produced by `compile-story-pats`
+  from the story-level PAT yaml.
 - Two failure modes in shadow integration:
   - **Structural failure:** story has open MRs but no story-level CAT
-    exists at `pats/<story-id>.<ext>` in the root repo
+    exists at `pats/<story-id>.<ext>` in the root repo (typically
+    means `compile-story-pats` was skipped or its MR has not landed)
   - **Logical failure:** CAT exists but fails because not all
     components have implemented their part yet
