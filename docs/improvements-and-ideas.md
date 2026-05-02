@@ -3302,62 +3302,97 @@ Drafted 2026-05-02 ahead of v0.12.x REMOVE implementation. Builds on
 the v0.12.0 ADD locked design above; only the deltas REMOVE forces
 are spelled out here.
 
-**1. Scope.** Pure REMOVE only — the to-be-removed component has no
-callers in the current topology. If callers exist, removing the
-component would break them, which violates the truth-preservation
-rule (a structural story must not change behaviour). REMOVE-with-
-callers is rejected at decompose-story Step 2 with guidance to ship
-a "decouple-callers" prep story first (which IS a business story
-because it changes caller behaviour). v0.12.x REMOVE does NOT bundle
-the prep work — keeping the verbs orthogonal preserves the locked
-design's "one story = one structural change" discipline.
+**1. Scope.** Pure REMOVE only — the to-be-removed component must
+have no active callers in the current topology. This is **M's
+verifiability invariant**, not a safety net: a structural change
+must be verifiable as a structural change. Removing a component
+that is actively called would break callers — that's a behaviour
+change in the callers, which has its own ACs and its own gate.
+Bundling the two means the structural-ness of the change is no
+longer verifiable in isolation; the gate would conflate "topology
+shrank" with "callers correctly handle the removal," and a green
+gate would not prove either independently.
+
+The discipline this enforces: developers must first ship a prep
+story that either **adds the replacement** the new caller needs OR
+**removes the active use** of the to-be-removed component. Once
+the topology shows zero active callers, the REMOVE story decomposes
+cleanly — its only proof obligation is "the smaller composed system
+still works," which the regenerated topology aliveness probes +
+existing CATs + the negative-existence story PAT (see (4)) verify
+end-to-end.
+
+REMOVE-with-callers is therefore **rejected at decompose-story
+Step 2** with a guidance message naming the callers and
+recommending the prep-story split. See (7) for the pre-flight scan
+shape.
 
 **2. Phase orchestration.** REMOVE uses the **unphased call** —
 already specified in `decompose-story` SKILL "Phase boundary" /
 "Preconditions". REMOVE has no precondition (M's view of the project
 IS `project.yaml`; once a component is removed from yaml, M no longer
 cares whether the actual GitLab repo exists). One call:
-`decompose-story → generate-pats? → compile-story-pats`. Note the
-question mark — see (4) below.
+`decompose-story → generate-pats → compile-story-pats`. Same shape
+as ADD orchestration, minus the inter-phase scaffold-repo step.
 
 **3. Sub-tasks.** A pure REMOVE has **zero managed-repo sub-tasks**
 because there is no managed-repo work — the change is entirely in
 `project.yaml` + the renderer regenerating topology files. The
 readiness tracker is generated with `components: []`. The merge-
 transaction's completeness gate is vacuously satisfied (zero
-sub-tasks to wait on); the gate proof is the gate MR's own
-`validate:compose` going green against the smaller topology.
+sub-tasks to wait on); the per-AC gate proof is carried by the
+story-level PAT (see (4)) and the regenerated topology probes.
 `pat.schema.json` for the readiness tracker must allow empty
 `components:` — currently does not (`minItems: 1` per readiness
 tracker schema, if any). The schema relaxation is part of this ship.
 
-**4. Story-level PAT shape — none.** The natural inverse of ADD's
-`/health → 200 + ok` would be a connection-refused assertion, but:
+**4. Story-level PAT shape — `expect-unreachable`.** Direct chain
+from v0.11.0's HTTP step types: REMOVE introduces one new step
+verb that asserts the negative-existence of the removed endpoint.
+The PAT shape mirrors ADD's symmetry:
 
-- Cypress doesn't natively assert connection refused cleanly (the
-  request just times out or surfaces as a network error string).
-- Asserting "the port is closed" is fragile — the port could be
-  reused later, making the assertion silently stale.
-- Negative-existence assertions are a known anti-pattern in
-  contract testing.
+```yaml
+acceptance:
+  - id: AC-001
+    when: The composed system is up after metrics is removed
+    then: GET /health on the previously-existing metrics endpoint is unreachable
+    steps:
+      - http: "GET http://metrics:3004/health"
+      - expect-unreachable
+```
 
-Better: REMOVE has **no story-level PAT**. compile-story-pats
-detects the absence of a story PAT yaml for REMOVE stories and
-ships only the bundle of regenerated topology files + readiness
-tracker. The proof is the same proof ADD relied on for its
-structural component:
+The `expect-unreachable` verb passes if the preceding `http:` either
+(a) failed at the network layer (DNS failure, connection refused,
+timeout — all expected outcomes when a service is no longer in the
+docker network) OR (b) returned a 5xx. It fails if the request
+returned 1xx/2xx/3xx/4xx — those would mean *something* answered,
+which contradicts "the component is gone."
 
-- Regenerated topology aliveness probes still pass (now N-1 probes,
-  provably fewer than before — easy to spot in CI logs).
-- Existing TODOM-* CATs (those that don't probe the removed
-  component) still pass — regression net.
-- `validate:compose` stands up the smaller stack on real CI.
+The cypress provider absorbs the new verb the same way it absorbed
+v0.11.0's three HTTP verbs: one new entry in the `step` `oneOf`
+of `pat.schema.json`, one new `$def` (`step-expect-unreachable`),
+one new case in `cypress.mjs`'s `compileStep` switch. The
+implementation note (out of scope for this design): `cy.request`
+throws on network errors before any chained `.then` runs, so the
+compile target for `expect-unreachable` cannot reuse the
+`cy.request(...).as('lastResponse')` pattern. Likely shape: compile
+the `http:` + `expect-unreachable` pair atomically into a single
+`cy.then(async () => { try { await fetch(...) ... } catch { ... } })`
+block (fetch is available in cypress's browser context and surfaces
+network errors as catchable promise rejections). This is the only
+real implementation puzzle in this ship; design-wise the verb is
+straightforward.
 
-`generate-pats` is **skipped entirely** for pure REMOVE. The agent
-short-circuits past it. (The alternative — extending generate-pats
-to allow zero-AC story PATs for the REMOVE branch — has the same
-end state but adds a "structural verb" condition into a capability
-that is otherwise verb-agnostic. Skipping is cleaner.)
+This eliminates the connection-refused fragility of the
+"naive negative-existence" approach: we are not asserting that a
+specific port is closed, we are asserting that a *named endpoint
+that used to exist now does not respond*. Same assertion shape as
+ADD ("the named endpoint we just added now responds with X") —
+just inverted. Symmetric, principled, no sentinels.
+
+`generate-pats` produces the REMOVE story PAT the same way it
+produces any other one-AC story PAT — no special-casing needed
+beyond the new step verb being available in the schema.
 
 **5. Historical CAT cleanup.** The gate MR bundle includes
 **deletion of historical compiled CATs that probe the removed
@@ -3378,25 +3413,34 @@ in practice because the absorbed-cypress provider compiles
 `http: GET http://<name>:<port>/...` to literal strings in the
 `.cy.js` output.
 
-**6. Managed repo + orchestration leftovers — out of scope.** M
+**6. Managed repo + orchestration leftovers — bounded scope.** M
 does not delete the GitLab managed repo, its webhook to root, its
 `M_TRIGGER_TOKEN` / `ROOT_PROJECT_ID` CI variables, or its branch
-protection. M's responsibility ends at `project.yaml` + regenerated
-topology. The result of leaving these in place:
+protection — those are user decisions outside M's view. **But** the
+default behaviour without intervention is more than just noise: the
+orphan repo's webhook continues to fire root's trigger endpoint on
+every MR event, and root's `detect-story-trigger.sh` does not gate
+on the trigger source. If any other active story MR exists on the
+current topology when the orphan webhook fires, the orphan trigger
+gets classified as `story` mode and a spurious `shadow:compose`
+runs (consuming CI minutes, posting no-op status updates). That's
+mildly worse than noise.
 
-- The managed repo's MR webhook will continue to fire root's
-  trigger endpoint on MR events.
-- Root's `detect-story-trigger.sh` (regenerated by this ship)
-  enumerates only the current `project.yaml` components — the
-  removed repo is no longer in the `REPOS` list, so its webhook
-  trigger classifies as standalone and no shadow work runs.
-- Visible side effect: noisy "standalone" trigger pipelines on
-  root for MR events on the orphan repo. Acceptable noise; the
-  user can disable the webhook manually or delete the repo when
-  they're ready.
+**Mitigation in this ship — source-repo guard.** Add a 5-line check
+to `scripts/detect-story-trigger.sh`: if the trigger source
+(`SOURCE_PROJECT_PATH`) is not in the current `REPOS` list, set
+`TRIGGER_MODE=standalone` and skip downstream shadow work. This
+eliminates spurious shadow runs from orphan webhooks entirely, with
+no managed-repo cleanup required. Lives in the regenerated
+`detect-story-trigger.sh` template (`ci/gitlab.mjs` provider) so
+it's idempotent and applies to every project that re-renders.
 
-A future `unwire-orchestration` capability is filed as a follow-up
-(see Dependencies below) — out of scope for v0.12.x REMOVE.
+**Out of scope.** Actual webhook + CI variable + branch-protection
+cleanup on the orphan repo is filed as a follow-up
+(`unwire-orchestration` capability, see Dependencies below). Strictly
+optional; the source-repo guard above closes the only operational
+gap. Users who want a tidy GitLab can do the cleanup manually or
+wait for the follow-up capability.
 
 **7. Caller pre-flight check at decompose-story Step 2.** Before
 proposing the AC mapping, the agent scans:
@@ -3418,52 +3462,83 @@ For the upcoming evidence run:
 
 1. `decompose-story` reads `TODOM-S03.md` ("remove the metrics
    component"), runs caller pre-flight (passes — metrics has no
-   callers in the current topology after v0.12.0 ADD), proposes an
-   empty sub-task list, gets confirmation, writes the readiness
-   tracker with `components: []`, mutates `project.yaml` to drop
-   the metrics entry + drops `http://localhost:3004/health` from
-   `compose.integration.health.endpoints`, and runs the renderer
-   to regenerate the four topology files (one fewer service in
-   docker-compose, one fewer probe in integration-test.sh, one
-   fewer clone in .gitlab-ci.yml, one fewer entry in
-   report-shadow-status.sh + detect-story-trigger.sh).
-2. **Skip `generate-pats`.** No story PAT, no sub-task PATs.
-3. `compile-story-pats` detects no story PAT yaml exists, runs
-   the historical-CAT scan, finds `pats/TODOM-S02.cy.js` references
-   `metrics:3004`, includes its deletion in the bundle, and pushes
-   the bundle to root MR `feat/TODOM-S03d-integration-gate`:
+   callers in the current topology after v0.12.0 ADD: scan finds no
+   PAT yaml or `.cy.js` referencing `metrics` or port `3004` outside
+   `pats/TODOM-S02.*`, which is the ADD's own gate spec and is
+   handled in step 3 below). Proposes an empty sub-task list, gets
+   confirmation, writes the readiness tracker with `components: []`,
+   mutates `project.yaml` to drop the metrics entry + drops
+   `http://localhost:3004/health` from
+   `compose.integration.health.endpoints`, and runs the renderer to
+   regenerate the four topology files (one fewer service in
+   docker-compose, one fewer probe in integration-test.sh, one fewer
+   clone in .gitlab-ci.yml, one fewer entry in
+   report-shadow-status.sh + detect-story-trigger.sh — including the
+   new source-repo guard from (6)).
+2. `generate-pats` produces the story PAT
+   `pats/TODOM-S03.pat.yaml`:
+   ```yaml
+   story: TODOM-S03
+   version: 1
+   acceptance:
+     - id: AC-001
+       when: The composed system is up after metrics is removed
+       then: GET /health on the previously-existing metrics endpoint is unreachable
+       steps:
+         - http: "GET http://metrics:3004/health"
+         - expect-unreachable
+   ```
+3. `compile-story-pats` compiles the PAT to
+   `pats/TODOM-S03.cy.js` via the cypress provider (the new
+   `expect-unreachable` step compiles to a fetch-with-catch block).
+   Runs the historical-CAT scan, finds `pats/TODOM-S02.cy.js`
+   references `metrics:3004`, includes its deletion in the bundle,
+   and pushes the bundle to root MR
+   `feat/TODOM-S03d-integration-gate`:
    - `project.yaml` (mutated)
    - `docker-compose.yml`, `.gitlab-ci.yml`, `scripts/integration-
      test.sh`, `scripts/report-shadow-status.sh`,
-     `scripts/detect-story-trigger.sh` (regenerated)
+     `scripts/detect-story-trigger.sh` (regenerated, incl. source-
+     repo guard)
    - `stories/TODOM-S03.yaml` (readiness tracker, empty components)
-   - `pats/TODOM-S02.cy.js` (DELETED)
+   - `pats/TODOM-S03.pat.yaml` + `pats/TODOM-S03.cy.js` (new)
+   - `pats/TODOM-S02.cy.js` (DELETED — historical CAT for the
+     now-gone metrics)
 4. Root MR pipeline runs `validate:compose` against the smaller
    topology. Topology probes 4/4 pass (was 5/5; metrics probe gone).
    `validate:integration-test` no-op as today. Pipeline green.
+   L4 evidence: local `cypress/included` run executes the new
+   TODOM-S03 spec — `expect-unreachable` passes against the
+   removed `metrics:3004` (DNS failure inside the smaller compose
+   network). Plus TODOM-000 regression 6/6 pass.
 5. Squash-merge the gate MR. Topology on main reflects the smaller
    shape. The orphan `todo-m-metrics` repo on GitLab continues to
-   exist; its webhook fires harmless standalone triggers; the user
-   archives or deletes it on their own schedule.
+   exist; future MR webhooks from it now classify as standalone
+   thanks to the source-repo guard, so no spurious shadow runs.
+   The user archives or deletes the repo on their own schedule.
 
 ### Implementation deltas vs v0.12.0 ADD
 
 | Capability | Change for REMOVE |
 |---|---|
-| `decompose-story` SKILL | Caller pre-flight check at Step 2; readiness tracker allowed `components: []` for REMOVE; explicit "skip generate-pats" branch in the orchestration table |
-| `pat.schema.json` (readiness tracker) | Allow empty `components:` array (relax `minItems: 1` if present) |
-| `generate-pats` | No change — REMOVE skips it |
-| `compile-story-pats` | Detect missing story PAT for REMOVE → bundle without compiled CAT; historical-CAT scan + deletion in bundle |
+| `decompose-story` SKILL | Caller pre-flight check at Step 2 (hard reject on active callers — see (1), (7)); readiness tracker allowed `components: []` for REMOVE |
+| `pat.schema.json` | (a) Add `expect-unreachable` to the `step` `oneOf` + new `$def` `step-expect-unreachable`; (b) allow empty `components:` array on the readiness tracker schema |
+| `generate-pats` | No change — produces the REMOVE story PAT the same way it produces any other one-AC story PAT, just using the new step verb |
+| `.m/providers/test/cat/cypress.mjs` | New compile case for `expect-unreachable`. Implementation note: must compile the `http:` + `expect-unreachable` pair atomically (cy.request throws on network errors before chained `.then` runs). Likely shape: a single `cy.then(async () => { try { await fetch(...) } catch { ... } })` block using the browser's fetch + AbortSignal.timeout |
+| `.m/providers/test/cat/cypress.test.mjs` | Regression coverage: `expect-unreachable` passes on DNS failure, passes on connection refused, passes on 5xx, fails on 2xx/3xx/4xx, and the mixed-AC case (browser + `expect-unreachable` in one `it()`) |
+| `compile-story-pats` | Historical-CAT scan + deletion in bundle (grep over `pats/*.cy.js` for the removed component's name + port) |
 | `render-topology-artefacts` | No change — purely a function of `project.yaml` |
+| `.m/providers/ci/gitlab.mjs` | Source-repo guard added to the rendered `detect-story-trigger.sh`: `if SOURCE_PROJECT_PATH ∉ REPOS → TRIGGER_MODE=standalone; exit`. Idempotent template change — applies to every project that re-renders. Regression test on the rendered script |
 | `wire-orchestration` | No change in v0.12.x REMOVE; future `unwire-orchestration` filed as follow-up |
 
 ### Dependencies + follow-ups
 
 - Filed for follow-up (post-v0.12.x REMOVE): **I-061** —
-  `unwire-orchestration` capability that mirrors `wire-
-  orchestration` for managed-repo decommission (delete webhook,
-  delete CI variables, optionally archive/delete repo). Strictly
-  optional; user can do it manually today.
+  `unwire-orchestration` capability that mirrors
+  `wire-orchestration` for managed-repo decommission (delete
+  webhook, delete CI variables, optionally archive/delete repo).
+  Strictly optional after the source-repo guard from (6) — the
+  guard closes the only operational gap.
 - Filed for follow-up: **I-062** — historical-CAT scan as a shared
   utility (currently only used by REMOVE; RENAME may want a
   variant that rewrites instead of deletes).
@@ -3471,10 +3546,12 @@ For the upcoming evidence run:
 ### Sizing
 
 **S** — same as ADD. No new design surface beyond the deltas above;
-each delta is mechanical and small. Most of the work is the
-caller-preflight scan, the historical-CAT delete, and the
-compile-story-pats branch for "no story PAT". Plus L4/L5 evidence
-for TODOM-S03 against the workshop.
+each delta is mechanical and small. The `expect-unreachable`
+compile target (fetch-with-catch wrapper) is the only nontrivial
+implementation puzzle and even that is well-bounded. Most of the
+work is the caller-preflight scan, the new step verb (schema +
+provider + tests), the historical-CAT delete, the source-repo
+guard. Plus L4/L5 evidence for TODOM-S03 against the workshop.
 
 
 ---
