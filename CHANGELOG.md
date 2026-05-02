@@ -4,6 +4,107 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-05-02
+
+### Added
+
+- **I-040 — Topology changes (ADD).** A project's component set can
+  evolve mid-project via the standard story flow. Adding a component
+  is a structural-ADD story whose `decompose-story` runs in two
+  phases: Phase A authors the sub-task markdown + readiness tracker
+  (no SCM mutation, no `project.yaml` write); the new managed repo is
+  then scaffolded via the existing `scaffold-repo` capability; Phase
+  B mutates `project.yaml` and re-renders all topology artefacts
+  deterministically. `generate-pats` produces a one-AC story PAT
+  whose check is `GET http://<new-component>:<port>/health` →
+  status 200 + body contains 'ok' (direct chain from v0.11.0's HTTP
+  step types into v0.12.0's structural assertion). `compile-story-pats`
+  compiles it through the cypress provider via single-provider
+  absorption (v0.11.0). The gate MR carries the compiled CAT, the
+  readiness tracker, and the regenerated topology files
+  (`docker-compose.yml`, `.gitlab-ci.yml`, `scripts/integration-test.sh`,
+  `scripts/report-shadow-status.sh`, `scripts/detect-story-trigger.sh`,
+  plus the mutated `project.yaml`).
+
+  **Scope.** v0.12.0 ships ADD only. REMOVE / RENAME / MERGE / SPLIT
+  / PORT-CHANGE follow as separate v0.12.x items per the locked
+  design (filed in #18). Each has materially different complexity
+  (in-flight story policy for REMOVE; cross-repo rewire for RENAME;
+  combinations for MERGE/SPLIT) — bundling them inflated risk for no
+  shared gain.
+
+  **No new code in this release.** The capability composition was
+  already in place: `decompose-story` Phase A/B (#18), `generate-pats`,
+  `compile-story-pats` + `test.cat.cypress` (v0.6.0), HTTP step types
+  in PAT yaml + cypress absorption (v0.11.0), pure-function topology
+  renderer (v0.5.1), `scm.push_or_update_files` (v0.5.1). v0.12.0
+  ships I-040 because the end-to-end ADD flow is now demonstrated
+  against a real workshop testbed.
+
+  **L4 evidence (2026-05-02).** TODOM-S02 — add a `metrics`
+  component (port 3004) — executed end-to-end against the live
+  `todo-m-workshop` testbed (`/tmp/m-i040/todo-m-root`). Phase A
+  produced `workshop/jira/TODOM-S02/TODOM-S02a.md` and
+  `stories/TODOM-S02.yaml`. `scaffold-repo` seeded
+  `methodology-m/todo-m-workshop/todo-m-metrics` on GitLab. Phase B
+  mutated `project.yaml` (new `metrics` component + new health
+  endpoint) and the renderer regenerated all five topology artefacts
+  byte-deterministically. `generate-pats` produced
+  `pats/TODOM-S02.pat.yaml` (single AC, HTTP probe shape).
+  `compile-story-pats` compiled it to `pats/TODOM-S02.cy.js` via the
+  cypress provider and pushed the bundle to root MR
+  `feat/TODOM-S02d-integration-gate` (!35).
+
+  Local execution: topology aliveness probes 5/5 pass (shell, mfe,
+  api-read, api-write, **metrics**). `pats/TODOM-S02.cy.js` 1/1 pass
+  via `cypress/included:14.5.4` on the `todo-m-root_default` compose
+  network. `pats/TODOM-000.cy.js` regression 6/6 pass — adding
+  metrics did not perturb the existing browser-level ACs.
+
+  **L5 evidence (2026-05-02).** Root MR !35 on
+  `methodology-m/todo-m-workshop/todo-m-root` carries the bundled
+  structural change (9 files: project.yaml, docker-compose.yml,
+  three regenerated scripts, .gitlab-ci.yml, the readiness tracker,
+  the PAT yaml, and the compiled CAT). GitLab pipeline **2495405820**
+  — install / build / test / `validate:compose` /
+  `validate:integration-test` — all 5 jobs **success**.
+  `validate:compose` (113s on a real saas-linux runner) cloned all
+  five sibling repos including `todo-m-metrics` from main, built
+  and started the docker-compose stack, and ran the regenerated
+  `scripts/integration-test.sh` — all 5 aliveness probes pass
+  including the new metrics probe. The `pats/TODOM-S02.cy.js` spec
+  itself is not currently executed by `validate:integration-test`
+  on root (the script is a placeholder echoing
+  `'integration-test: validated locally — CI integration requires
+  Docker (see I-014)'`); cypress-in-CI for the root pipeline is
+  pre-existing I-014 territory and is orthogonal to I-040 scope.
+  L5 of the cypress spec is the L4 local run above.
+
+  Changes:
+  - `CHANGELOG.md` — this entry.
+  - `docs/roadmap.md` — v0.12.0 row marked shipped.
+  - `docs/improvements-and-ideas.md` — I-040 status flipped to
+    Resolved + Resolved-table entry. I-059 and I-060 filed (see
+    below).
+  - `workshop/jira/TODOM-S02/` — story prose, enriched form, and
+    sub-task TODOM-S02a authored by Phase A and used as the live
+    evidence input.
+  - `.gitignore` — covers the project-root `hemingway-bridge.md`
+    location formalised in steering on 2026-04-26.
+
+- **I-059 / I-060 — filed during v0.12.0 evidence run.** Two
+  low-priority papercuts surfaced and were filed for follow-up,
+  neither blocks I-040. **I-059:** `cli/src/lib/topology.mjs`
+  uses a hand-rolled YAML scanner that overwrites
+  `currentComponent.type` from later top-level blocks like
+  `persistence:`, silently undercounting referenced repos in
+  `m clone`. Fix direction: replace with `js-yaml` (already
+  vendored). **I-060:** `pats/TODOM-000.pat.yaml` copies in the
+  pass1 snapshot and live workshop predate the current schema and
+  fail `js-yaml.load` — runtime is unaffected (compiled `.cy.js`
+  is what cypress runs) but re-compilation is broken. Both
+  documented in `docs/improvements-and-ideas.md`.
+
 ## [0.11.0] — 2026-04-26
 
 ### Added

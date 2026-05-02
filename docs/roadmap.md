@@ -395,10 +395,10 @@ entirely one-way: Outpost waits for M.
 | v0.10.0 | I-056 (pipeline-failure delivery — CI job replaces webhook) | S (shipped 2026-04-25) |
 | v0.10.1 | I-057 (`report-failure-to-root` curl-globoff regression caught in L5) | XS (shipped 2026-04-25) |
 | v0.11.0 | I-045 (HTTP step types absorbed by cypress provider) | S (shipped 2026-04-26) |
-| v0.12.0 | I-040 | 3–5 days |
+| v0.12.0 | I-040 (topology ADD) | S (shipped 2026-05-02) |
 | v0.13.0 | I-004 | 3–5 days |
 | v1.0.0 | MVP tag | 0.5 day |
-| **Total critical path** | | **~10–13 focused days remaining** |
+| **Total critical path** | | **~3–5 focused days remaining** |
 
 Calendar, with Outpost A/B interleaved in the same window: **~4 weeks**.
 
