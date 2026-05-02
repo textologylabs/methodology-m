@@ -3296,9 +3296,9 @@ updates to 10+ files/configs with no guidance from the methodology.
 This is the kind of gap that causes "it works for the demo but breaks
 in production" failures
 
-### Locked design (v0.12.x REMOVE) — DRAFT
+### Locked design (v0.12.x REMOVE)
 
-Drafted 2026-05-02 ahead of v0.12.x REMOVE implementation. Builds on
+Locked 2026-05-02 ahead of v0.12.x REMOVE implementation. Builds on
 the v0.12.0 ADD locked design above; only the deltas REMOVE forces
 are spelled out here.
 
