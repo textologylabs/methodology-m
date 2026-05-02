@@ -88,6 +88,7 @@ listed for completeness — their write-ups remain below as reference.
 | I-056 | Pipeline-failure fan-out delivery | Pipeline-events webhook (403-blocked at GitLab's trigger endpoint by the `X-Gitlab-Event: Pipeline Hook` loop-prevention guard) replaced by a `report-failure-to-root` CI job in scaffold-repo's managed-repo template. Runs `when: on_failure` under CI job context — no Pipeline Hook header, no 403. wire-orchestration drops the second webhook and adds `M_TRIGGER_TOKEN` + `ROOT_PROJECT_ID` as CI variables on each managed repo. Renderer side (root pipeline) unchanged from v0.8.0. v0.10.0. |
 | I-057 | `report-failure-to-root` curl-globbing regression | v0.10.0's job constructs the trigger URL with `variables[KEY]=VAL` form syntax. curl interprets `[` and `]` as numeric-range glob and exits code 3 (`bad range in URL position 114`) before the request leaves the runner. Caught by L5 validation. Fix: add `-g` (`--globoff`). v0.10.1. |
 | I-045 | HTTP step types in PAT yaml | Three new step verbs (`http`, `expect-status`, `expect-body-contains`) added to `pat.schema.json`. Single-provider absorption: the cypress provider compiles them via `cy.request(...).as('lastResponse')` rather than introducing a parallel `curl`/`supertest` provider plus a framework selector. PAT step types stay framework-agnostic at the schema layer; mixed PATs (browser + HTTP) compile to a single `.cy.js`. `compose-service:` and a standalone backend-only provider remain deferred until a real project demands them. v0.11.0. |
+| I-040 | Topology changes (ADD) | A project's component set can evolve mid-project via the standard story flow. ADD shipped via two-phase `decompose-story` (Phase A: sub-task + readiness tracker, no SCM mutation; Phase B: `project.yaml` mutation + topology re-render) composed with v0.6.0's `generate-pats`/`compile-story-pats`/`test.cat.cypress`, v0.11.0's HTTP step types + cypress absorption, v0.5.1's pure-function topology renderer + `scm.push_or_update_files`, and #18's phase-split contract. No new code in v0.12.0 — the release ships I-040 because end-to-end ADD is now demonstrated against a real workshop testbed (TODOM-S02 → metrics on port 3004, root MR !35, pipeline 2495405820, all 5 jobs success; topology aliveness probes 5/5 pass on real GitLab CI). REMOVE / RENAME / MERGE / SPLIT / PORT-CHANGE remain deferred. v0.12.0. |
 | I-058 | Workshop MF chunk + api fetch fail under headless cypress | Shell + MFE bundles baked in `http://localhost:300x` URLs at build time — works for host browser (port mapping) but fails inside cypress-in-docker (`localhost` from cypress container ≠ host's localhost). Same-origin proxy through shell's nginx (and webpack-dev-server in `npm run dev`): `/mfe/* → mfe:3001/*`, `/api-read/* → api-read:3002/*`, `/api-write/* → api-write:3003/*`. Bundles now use relative URLs (`todoMfe@/mfe/remoteEntry.js`, `API_URL=/api-read`). Verified: TODOM-000 6/6 + TODOM-L4 3/3 cypress tests pass. Workshop-side fix only; no methodology impact. Resolved 2026-04-26. |
 
 ---
@@ -3164,7 +3165,7 @@ step anymore. It's a side effect of decomposition.
 **Category:** Methodology / architecture
 **Priority:** Important (uncovered territory)
 **Discovered:** 2026-04-11, discussing wiring between managed repos
-**Status:** 🚧 In progress — v0.12.0 scope = ADD only. REMOVE / RENAME / MERGE / SPLIT / PORT-CHANGE deferred to v0.12.x as separate items. Design locked 2026-05-01; see *Locked design (v0.12.0 ADD)* below.
+**Status:** ✅ Resolved (v0.12.0, 2026-05-02) — ADD shipped, demonstrated end-to-end against the live workshop testbed (TODOM-S02 → metrics component, root MR !35, pipeline 2495405820). REMOVE / RENAME / MERGE / SPLIT / PORT-CHANGE remain deferred to v0.12.x as separate items per the Locked design below. See CHANGELOG v0.12.0 for L4/L5 evidence.
 
 ### Problem
 
@@ -4439,3 +4440,165 @@ What this *does* unblock: L4/L5 cypress validation against the
 workshop testbed for browser-touching PATs — including v0.12.0's
 structural ADD demonstration.
 
+
+---
+
+## I-059: `m clone` naive YAML parser miscounts referenced repos when persistence is declared
+
+**Category:** M CLI / topology parser
+**Priority:** Low (papercut — easy workaround)
+**Discovered:** 2026-05-02, kicking off v0.12.0 ADD evidence run
+
+### Problem
+
+`cli/src/lib/topology.mjs` parses `project.yaml` with a hand-rolled
+line scanner instead of a real YAML parser. The scanner doesn't track
+indent / scope: once it sees a `- name:` it sets `currentComponent`
+and keeps overwriting `currentComponent.type` and `currentComponent.location`
+on every subsequent `type:` / `location:` line — including lines from
+later top-level blocks like `persistence:`.
+
+In the live workshop topology, the file is laid out roughly as:
+
+```yaml
+components:
+  - name: shell
+    type: embedded
+    ...
+  - name: api-write
+    type: referenced
+    ...
+persistence:
+  type: sqlite
+  volume: todo-data
+```
+
+When the parser reaches `persistence:`'s `type: sqlite`,
+`currentComponent` is still `api-write` from the last `- name:`. The
+parser overwrites `api-write.type` to `sqlite`. Then
+`getReferencedRepos` filters by `type === 'referenced'` and silently
+drops `api-write`.
+
+### Symptoms
+
+```
+$ m clone https://gitlab.com/methodology-m/todo-m-workshop/todo-m-root.git
+  Project: todo-m (2 managed repos)   ← should be 3
+  Cloning todo-m-mfe...
+  Cloning todo-m-api-read...
+                                      ← todo-m-api-write silently missing
+```
+
+Any project that declares `persistence:` (or any other top-level
+block whose first child is `type:` or `location:`) after `components:`
+will undercount referenced repos.
+
+### Where it bites
+
+- **`m clone` from URL** — silently undercounts and skips siblings.
+- **`m clone` from inside an existing root** — same path, same bug.
+
+### Where it does NOT bite
+
+- **`render-topology-artefacts/render.mjs`** — uses `js-yaml`, no
+  bug. Phase B of `decompose-story` (the v0.12.0 ADD lever) is safe.
+- The schema validator and provider dispatch — both use parsed YAML.
+
+### Fix direction
+
+Replace the hand-rolled scanner with `js-yaml` (already vendored at
+`.m/vendor/js-yaml.mjs`). `cli/src/lib/topology.mjs` becomes a thin
+shape-extractor over a properly-parsed object. Add a regression test
+that includes `persistence:` after `components:`. Estimate: XS.
+
+### Workaround (until fixed)
+
+`git clone` the missing managed repos manually. The bug is silent
+but visually obvious in the `m clone` summary line — the count is
+lower than the number of `type: referenced` entries in
+`project.yaml`.
+
+
+---
+
+## I-060: Stale `TODOM-000.pat.yaml` copies fail current schema (live workshop + pass1 snapshot)
+
+**Category:** Workshop hygiene
+**Priority:** Low (compiled CAT works; only re-compilation is broken)
+**Discovered:** 2026-05-02, generate-pats step of v0.12.0 ADD evidence run
+
+### Problem
+
+Two copies of `TODOM-000.pat.yaml` predate the current schema and
+fail validation:
+
+- `ref-projects/todo-m-workshop/pass1/todo-m-root/pats/TODOM-000.pat.yaml`
+  (in this repo — frozen pass1 snapshot)
+- `methodology-m/todo-m-workshop/todo-m-root` on GitLab — the live
+  workshop's root repo at `pats/TODOM-000.pat.yaml`
+
+Both fail `js-yaml.load(...)` with *bad indentation of a mapping
+entry* on the assert lines. The breakage is two-layered:
+
+1. **Syntax.** The double-quoted scalar terminates at the inner
+   closing quote, leaving trailing tokens that aren't valid yaml:
+
+   ```yaml
+   - assert: "[data-testid='app-shell']" is visible
+                                       ^ scalar ends here; rest is junk
+   ```
+
+   Correct shape (one continuous double-quoted scalar):
+
+   ```yaml
+   - assert: "[data-testid='app-shell'] is visible"
+   ```
+
+2. **Semantics.** Some predicates aren't legal under the current
+   `step-assert` pattern at all — e.g. `contains no error state`.
+   The schema's predicate set is
+   `(is visible|is disabled|contains '<value>'|count > N)`. Even
+   with the syntax fix, those ACs would still fail validation.
+
+### Where it does NOT bite (today)
+
+The compiled CAT lives next to the broken yaml as
+`pats/TODOM-000.cy.js` and is what cypress actually runs. Neither
+the live AOT pipeline nor any local cypress run hits the broken
+yaml — the runner consumes `.cy.js`, not `.pat.yaml`. So nothing
+is *currently* failing.
+
+### Where it bites the day someone tries to recompile
+
+Anyone re-running `compile-story-pats` for TODOM-000 (e.g. to
+re-emit the CAT after a provider tweak, or to validate the
+contract is still consistent with the compiled artefact) will hit
+a parse error with no clear path forward. The same applies to any
+schema-validation pass over all PAT yamls in the workshop.
+
+### Canonical version exists
+
+`workshop/jira/TODOM-000/TODOM-000.pat.yaml` (in this repo) IS
+schema-clean. The fix in both broken locations is "copy from
+canonical, adjust any locale-specific deltas". Content drift means
+this isn't a one-line replacement — about 24 step lines per file
+need rewriting and a few semantically-invalid predicates need
+mapping onto current ones.
+
+### Two-part fix
+
+1. **`ref-projects/.../pass1/.../TODOM-000.pat.yaml`** — sync to
+   canonical (or remove if pass1 is intentionally frozen and not
+   meant to track schema evolution). Filed for resolution in a
+   future workshop-hygiene PR; deliberately out of scope for the
+   v0.12.0 ADD PR (orthogonal scope).
+2. **Live workshop `todo-m-root` `pats/TODOM-000.pat.yaml`** —
+   separate hygiene MR against the workshop's `todo-m-root` repo
+   on GitLab. Out of band from this methodology-m PR (different
+   repo, different review surface).
+
+### Workaround (until fixed)
+
+None needed for normal operation. Anyone touching
+`compile-story-pats` for TODOM-000 should fix the yaml before
+recompiling.
