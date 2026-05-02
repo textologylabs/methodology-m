@@ -3164,6 +3164,7 @@ step anymore. It's a side effect of decomposition.
 **Category:** Methodology / architecture
 **Priority:** Important (uncovered territory)
 **Discovered:** 2026-04-11, discussing wiring between managed repos
+**Status:** 🚧 In progress — v0.12.0 scope = ADD only. REMOVE / RENAME / MERGE / SPLIT / PORT-CHANGE deferred to v0.12.x as separate items. Design locked 2026-05-01; see *Locked design (v0.12.0 ADD)* below.
 
 ### Problem
 
@@ -3222,6 +3223,64 @@ generation capability, done.
 3. **Document the manual process** for now — even without automation,
    the methodology should describe what steps are needed when adding
    or removing a component. Currently it's silent on the topic.
+
+### Locked design (v0.12.0 ADD)
+
+Locked 2026-05-01 ahead of v0.12.0 implementation. v0.12.0 ships ADD
+only; other structural verbs follow as separate items.
+
+1. **No structural tag.** A story is structural when its prose
+   implies topology change. The agent reads the verbs ("add",
+   "remove", "rename"…) — there is no `type: structural` flag, no
+   front-matter, no auto-detection.
+2. **Sub-task PAT for the new component only.** Existing components
+   are unchanged by an ADD; they get no "no-behavior-change"
+   sub-task PATs. The new component gets a sub-task PAT whose AC is
+   `/health` returns 200 + `ok`.
+3. **v0.12.0 scope = ADD only.** REMOVE has the in-flight-story
+   policy problem; RENAME has cross-repo rewire complexity; MERGE
+   and SPLIT compound both. Bundling them inflates risk for no gain.
+   Each becomes its own v0.12.x item.
+4. **Story-level PAT shape:** a single AC using
+   `http: GET http://<new-component>:<port>/health` +
+   `expect-status: 200` + `expect-body-contains: "ok"`. Direct chain
+   from v0.11.0's HTTP step types into v0.12.0's structural assertion.
+
+### Resolution direction — two-phase decompose-story
+
+The chicken-and-egg between `scaffold-repo` (needs sub-task markdown
++ sub-task PAT) and `decompose-story` (refuses to mutate
+`project.yaml` until the new repo exists) is resolved by splitting
+`decompose-story` into two callable phases:
+
+- **Phase A** — sub-task authoring (Steps 1–3). No SCM calls, no
+  `project.yaml` mutations. Output identical for business and
+  structural stories.
+- **Phase B** — structural mutations (S-1: project.yaml, S-2:
+  topology artefact regeneration). No-op for business stories.
+
+For ADD orchestration:
+
+```
+decompose-story --phase=a   → sub-task markdown, readiness tracker
+generate-pats                → story PAT + sub-task PATs
+scaffold-repo (new comp)     → uses new sub-task + PAT to seed repo
+decompose-story --phase=b   → mutate project.yaml + regenerate
+compile-story-pats           → integration-gate MR
+```
+
+For business stories the orchestration collapses to the existing
+`decompose-story → generate-pats → compile-story-pats` chain — Phase
+B no-ops at the end of the unphased call. No behaviour change for
+non-structural callers.
+
+The phase-split pattern generalises to RENAME / MERGE / SPLIT (same
+"target repo must exist" precondition); REMOVE has no precondition
+and uses the unphased call.
+
+See `.m/capabilities/decompose-story/SKILL.md` "Phase boundary" and
+"Order of operations for ADD-type structural changes" for the
+canonical contract.
 
 ### Dependencies
 
