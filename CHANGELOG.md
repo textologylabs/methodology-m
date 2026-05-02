@@ -4,6 +4,180 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.12.1] — 2026-05-03
+
+### Added
+
+- **I-040 (REMOVE) — Topology changes can now also drop components.**
+  v0.12.0 shipped ADD. v0.12.1 ships the REMOVE leg of the same
+  structural-verb family — a project's component set can shrink
+  mid-project via a pure REMOVE story. Locked design subsection on
+  I-040 in `docs/improvements-and-ideas.md` (filed in #22, locked
+  on merge).
+
+  **Verifiability invariant.** REMOVE is rejected at
+  `decompose-story` Step 2 if the to-be-removed component has any
+  active callers in source code or PATs. The reasoning is M's core
+  guarantee: a structural change must be verifiable as structural
+  *in isolation*. Removing a component that is actively called
+  would break callers, which is a behaviour change with its own
+  ACs. A green gate on the bundled change would conflate "topology
+  shrank" with "callers handled the removal correctly" and prove
+  neither independently. Developers must first ship a prep business
+  story that either adds a replacement OR removes the active use,
+  then re-run REMOVE against a topology with zero active callers.
+
+  **`expect-unreachable` step verb.** REMOVE introduces one new
+  step verb to `pat.schema.json` — a direct chain from v0.11.0's
+  HTTP step types into v0.12.x's structural assertion. Compiled by
+  the cypress provider via single-provider absorption. The
+  `http:` + `expect-unreachable` pair fuses into an atomic
+  fetch+catch block (cy.request throws on network errors before
+  any chained `.then` runs, so the standard
+  `cy.request(...).as('lastResponse')` pattern can never observe
+  DNS failure / connection refused — the spec aborts first; fetch
+  with a try/catch is the only reliable shape that both observes
+  the response when one arrives AND catches network errors when
+  nothing is listening). Pass conditions: fetch rejects (network
+  error / DNS / abort) OR fetch resolves with status >= 500.
+  Anything 1xx-4xx fails the test. PAT step types stay
+  framework-agnostic at the schema layer.
+
+  **Historical-CAT cleanup.** When a REMOVE story merges, any
+  compiled `.cy.js` on root that probes the removed component
+  would otherwise fail forever against the smaller topology.
+  `compile-story-pats`'s bundle assembly now identifies these via
+  a static grep over `pats/*.cy.js` for the component's name + any
+  of its declared ports, and includes their deletion in the gate
+  MR push. PAT yaml + readiness tracker for the historical stories
+  stay on main as audit trail — only the compiled spec is removed.
+
+  **Source-repo guard.** REMOVE leaves the orphan managed repo on
+  the SCM platform untouched (managed-repo decommission is a user
+  decision — see follow-up I-061 `unwire-orchestration`). Without
+  intervention, the orphan repo's MR webhook keeps firing root's
+  trigger endpoint; if any other story is in flight when that
+  fires, the spurious trigger gets classified as `story` mode and
+  a pointless `shadow:compose` runs. The regenerated
+  `detect-story-trigger.sh` (rendered by `ci/gitlab` provider) now
+  carries a 5-line source-repo guard: if `SOURCE_PROJECT_PATH`
+  isn't in `$REPOS`, classify as `standalone` and exit. Eliminates
+  the spurious-run path entirely without requiring managed-repo
+  cleanup. Idempotent template change — applies to every project
+  that re-renders.
+
+  Changes:
+  - `.m/schemas/pat.schema.json` — adds `expect-unreachable` to
+    the step `oneOf` + new `$def` `step-expect-unreachable`.
+  - `.m/providers/test/cat/cypress.mjs` — `compileSteps` walks
+    pairs, fusing `http:` + `expect-unreachable` into the atomic
+    fetch+catch block via new `compileHttpUnreachable`. Multi-line
+    compile output is supported by the renderer (one-line
+    statements still emit one line; multi-line blocks each line
+    sits at the it()-body indent).
+  - `.m/providers/test/cat/cypress.test.mjs` — 7 new tests for
+    `expect-unreachable`: fusion shape, network-error catch
+    semantics, rejects without preceding http, rejects when not
+    immediately preceded by http, rejects `expect-unreachable: false`,
+    body-bearing http requests fuse correctly, mixed-AC coexists
+    with `expect-status` chains, atomic block emits at correct
+    indent.
+  - `.m/providers/ci/gitlab.mjs` — source-repo guard added to the
+    rendered `detect-story-trigger.sh`.
+  - `.m/providers/ci/gitlab.test.mjs` — 5 new tests for the guard:
+    block rendered, sits between EVENT_KIND echo and pipeline/mr
+    branch, exits cleanly with detect.env set to standalone, the
+    outer SOURCE_PROJECT_PATH conditional preserves test-env
+    fallthrough, scans the same `$REPOS` list as legacy
+    enumeration.
+  - `.m/capabilities/decompose-story/SKILL.md` — Step 2 carries a
+    REMOVE pre-flight section codifying the verifiability
+    invariant; the S-1 mapping table row for "remove component"
+    expanded with health-endpoint cleanup + the orphan-repo policy
+    note; new "Order of operations for REMOVE-type structural
+    changes" section parallels the existing ADD section.
+  - `.m/capabilities/compile-story-pats/SKILL.md` — Step 2 push
+    bundle gains a "Historical CAT cleanup for REMOVE" section;
+    "CAT compilation for structural stories" rewritten to reflect
+    the v0.12.0 ADD shape (HTTP probe) and v0.12.x REMOVE shape
+    (`expect-unreachable`); Notes section retires the obsolete
+    "skip story-PAT compilation for pure ADD" workaround.
+  - `docs/improvements-and-ideas.md` — I-040 status flipped to
+    Resolved (v0.12.x REMOVE row added to the Resolved table);
+    I-063 filed (MCP `scm.delete_file` primitive needed for
+    methodology-defined "delete" actions — the historical-CAT
+    delete is currently stubbed in workshop evidence runs).
+  - `docs/roadmap.md` — v0.12.1 row added showing REMOVE shipped.
+  - `workshop/jira/TODOM-S03/TODOM-S03.md` — story prose used as
+    the live evidence input.
+
+  **L4 evidence (2026-05-03).** TODOM-S03 ("remove the metrics
+  component shipped by TODOM-S02") executed end-to-end against
+  the live `todo-m-workshop` testbed (`/tmp/m-i040/todo-m-root`).
+  Pre-flight scan of root `pats/`, all managed-repo source code,
+  and managed-repo `pats/` found no active callers of metrics —
+  the only references are TODOM-S02's own gate spec (handled by
+  the historical-CAT delete) and the about-to-be-regenerated
+  topology files. Pre-flight passes.
+
+  Project.yaml mutated (metrics entry deleted, port-3004 health
+  endpoint dropped). Topology re-rendered: docker-compose.yml
+  loses the metrics service + shell `depends_on` shrinks;
+  integration-test.sh aliveness probe set drops to 4;
+  .gitlab-ci.yml drops the todo-m-metrics clone from
+  shadow:compose + validate:compose; report-shadow-status.sh and
+  detect-story-trigger.sh drop metrics from `REPOS` and the
+  latter gains the new source-repo guard. Generate-pats produces
+  a one-AC story PAT using `expect-unreachable`.
+  Compile-story-pats compiles via the cypress provider (fused
+  fetch+catch block) and identifies `pats/TODOM-S02.cy.js` for
+  the historical-CAT delete.
+
+  Local execution against the smaller compose stack: topology
+  aliveness probes **4/4 pass** (was 5/5; metrics gone).
+  `pats/TODOM-S03.cy.js` 1/1 pass via `cypress/included:14.5.4`
+  on `todo-m-root_default` — fetch fails at DNS lookup (no
+  metrics service in the network), catch handler resolves, test
+  passes. `pats/TODOM-000.cy.js` regression **6/6 pass** —
+  removing metrics did not perturb the existing browser-level ACs.
+
+  **L5 evidence (2026-05-03).** Root MR
+  [todo-m-root!36](https://gitlab.com/methodology-m/todo-m-workshop/todo-m-root/-/merge_requests/36)
+  carries the bundled structural change (10 files: project.yaml,
+  docker-compose.yml, four regenerated scripts, the new
+  readiness tracker + PAT + compiled CAT, plus a stub for the
+  historical TODOM-S02 CAT — see Known limitation below). GitLab
+  pipeline **2495493085** — install / build / test /
+  validate:compose / validate:integration-test — all 5 jobs
+  **success**. validate:compose (94s on a real saas-linux runner)
+  cloned 4 sibling repos (down from 5 — todo-m-metrics no longer
+  cloned), built and started the docker-compose stack, ran the
+  regenerated `scripts/integration-test.sh` — all 4 aliveness
+  probes pass.
+
+  **Known limitation — historical-CAT delete via MCP.** The MCP
+  gitlab wrapper currently has no file-delete primitive
+  (`mcp__gitlab__create_or_update_file` cannot delete). The L4
+  evidence run did the actual delete via local `git rm` and
+  confirmed cypress's `**/*.cy.js` glob no longer surfaces the
+  file. The L5 push instead used a stub `describe()` block with
+  no assertions as a workaround — cypress would discover the file
+  but skip past it cleanly. Filed as **I-063** for proper
+  resolution; not a v0.12.1 blocker.
+
+- **I-061 / I-063 — filed during the v0.12.x REMOVE evidence run.**
+  Two follow-up items captured in `improvements-and-ideas.md`,
+  neither blocks v0.12.1. **I-061**: `unwire-orchestration`
+  capability mirroring `wire-orchestration` for managed-repo
+  decommission (delete webhook, delete CI variables, optionally
+  archive/delete repo). Strictly optional after v0.12.1's
+  source-repo guard closes the only operational gap.
+  **I-063**: `scm.delete_file` MCP primitive — needed by the
+  methodology-defined historical-CAT delete (and any future M
+  capability that issues file deletions through the SCM). Today
+  the workaround is push a stub via the existing
+  create_or_update_file tool.
+
 ## [0.12.0] — 2026-05-02
 
 ### Added

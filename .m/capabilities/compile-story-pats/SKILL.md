@@ -106,10 +106,45 @@ MR for this story:
 - **Structural stories only:** the regenerated topology artefacts
   that `decompose-story` staged via `render-topology-artefacts`
   (`project.yaml`, `docker-compose.yml`, `.gitlab-ci.yml`,
-  `scripts/integration-test.sh`, `scripts/report-shadow-status.sh`).
+  `scripts/integration-test.sh`, `scripts/report-shadow-status.sh`,
+  `scripts/detect-story-trigger.sh`).
+- **Structural REMOVE stories only:** deletions of historical
+  compiled CATs that probe the removed component (see "Historical
+  CAT cleanup for REMOVE" below).
 
 The agent reads each file's content from the working directory and
-builds the `files[]` array for `scm.push_or_update_files`.
+builds the `files[]` array for `scm.push_or_update_files`. For
+deletions, the SCM provider's `delete_file` action is used (or, for
+the GitLab interim N-call implementation, a per-file delete API
+call alongside the create/update calls).
+
+#### Historical CAT cleanup for REMOVE
+
+When the story is a structural REMOVE, the gate MR bundle includes
+**deletion** of historical compiled `.cy.js` files that probe the
+removed component. Identified by a static `grep` over `pats/*.cy.js`
+on root for references to the removed component's name OR any of
+its declared ports (read from the pre-mutation `project.yaml`
+captured before Phase B / decompose-story's S-1).
+
+The corresponding PAT yaml (`pats/<story-id>.pat.yaml`) and
+readiness tracker (`stories/<story-id>.yaml`) for those historical
+stories STAY on main as audit trail — only the compiled `.cy.js`
+files are removed. Cypress's default `pats/**/*.cy.js` glob would
+otherwise keep running them and they would fail forever against
+the smaller topology.
+
+The scan is intentionally simple. False positives (a CAT that
+mentions the component name in a comment but doesn't actually probe
+it) are acceptable; the worst case is a reviewer adds the CAT back
+in a follow-up PR. False negatives (a CAT that probes the component
+via an indirect alias) are unlikely in practice because the cypress
+provider compiles `http: GET http://<name>:<port>/...` to literal
+strings in the `.cy.js` output.
+
+For example: removing the `metrics` component on port 3004 deletes
+any `pats/*.cy.js` whose content matches `/\bmetrics\b/` or `:3004`.
+That includes `pats/TODOM-S02.cy.js` (the v0.12.0 ADD's gate spec).
 
 ### Step 3 — Create branch and push
 
@@ -171,25 +206,36 @@ Output:
 The provider invoked is whatever matches the assertions the story
 PAT contains.
 
-- **Pure structural ADD** stories have no user-facing assertion.
-  In v0.6.0, PAT yaml still uses the Cypress-shaped step grammar,
-  so structural verification continues to ride on the topology
-  aliveness probe emitted by the compose provider in
-  `scripts/integration-test.sh`. For ADD stories, the story PAT
-  itself is minimal (often an empty-acceptance document is rejected
-  — see Notes); use REMOVE/RENAME/business variants instead, or
-  wait for v0.8.0 (I-045) when HTTP step types land and the
-  `test.cat.curl` / `test.cat.supertest` providers come online.
+- **Pure structural ADD** (v0.12.0): one-AC story PAT using
+  `http: GET http://<new-component>:<port>/health` +
+  `expect-status: 200` + `expect-body-contains: "ok"`. Compiles
+  through the cypress provider via single-provider absorption
+  (v0.11.0). Topology aliveness probes from
+  `scripts/integration-test.sh` provide a complementary infra-level
+  check.
 
-- **REMOVE / RENAME / MERGE / SPLIT / PORT CHANGE** stories
-  typically have a mixed structural + business character, so their
-  story PAT has regular browser-level ACs that compile cleanly
-  through whichever `test.cat.*` provider the project has selected.
+- **Pure structural REMOVE** (v0.12.x): one-AC story PAT using
+  `http: GET http://<removed-component>:<port>/<old-path>` +
+  `expect-unreachable: true` against the previously-existing
+  endpoint. The cypress provider absorbs the new step verb via the
+  fused fetch+catch block (cy.request would throw on network errors
+  before chained `.then` runs, so the `http:` + `expect-unreachable`
+  pair compiles atomically). Bundle additionally includes deletion
+  of historical compiled CATs that probe the removed component
+  (see "Historical CAT cleanup for REMOVE" in Step 2).
 
-- **After v0.8.0 (I-045):** the provider choice naturally extends
-  to `curl` / `supertest` for HTTP-level step types. This
-  capability does not change — only the providers it dispatches
-  to.
+- **RENAME / MERGE / SPLIT / PORT CHANGE** stories typically have a
+  mixed structural + business character, so their story PAT has
+  regular browser-level or HTTP ACs that compile cleanly through
+  whichever `test.cat.*` provider the project has selected.
+
+- **Provider plumbing.** PAT step types stay framework-agnostic at
+  the schema layer; the cypress provider absorbs HTTP step types
+  (v0.11.0 — `http`, `expect-status`, `expect-body-contains`) and
+  the negative-existence verb (v0.12.x — `expect-unreachable`).
+  Standalone backend-only providers (`test.cat.curl` /
+  `test.cat.supertest`) remain deferred until a real backend-only
+  project demands them.
 
 ## Provider interface dependencies
 
@@ -213,11 +259,10 @@ PAT contains.
 
 - The `cypress` provider rejects `render:` steps (sub-task-only).
   Keep `render:` out of story-level PATs.
-- If the story PAT has zero ACs (pure structural ADD with no
-  regression surface), `generate-pats` will flag it — a story PAT
-  without ACs is invalid. The correct pattern for pure ADD is to
-  lean on the topology aliveness probe and skip story-PAT
-  compilation entirely until I-045.
+- Every story PAT now has at least one AC — the v0.11.0 HTTP step
+  types and v0.12.x `expect-unreachable` cover ADD and REMOVE
+  respectively. The earlier "skip story-PAT compilation for pure
+  ADD" workaround retired with v0.12.0.
 - For `providers.test.cat: log-only`, the compiled "spec" is a
   `.trace.txt` file with no assertion value. Useful for exercising
   the dispatch path in tests; not useful for real projects.
