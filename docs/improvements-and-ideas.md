@@ -91,6 +91,8 @@ listed for completeness — their write-ups remain below as reference.
 | I-040 | Topology changes (ADD) | A project's component set can evolve mid-project via the standard story flow. ADD shipped via two-phase `decompose-story` (Phase A: sub-task + readiness tracker, no SCM mutation; Phase B: `project.yaml` mutation + topology re-render) composed with v0.6.0's `generate-pats`/`compile-story-pats`/`test.cat.cypress`, v0.11.0's HTTP step types + cypress absorption, v0.5.1's pure-function topology renderer + `scm.push_or_update_files`, and #18's phase-split contract. No new code in v0.12.0 — the release ships I-040 because end-to-end ADD is now demonstrated against a real workshop testbed (TODOM-S02 → metrics on port 3004, root MR !35, pipeline 2495405820, all 5 jobs success; topology aliveness probes 5/5 pass on real GitLab CI). REMOVE / RENAME / MERGE / SPLIT / PORT-CHANGE remain deferred. v0.12.0. |
 | I-040 | Topology changes (REMOVE) | The structural-verb family extended: a project's component set can also shrink mid-project. New `expect-unreachable` step verb (cypress provider absorbs it via fused fetch+catch — cy.request can't observe network errors before chained .then). Caller pre-flight at decompose-story Step 2 enforces M's verifiability invariant: removing a component with active callers conflates structural change with behaviour change, so REMOVE-with-callers is hard-rejected with guidance to ship a prep story first. compile-story-pats's bundle assembly identifies historical compiled CATs that probe the removed component (static grep on name + ports) and includes their deletion. Regenerated detect-story-trigger.sh carries a 5-line source-repo guard so orphan-repo webhooks classify as standalone (no spurious shadow runs); managed-repo decommission proper is filed as I-061 follow-up. Demonstrated end-to-end against the live workshop (TODOM-S03 → remove metrics, root MR !36, pipeline 2495493085, validate:compose green with topology probes 4/4 — was 5/5 before). v0.12.1. |
 | I-058 | Workshop MF chunk + api fetch fail under headless cypress | Shell + MFE bundles baked in `http://localhost:300x` URLs at build time — works for host browser (port mapping) but fails inside cypress-in-docker (`localhost` from cypress container ≠ host's localhost). Same-origin proxy through shell's nginx (and webpack-dev-server in `npm run dev`): `/mfe/* → mfe:3001/*`, `/api-read/* → api-read:3002/*`, `/api-write/* → api-write:3003/*`. Bundles now use relative URLs (`todoMfe@/mfe/remoteEntry.js`, `API_URL=/api-read`). Verified: TODOM-000 6/6 + TODOM-L4 3/3 cypress tests pass. Workshop-side fix only; no methodology impact. Resolved 2026-04-26. |
+| I-059 | `m clone` topology parser miscount with `persistence:` block | Hand-rolled line scanner in `cli/src/lib/topology.mjs` didn't track scope: a top-level `persistence:` block (or any non-`components:` top-level header whose first child key was `type:` / `location:`) leaked into the last component, dropping it from `getReferencedRepos`. Fixed with a section-boundary check that closes the in-progress component when a non-indented header line is hit. Renderer was unaffected (uses `js-yaml`). Regression test in `cli/test/cli.test.mjs`. v0.13.0. |
+| I-064 | Self-update prompt on operational `m` commands | CLI checks the npm registry on entry to operational commands and offers `Update now? (y/N)`. On accept, runs `npm i -g methodology-m@latest` and re-execs the original command. Skipped for meta commands (`help`, `version`, `changelog`), non-TTY environments, and when `M_NO_UPDATE_CHECK=1` is set. 2s registry timeout with silent fall-through on any error. Pattern adapted from `textologylabs/hex` (`src/update.ts`). Limits: assumes `npm` for installs (pnpm/yarn/bun users opt out via env var); pre-release tags on npm `latest` would over-prompt but Methodology M doesn't ship any. v0.13.0. |
 
 ---
 
@@ -4703,6 +4705,13 @@ structural ADD demonstration.
 
 ## I-059: `m clone` naive YAML parser miscounts referenced repos when persistence is declared
 
+**Status:** ✅ Resolved 2026-05-06 — section-boundary check in
+`cli/src/lib/topology.mjs` closes the in-progress component on a
+non-indented header line so `persistence:` (and similar top-level
+blocks) can no longer overwrite the last component's fields. Smaller
+fix than the originally proposed `js-yaml` swap; same effect on the
+symptom. v0.13.0.
+
 **Category:** M CLI / topology parser
 **Priority:** Low (papercut — easy workaround)
 **Discovered:** 2026-05-02, kicking off v0.12.0 ADD evidence run
@@ -5020,3 +5029,58 @@ capability that issues file deletions through the SCM:
 
 Worth shipping early so REMOVE evidence runs use the real delete
 on the next iteration.
+
+
+---
+
+## I-064: Self-update prompt on operational `m` commands
+
+**Status:** ✅ Resolved 2026-05-06 — shipped in v0.13.0.
+
+**Category:** M CLI / distribution UX
+**Priority:** Low (papercut — `npm view methodology-m version` was
+the manual workaround)
+**Discovered:** 2026-05-06, while preparing the v0.13.0 release
+
+### Problem
+
+There was no signal to the user when a newer `methodology-m` was
+published. Users had to remember to `npm view methodology-m version`
+periodically and `npm i -g methodology-m@latest` themselves.
+Practically, that meant pinned-old installs drifting silently and the
+agent-side steering being out of sync with what the methodology
+currently does.
+
+### Resolution
+
+Added `cli/src/lib/update-check.mjs`. On entry to operational commands
+(`init`, `clone`, `update`, `diff`), the CLI:
+
+1. Polls `https://registry.npmjs.org/methodology-m/latest` with a 2s
+   `AbortController` timeout. Failure (network, non-2xx, JSON shape)
+   silently falls through.
+2. If the registry version is newer than the installed one, prints
+   `▲ methodology-m vX.Y.Z is available — you have vA.B.C.` and
+   prompts `Update now? (y/N)`.
+3. On yes, runs `npm i -g methodology-m@latest` (inherit stdio so the
+   user sees npm output) and re-execs with the original argv.
+4. On no, continues with the current version.
+
+### Gating
+
+- **Meta commands** (`help`, `version`, `changelog`) — skipped, so
+  they always print clean output without an interrupting prompt.
+- **Non-TTY** — skipped (CI, piped output, programmatic invocation).
+- **`M_NO_UPDATE_CHECK=1`** — env-var opt-out for users who don't
+  want any registry calls.
+
+Pattern adapted from `textologylabs/hex` (`src/update.ts`).
+
+### Limits
+
+- `runInstall` shells out to `npm` — pnpm/yarn/bun-installed users
+  should set `M_NO_UPDATE_CHECK=1` to avoid a parallel npm-global
+  install.
+- `compareVersions` is a 3-tuple numeric compare; pre-release tags
+  on the npm `latest` dist-tag would over-prompt, but Methodology M
+  doesn't ship pre-releases on `latest`.

@@ -227,6 +227,37 @@ describe('topology', async () => {
       assert.strictEqual(r.repoName, r.location.split('/').pop());
     }
   });
+
+  // Regression for I-059: a top-level `persistence:` block whose first key
+  // is `type:` previously leaked into the last component, overwriting its
+  // type and dropping it from getReferencedRepos.
+  test('persistence: block after components: does not corrupt the last component', () => {
+    const tmp = makeTmp();
+    try {
+      writeFileSync(join(tmp, 'project.yaml'), [
+        'project: test',
+        'group: example/group',
+        'components:',
+        '  - name: api-read',
+        '    type: referenced',
+        '    location: example/group/api-read',
+        '  - name: api-write',
+        '    type: referenced',
+        '    location: example/group/api-write',
+        'persistence:',
+        '  type: sqlite',
+        '  volume: data',
+        '',
+      ].join('\n'));
+      const topo = readTopology(tmp);
+      assert.strictEqual(topo.components.length, 2);
+      assert.strictEqual(topo.components[1].name, 'api-write');
+      assert.strictEqual(topo.components[1].type, 'referenced');
+      assert.strictEqual(getReferencedRepos(topo).length, 2);
+    } finally {
+      cleanTmp(tmp);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -435,6 +466,52 @@ describe('changelog', async () => {
     const section = extractVersionHelper(content, 'v0.3.0');
     assert.ok(section);
     assert.ok(section.startsWith('## [0.3.0]'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. update-check — compareVersions
+// ---------------------------------------------------------------------------
+
+describe('update-check / compareVersions', async () => {
+  const { compareVersions } = await import('../src/lib/update-check.mjs');
+
+  test('returns 0 for equal versions', () => {
+    assert.strictEqual(compareVersions('1.2.3', '1.2.3'), 0);
+  });
+
+  test('returns positive when first is newer (patch)', () => {
+    assert.ok(compareVersions('1.2.4', '1.2.3') > 0);
+  });
+
+  test('returns positive when first is newer (minor)', () => {
+    assert.ok(compareVersions('1.3.0', '1.2.9') > 0);
+  });
+
+  test('returns positive when first is newer (major)', () => {
+    assert.ok(compareVersions('2.0.0', '1.99.99') > 0);
+  });
+
+  test('returns negative when first is older', () => {
+    assert.ok(compareVersions('0.12.1', '0.13.0') < 0);
+  });
+
+  test('treats missing components as zero', () => {
+    assert.strictEqual(compareVersions('1.0', '1.0.0'), 0);
+    assert.ok(compareVersions('1.0.1', '1.0') > 0);
+  });
+
+  test('maybeUpdate is a silent no-op when M_NO_UPDATE_CHECK=1', async () => {
+    const { maybeUpdate } = await import('../src/lib/update-check.mjs');
+    const prev = process.env.M_NO_UPDATE_CHECK;
+    process.env.M_NO_UPDATE_CHECK = '1';
+    try {
+      // Must resolve without touching the network or stdin.
+      await maybeUpdate();
+    } finally {
+      if (prev === undefined) delete process.env.M_NO_UPDATE_CHECK;
+      else process.env.M_NO_UPDATE_CHECK = prev;
+    }
   });
 });
 

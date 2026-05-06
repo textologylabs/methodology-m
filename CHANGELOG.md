@@ -4,6 +4,46 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-05-06
+
+### Added
+
+- **I-064 — Self-update prompt on operational `m` commands.** The CLI
+  checks the npm registry for a newer `methodology-m` version on entry
+  to operational commands (`init`, `clone`, `update`, `diff`) and, if
+  one is available, prompts `Update now? (y/N)`. On yes, runs
+  `npm i -g methodology-m@latest` and re-execs the original command;
+  on no, continues with the current version. Pattern adapted from
+  `textologylabs/hex` (`src/update.ts`).
+
+  **Gating.** Skipped for metadata commands (`help`, `version`,
+  `changelog`) so their output stays clean. Skipped when stdin or
+  stdout isn't a TTY (CI, piped output). Disabled by exporting
+  `M_NO_UPDATE_CHECK=1`. Network call is `AbortController`-timeouted
+  at 2s and any failure (network, non-2xx, JSON shape) silently
+  falls through — the user's command runs even when the registry is
+  unreachable.
+
+  **Limits.** `runInstall` shells out to `npm` — pnpm/yarn/bun users
+  should set `M_NO_UPDATE_CHECK=1` to avoid a parallel npm-global
+  install. `compareVersions` is a 3-tuple numeric compare; pre-release
+  tags on the `latest` dist-tag would cause an over-eager prompt, but
+  Methodology M doesn't ship pre-releases on `latest`.
+
+### Fixed
+
+- **I-059 — `m clone` undercounts referenced repos when `persistence:`
+  follows `components:` in `project.yaml`.** The hand-rolled line
+  scanner in `cli/src/lib/topology.mjs` didn't track scope: the first
+  `type:` key inside a top-level `persistence:` block (or any
+  non-`components:` top-level header whose first child key was `type:`
+  / `location:`) overwrote the *last* component's fields, silently
+  dropping it from `getReferencedRepos`. Fix: detect non-indented
+  header lines after `components:` and close the in-progress
+  component before they can leak. The renderer
+  (`render-topology-artefacts`) was unaffected — it uses `js-yaml`.
+  Regression test added in `cli/test/cli.test.mjs`.
+
 ## [0.12.1] — 2026-05-03
 
 ### Added
