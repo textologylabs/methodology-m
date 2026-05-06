@@ -111,21 +111,34 @@ MR for this story:
 - **Structural REMOVE stories only:** deletions of historical
   compiled CATs that probe the removed component (see "Historical
   CAT cleanup for REMOVE" below).
+- **Structural RENAME stories only:** in-place rewrites of
+  historical compiled CATs that reference the old component name
+  (see "Historical CAT rewrite for RENAME" below).
 
-The agent reads each file's content from the working directory and
-builds the `files[]` array for `scm.push_or_update_files`. For
-deletions, the SCM provider's `delete_file` action is used (or, for
-the GitLab interim N-call implementation, a per-file delete API
-call alongside the create/update calls).
+The agent reads each entry's content from the working directory and
+builds the `files[]` array for `scm.push_or_update_files`. Each entry
+is one of:
+
+- `{ path, content }` — create or update (provider decides per file)
+- `{ path, action: 'delete' }` — delete the file from the branch
+  (REMOVE stories only)
+
+In the GitLab provider's interim per-action implementation, deletes
+shell out to `node .m/providers/scm/gitlab/delete-file.mjs` while
+creates/updates go through `mcp_gitlab_create_or_update_file`. The
+provider doc covers the call shape — capabilities just supply the
+entries with the right `action`.
 
 #### Historical CAT cleanup for REMOVE
 
 When the story is a structural REMOVE, the gate MR bundle includes
 **deletion** of historical compiled `.cy.js` files that probe the
-removed component. Identified by a static `grep` over `pats/*.cy.js`
-on root for references to the removed component's name OR any of
-its declared ports (read from the pre-mutation `project.yaml`
-captured before Phase B / decompose-story's S-1).
+removed component. The bundle assembly imports
+`findReferencing` from `.m/capabilities/_lib/historical-cat-scan.mjs`
+and passes the removed component's name plus any of its declared
+ports as terms (read from the pre-mutation `project.yaml` captured
+before Phase B / decompose-story's S-1). Each match is added to the
+push bundle as `{ path, action: 'delete' }`.
 
 The corresponding PAT yaml (`pats/<story-id>.pat.yaml`) and
 readiness tracker (`stories/<story-id>.yaml`) for those historical
@@ -143,8 +156,34 @@ provider compiles `http: GET http://<name>:<port>/...` to literal
 strings in the `.cy.js` output.
 
 For example: removing the `metrics` component on port 3004 deletes
-any `pats/*.cy.js` whose content matches `/\bmetrics\b/` or `:3004`.
-That includes `pats/TODOM-S02.cy.js` (the v0.12.0 ADD's gate spec).
+any `pats/*.cy.js` whose content matches `metrics` or `3004`. That
+includes `pats/TODOM-S02.cy.js` (the v0.12.0 ADD's gate spec).
+
+#### Historical CAT rewrite for RENAME
+
+When the story is a structural RENAME, the gate MR bundle includes
+**in-place rewrites** of historical compiled `.cy.js` files that
+reference the old component identifier. The bundle assembly imports
+`rewriteReferencing` from `.m/capabilities/_lib/historical-cat-scan.mjs`
+and passes the pre-mutation identifier (typically `<old-name>:<port>`,
+or just `<old-name>` if the bare token is unambiguous) plus the
+post-mutation identifier (`<new-name>:<port>` / `<new-name>`). Each
+returned `{ path, content }` is added to the push bundle as a
+standard create-or-update entry — the provider treats it as an
+`update` since the path already exists on `main`.
+
+Source PAT yamls (`pats/<story-id>.pat.yaml`) are **not rewritten**.
+They preserve the original story's wording (which referenced the
+component by its name at the time the story shipped). The compiled
+`.cy.js` and the source `.pat.yaml` diverge after RENAME — this is
+intentional and the divergence is the audit trail. A reader
+following provenance from `.cy.js` to `.pat.yaml` to the merged
+gate MR sees the rename event in the history and can reconcile.
+
+For example: renaming `metrics` to `telemetry` (port 3004 preserved)
+rewrites any `pats/*.cy.js` whose content matches `metrics:3004`,
+producing entries with `metrics:3004` → `telemetry:3004`. That
+includes `pats/TODOM-S02.cy.js` (the v0.12.0 ADD's gate spec).
 
 ### Step 3 — Create branch and push
 

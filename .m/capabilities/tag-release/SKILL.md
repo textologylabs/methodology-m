@@ -9,6 +9,33 @@ the root repo's `project.yaml` to pin that component to the new version.
 After this step, the topology manifest reflects the released state and
 the component is reproducibly referenceable.
 
+## Manual vs automatic (v0.14.0+)
+
+As of v0.14.0 (I-004), the **automatic path** for tag + bump is the
+managed-repo CI pipeline. The placeholder `tag` job in scaffold-repo's
+managed-repo template now computes the next semver patch on every
+merge to main (with `[bump-minor]` / `[bump-major]` / `[skip-auto-tag]`
+escape hatches in the merge commit message), pushes the tag, and
+notifies root via the `report-tag-to-root` job. Root's
+`shadow:bump-topology` job then mutates `project.yaml` and opens a
+`chore/bump-<comp>-<tag>` MR — no agent invocation needed.
+
+This **manual capability** is the **fallback path**, retained for:
+
+- **Escape-hatch overrides** — when the auto-tag job declined to
+  tag (commit message had `[skip-auto-tag]`, or tree was unchanged)
+  but the user genuinely wants a tag.
+- **Recovery** — if the auto-tag fired but
+  `report-tag-to-root` failed and `project.yaml` is stale, this
+  capability reconciles state by tagging at the same commit (idempotent
+  on existing tags) and updating root.
+- **Repo-specific bumps** — major version bumps, retroactive tagging,
+  pre-release tags, or anything else outside the patch-by-default
+  automation.
+
+Both paths produce the same tag shape and trigger the same downstream
+flow; the auto path runs in CI, the manual path runs in the agent.
+
 ## Parameters
 
 | Parameter      | Type   | Required | Description                                        |

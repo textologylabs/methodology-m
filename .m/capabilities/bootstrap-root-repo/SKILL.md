@@ -132,6 +132,29 @@ Create placeholder structure for the root repo:
   shell's actual content is implemented in the first story.
 - `.m/` — methodology configuration (steering, schemas) — typically a
   `.gitkeep` or a symlink/reference to the org-level M install.
+- `CHANGELOG.md` — project-level changelog seeded with a Keep-a-
+  Changelog header and an empty `[Unreleased]` section containing a
+  `[Topology bumps]` subsection. The auto-bump CI job (I-004,
+  `shadow:bump-topology`) appends one line per managed-repo tag
+  event, so the file is the live record of "what tags are pinned in
+  the topology and when each was promoted." Periodically the user
+  closes the unreleased section into a dated release section.
+
+  Initial content:
+
+  ```markdown
+  # <project> — Topology Changelog
+
+  Tracks topology-affecting changes to the project. The
+  `[Topology bumps]` subsections are auto-populated by the
+  M auto-bump CI job (I-004) when managed repos tag new
+  versions; structural stories (ADD / REMOVE / RENAME) record
+  their gate-MR landings here too.
+
+  ## [Unreleased]
+
+  ### [Topology bumps]
+  ```
 
 ### Step 6 — Render topology-derived artefacts
 
@@ -174,12 +197,15 @@ Commit all seeded files to the root repo in a single commit:
 
 - `project.yaml`
 - `README.md` (project-specific, not the GitLab boilerplate)
+- `CHANGELOG.md` (Topology Changelog seed; see Step 5)
 - `packages/shell/package.json`, `packages/shell/README.md` (shell stub)
 - `pats/.gitkeep`, `stories/.gitkeep`, `.m/.gitkeep` (empty dirs)
 - `docker-compose.yml` (from renderer)
 - `scripts/integration-test.sh` (from renderer, executable)
 - `.gitlab-ci.yml` (from renderer)
 - `scripts/report-shadow-status.sh` (from renderer, executable)
+- `scripts/detect-story-trigger.sh` (from renderer, executable)
+- `scripts/bump-topology.sh` (from renderer, executable; I-004)
 
 Because the repo was created without `initialize_with_readme`, all files
 can be pushed in one commit with no conflicts.

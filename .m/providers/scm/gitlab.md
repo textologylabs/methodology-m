@@ -118,8 +118,12 @@ Parameters:
 
 ## scm.push_or_update_files
 
-Push multiple files where each may be either new or already existing on
-the branch. The caller does not precheck.
+Push a batch of file actions in a single commit. Supports three action
+kinds:
+
+- `{ path, content }` (or `{ path, content, action: 'create-or-update' }`)
+  — create or update; provider decides per file
+- `{ path, action: 'delete' }` — delete the file from the branch
 
 **Preferred implementation (atomic single commit):**
 
@@ -127,7 +131,8 @@ Use the GitLab commits API with a mixed-action payload.
 
 ```
 MCP: gitlab
-Tool: (no MCP wrapper yet — raw HTTP via curl or `mcp_gitlab_*` extension)
+Tool: (no MCP wrapper for commits API yet — raw HTTP via curl, or
+       fall back to per-action calls below)
 
 HTTP: POST /projects/:id/repository/commits
 
@@ -136,46 +141,68 @@ Body:
   commit_message: <message>
   actions: [
     { action: "create" | "update", file_path: <path>, content: <content> },
+    { action: "delete", file_path: <path> },
     ...
   ]
 ```
 
-The provider determines `action` per file by first resolving whether
-the path exists on the branch (via `mcp_gitlab_get_file_contents` — a
-404 means create, success means update). All actions then go in a
-single commit. Returns the commit SHA from the response.
+For create-or-update entries, the provider determines `action` per file
+by first resolving whether the path exists on the branch (via
+`mcp_gitlab_get_file_contents` — 404 means `create`, success means
+`update`). For `delete` entries, the action is passed through as-is.
+All actions go in a single commit. Returns the commit SHA from the
+response.
 
-**Current interim implementation (N commits, non-atomic):**
+**Current interim implementation (N calls, non-atomic):**
 
-Until an MCP wrapper for the commits API exists, fall back to iterating
-the files and calling `scm.create_or_update_file` per file. This
-produces N commits in declaration order instead of one atomic commit
-but handles the create/update mix correctly.
+Until an MCP wrapper for the commits API exists, fall back to
+iterating the entries:
+
+- For create-or-update entries (default): call
+  `scm.create_or_update_file` (which uses
+  `mcp_gitlab_create_or_update_file`).
+- For `delete` entries: invoke the delete-file helper script via the
+  Bash tool — `node .m/providers/scm/gitlab/delete-file.mjs <project>
+  <branch> <path> <message> <token>` — which calls
+  `DELETE /projects/:id/repository/files/<encoded-path>?branch=<branch>&commit_message=<msg>`.
+  The helper uses `M_GROUP_TOKEN` (or the equivalent maintainer-scope
+  token from `wire-orchestration`).
 
 ```
-For each file in files[]:
-  mcp_gitlab_create_or_update_file(
-    project_id: <project_id>,
-    file_path: <file.path>,
-    content: <file.content>,
-    commit_message: <message>,
-    branch: <branch>
-  )
+For each entry in files[]:
+  if entry.action == 'delete':
+    Bash: node .m/providers/scm/gitlab/delete-file.mjs \
+      <project_path> <branch> <entry.path> <commit_message> <token>
+  else:
+    mcp_gitlab_create_or_update_file(
+      project_id: <project_id>,
+      file_path: <entry.path>,
+      content: <entry.content>,
+      commit_message: <commit_message>,
+      branch: <branch>
+    )
 
-Return the commit SHA from the last call.
+Return the commit SHA from the last successful call (commits API
+response for atomic mode, or the last per-action commit in interim
+mode).
 ```
 
 **MCP tooling follow-up:** an `mcp_gitlab_commit` wrapper exposing the
-full `POST /projects/:id/repository/commits` endpoint would let this
-function become atomic. Not blocking v0.5.1; filed as part of I-051's
-polish.
+full `POST /projects/:id/repository/commits` endpoint (with mixed
+`create` / `update` / `delete` actions) would let this function become
+atomic. Same wrapper would also drop the per-action curl fallback for
+deletes. Not blocking; filed against the upstream MCP gitlab server.
 
 **Gotchas:**
 - The interim implementation is NOT atomic. A partial failure mid-batch
-  leaves the branch in an inconsistent state (some files updated,
-  others not). For `decompose-story` S-4 this is acceptable because
+  leaves the branch in an inconsistent state. For `decompose-story`
+  Phase B and `compile-story-pats` Step 3 this is acceptable because
   the branch is a short-lived story branch, and a failure mid-push is
   a signal to abort the story and restart.
+- The delete helper assumes `M_GROUP_TOKEN` (or equivalent) has
+  `write_repository` scope on the target project. `wire-orchestration`
+  provisions tokens with this scope; ad-hoc deletes outside the
+  capability flow need to bring their own token.
 
 ---
 

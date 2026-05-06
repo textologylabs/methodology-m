@@ -86,26 +86,32 @@ default README causes merge conflicts with the seed.
 
 **`scm.push_or_update_files(repo, branch, files[], commit_message)`**
 
-Push multiple files in a single commit, where each file may be either
-new or already existing on the branch. The provider decides per file
-whether the concrete SCM call is a create or an update — the caller
-does not need to know and does not need to precheck.
+Push a batch of file actions in a single commit. Each entry is one
+of three kinds, distinguished by an optional `action` field:
 
-Each file entry contains `path` and `content`. Used by
-`compile-story-pats` which pushes a mix of new story artefacts
-(compiled CAT, readiness tracker) and regenerated topology files to
-the root repo's story branch — some of those files (e.g.
-`docker-compose.yml`, `.gitlab-ci.yml`) already exist from bootstrap.
+- `{ path, content }` — create-or-update. Provider decides per file
+  whether the concrete call is a create or an update; caller does
+  not need to know or precheck.
+- `{ path, content, action: 'create-or-update' }` — explicit form
+  of the above (equivalent to omitting `action`).
+- `{ path, action: 'delete' }` — delete the file from the branch.
+  `content` is ignored if present.
 
-`scm.push_files` is NOT suitable for this use because it rejects any
-file that already exists. Providers MAY implement this atomically
-(preferred — single commit via a bulk-commit API) or as a sequence of
-per-file updates (acceptable fallback — N commits in declaration
-order). The function contract does not require atomicity; callers
-should not assume a single commit SHA can roll back the whole batch.
+Used by `compile-story-pats` (gate MR push — mixes new story
+artefacts, regenerated topology files, and — for structural REMOVE —
+deletions of historical compiled CATs) and `decompose-story` Phase B
+(topology artefact regeneration — pure create-or-update mix).
 
-Returns the SHA of the last commit produced. Fails if the branch does
-not exist or any individual file write fails.
+`scm.push_files` is NOT suitable for these uses because it rejects
+any file that already exists and has no delete shape. Providers MAY
+implement this atomically (preferred — single commit via a bulk-
+commit API supporting mixed actions) or as a sequence of per-action
+calls (acceptable fallback — N commits in declaration order). The
+function contract does not require atomicity; callers should not
+assume a single commit SHA can roll back the whole batch.
+
+Returns the SHA of the last commit produced. Fails if the branch
+does not exist or any individual action fails.
 
 ---
 
