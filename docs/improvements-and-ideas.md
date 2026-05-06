@@ -392,6 +392,267 @@ actually works end-to-end." Without this, the M workflow requires manual
 bookkeeping at multiple points, which undermines the methodology's promise
 of automated coordination.
 
+### Locked design (v0.14.0 — auto-tag + auto-bump + topology changelog)
+
+**Status:** DRAFT — review before impl.
+
+Locked 2026-05-06 ahead of v0.14.0 implementation. Captures only
+the post-merge-lifecycle slice of I-004; merge-transaction
+execution and gating remain deferred (see "Out of scope" below).
+
+**1. Scope.** Three pieces of automation, all triggered by an MR
+merge to main on a managed repo:
+
+- **(a) Auto-tag.** The placeholder `tag` CI job in scaffold-repo's
+  managed-repo template (currently
+  `"tag": "echo 'auto-tag: not yet implemented'"`) becomes a real
+  semver bump + annotated tag + push.
+- **(b) Tag-to-root notification.** A new
+  `report-tag-to-root` CI job (mirrors v0.10.0's
+  `report-failure-to-root`) calls root's trigger endpoint with
+  `EVENT_KIND=tag`.
+- **(c) Auto-bump.** Root's pipeline learns a third
+  `EVENT_KIND=tag` branch in `detect-story-trigger.sh`. A new
+  `shadow:bump-topology` job mutates `project.yaml` to set
+  `components[name=$COMPONENT_NAME].tag = $NEW_TAG`, appends a
+  `[Topology bumps]` entry to root's `CHANGELOG.md`, and opens a
+  `chore/bump-<component>-<tag>` MR.
+
+The merge transaction (cross-repo atomic merge of all story MRs)
+and merge-transaction gating (button-light-up only when all
+managed MRs green) are **out of scope** for this ship. They are
+filed as a follow-up (see "Out of scope" below). The post-merge
+lifecycle works without them — devs merge story MRs individually
+in any order; tags + topology bumps fan out automatically.
+
+**2. Why post-merge lifecycle without merge-transaction execution?**
+The roadmap entry for I-004 v0.13.0 explicitly listed "auto-tag,
+bump version, commit the bump, update CHANGELOG." That's a real
+unit of value (eliminates manual bookkeeping) and ships on a
+stable pre-merge flow already in production. The merge-transaction
+execution is a different beast — cross-repo atomicity, rollback
+semantics, partial-failure handling — and bundling it would
+inflate risk for no incremental gain. Same scope-discipline that
+drove ADD-then-REMOVE-then-RENAME instead of all-structural-verbs.
+
+**3. Auto-tag mechanics — `tag` CI job.** Runs on
+`pipeline.event=push` + `ref=main` (i.e. merge to main). Logic:
+
+1. Read the latest annotated tag from origin (`git describe --tags
+   --abbrev=0` or REST equivalent if shallow clone).
+2. If no tag exists, default to `v0.1.0`. Otherwise patch-bump the
+   latest tag (`v0.2.3` → `v0.2.4`).
+3. Skip if the merge commit's message contains
+   `[skip-auto-tag]` or `[no-tag]` (escape hatch for in-flight
+   refactors and revert merges).
+4. Skip if the merge commit's tree is unchanged from the previous
+   tagged commit (no functional change → no new tag).
+5. Create an annotated tag with the merge commit's first-line
+   message as the tag message. Push the tag using a project access
+   token already provisioned by `wire-orchestration` (the
+   `m-merge-transaction` token gets a `write_repository` scope
+   bump for this job).
+
+**Default to patch bump.** Minor + major bumps require deliberate
+intent — supported via `[bump-minor]` / `[bump-major]` markers in
+the merge commit message (parser is a regex over the merge commit
+title + body). Deliberately not configurable per-component in
+`project.yaml` — the bump intent rides on the *commit*, not the
+*topology*.
+
+**4. Tag-to-root notification — `report-tag-to-root` CI job.**
+Direct mirror of v0.10.0's `report-failure-to-root`:
+
+- Stage `.post`, runs `when: on_success` after `tag` job.
+- Posts to root's trigger endpoint via curl with `-g` (per I-057):
+  `URL="$CI_API_V4_URL/projects/$ROOT_PROJECT_ID/ref/main/trigger/pipeline?token=$M_TRIGGER_TOKEN&variables[SOURCE_PROJECT_ID]=$CI_PROJECT_ID&variables[SOURCE_PROJECT_PATH]=$ENCODED_PATH&variables[NEW_TAG]=$NEW_TAG&variables[COMPONENT_NAME]=$COMPONENT_NAME&variables[EVENT_KIND]=tag"`
+- Best-effort — if root unreachable, the tag still lands on the
+  managed repo; the topology bump just stays manual until the next
+  successful trigger.
+
+CI variables already provisioned by `wire-orchestration`
+(`M_TRIGGER_TOKEN`, `ROOT_PROJECT_ID`). `COMPONENT_NAME` is
+derived from `package.json` `name` (same convention as
+`tag-release` capability).
+
+**5. Auto-bump mechanics — root `shadow:bump-topology` job.**
+Root's `detect-story-trigger.sh` currently branches on
+`EVENT_KIND` for `mr` / `pipeline`. Add a third branch for
+`tag`:
+
+```bash
+if [[ "$EVENT_KIND" == "tag" ]]; then
+  TRIGGER_MODE=tag
+  echo "TRIGGER_MODE=tag" >> trigger.env
+  echo "TAG_COMPONENT=$COMPONENT_NAME" >> trigger.env
+  echo "TAG_NEW_VERSION=$NEW_TAG" >> trigger.env
+  exit 0
+fi
+```
+
+`shadow:bump-topology` job (new) gates on `TRIGGER_MODE=tag`:
+
+1. Clone root repo.
+2. Read `project.yaml`, locate the matching component by name,
+   set `tag: $TAG_NEW_VERSION`.
+3. Append a `[Topology bumps]` line to root's `CHANGELOG.md`
+   under `[Unreleased]`:
+   ```
+   - Component `<name>` bumped from `<old>` to `<new>`.
+   ```
+   If the merge commit on the managed repo had a
+   `[changelog: <text>]` marker, use `<text>` instead of the
+   default line.
+4. Commit on a fresh branch
+   `chore/bump-<component>-<sanitised-tag>` (e.g.
+   `chore/bump-metrics-v0-2-4`).
+5. Push branch + open MR with title
+   `🔧 Topology: bump <component> to <tag>` and body listing the
+   triggering managed-repo pipeline + commit.
+6. Optionally auto-merge the bump MR if its CI passes (the bump
+   MR's pipeline classifies as `standalone` via the source-repo
+   guard — managed-repo source is in `REPOS`, but the trigger here
+   came from a `tag` event, not a story `mr` event).
+
+**Auto-merge of bump MRs.** Default OFF for v0.14.0. The MR is
+opened, sits with a green pipeline (changes are pure topology;
+`validate:compose` proves the new tag is reachable), waits for a
+human to click merge. Auto-merge is filed as a follow-up
+(I-066 — see below). Reasoning: bump MRs interleave with story
+MRs and merge-transaction MRs; auto-merging them changes the
+baseline for in-flight stories and is the kind of automation that
+benefits from explicit user opt-in.
+
+**6. Concurrency — two managed repos tag at once.** Race shape:
+managed-repo-A merges and tags, triggers `shadow:bump-topology`,
+which clones root and starts mutating yaml; meanwhile
+managed-repo-B does the same. Both push branches with different
+names (`chore/bump-A-v0.2.4` vs `chore/bump-B-v0.3.1`), both open
+MRs against main. Once one merges, the other's MR rebases or
+conflicts. Resolution: the bump-topology job catches the conflict
+on next push attempt, rebases against main, retries. Bounded retry
+(2 attempts); on persistent conflict, post a comment on the second
+MR and leave it for human resolution.
+
+GitLab `resource_groups` is already used by `merge-transaction`
+(see scm/gitlab.md "Resource groups"). Add `shadow:bump-topology`
+to a `bump-topology` resource group so only one bump runs against
+root at a time. This serialises the rebase-and-push cycle and
+removes the race surface entirely.
+
+**7. CHANGELOG entries.** Two CHANGELOG channels:
+
+- **Methodology-m's own `CHANGELOG.md`** at the repo root —
+  unchanged. Tracks releases of the methodology itself.
+- **Each project's own `CHANGELOG.md` at the root repo** — a new
+  project-level changelog written by `shadow:bump-topology`. The
+  bootstrap-root-repo capability seeds an empty
+  `[Unreleased] [Topology bumps]` section. Each tag event appends
+  a line; periodically the user (or a future capability) closes
+  the unreleased section into a dated release section.
+
+The project-level CHANGELOG is a **new artefact**. Contract
+defined in `bootstrap-root-repo` SKILL update + an example seeded
+into the workshop fixture.
+
+**8. Pre-existing tag-release capability.** The `tag-release`
+capability (currently agent-driven, manual invocation by the user)
+becomes the *manual* path for tagging — kept for cases where the
+auto-tag escape hatches fire (`[skip-auto-tag]` markers, partial
+deploys, repo-specific bumps). The auto-tag CI job is the
+*automated* path. Both write the same shape of tag and trigger
+the same downstream `report-tag-to-root` flow (the CI job runs
+the same script the agent would run).
+
+The `tag-release` SKILL is updated with a "Manual vs automatic"
+header explaining the relationship.
+
+### Worked example (TODOM-S05 — first story shipped via auto-tag)
+
+After v0.14.0 ships:
+
+1. A dev opens an MR on `todo-m-api-read` for a feature.
+2. CI runs MR pipeline; story shadow chain on root reports
+   green via existing wiring.
+3. Dev merges the MR.
+4. `todo-m-api-read`'s main pipeline runs, ending at the `tag`
+   stage. Auto-tag job: latest tag was `v0.1.0`, no skip marker,
+   tree changed → tag `v0.1.1` + push.
+5. `report-tag-to-root` job calls root's trigger endpoint with
+   `EVENT_KIND=tag, COMPONENT_NAME=api-read, NEW_TAG=v0.1.1`.
+6. Root pipeline runs `detect-story-trigger.sh`, classifies as
+   `TRIGGER_MODE=tag`, hands off to `shadow:bump-topology`.
+7. `shadow:bump-topology` clones root, edits `project.yaml`
+   (`api-read: tag: v0.1.0` → `tag: v0.1.1`), appends to
+   `CHANGELOG.md`, commits to `chore/bump-api-read-v0-1-1`,
+   pushes, opens MR `🔧 Topology: bump api-read to v0.1.1`.
+8. Bump MR pipeline runs — `validate:compose` reaches all
+   components incl. the newly-tagged api-read at v0.1.1.
+   Pipeline green.
+9. Tech lead reviews the bump MR (one-line yaml diff + one-line
+   CHANGELOG diff), clicks merge.
+10. Topology on root main reflects the new pinned version.
+
+L5 evidence: end-to-end run on the workshop testbed. TODOM-S05
+is a trivial business story (e.g. "add `/version` endpoint to
+api-read returning the current package.json version") chosen so
+the merge → tag → bump cycle exercises every step against real
+GitLab CI.
+
+### Implementation deltas
+
+| Capability / file | Change |
+|---|---|
+| `scaffold-repo` SKILL | Managed-repo CI template: `tag` job becomes real (semver patch, escape hatches via merge-commit markers, push via project access token); new `report-tag-to-root` job in `.post` stage mirroring `report-failure-to-root` |
+| `wire-orchestration` SKILL | Project access token gets `write_repository` scope (was read-only previously); confirmed `M_TRIGGER_TOKEN` + `ROOT_PROJECT_ID` already cover the report-tag flow |
+| `bootstrap-root-repo` SKILL | Seeds an empty project-level `CHANGELOG.md` in the root repo with `## [Unreleased]\n### [Topology bumps]\n` headers |
+| `.m/providers/ci/gitlab.mjs` | Renderer learns the third `EVENT_KIND=tag` branch in `detect-story-trigger.sh`. Renders new `shadow:bump-topology` job in root pipeline, gated on `TRIGGER_MODE=tag`, in resource group `bump-topology` |
+| `.m/providers/ci/gitlab.test.mjs` | Regression coverage for: tag-event detection routes to `shadow:bump-topology`; mr-event still routes to `shadow:detect-trigger`; pipeline-failure unchanged. Idempotent renderer output |
+| `tag-release` SKILL | "Manual vs automatic" header explains the relationship to the new auto-tag CI job. Manual path retained as fallback |
+| `bootstrap-root-repo` SKILL | Adds the project-level CHANGELOG seed (one line in setup section) |
+
+### Dependencies + follow-ups
+
+- Depends on **I-063** (`scm.delete_file` MCP primitive — locked
+  below): the bump-topology MR uses the unified `actions[]` push
+  contract, though for v0.14.0 only `update` actions are needed.
+- **I-066** filed as follow-up: merge-transaction execution
+  (cross-repo atomic merge of story MRs) and merge-transaction
+  gating (button-light-up only when all managed MRs green).
+  Distinct scope; benefits from a stable post-merge lifecycle as
+  prerequisite. Prioritised post-MVP.
+- **I-067** filed as follow-up: auto-merge of bump MRs (currently
+  human-clicked). Pull-driven — wait for a real project to ask.
+
+### Sizing
+
+**M.** New surface: one CI job (real `tag`), one CI job
+(`report-tag-to-root`), one EVENT_KIND branch in detect-trigger,
+one `shadow:bump-topology` job, one project-level CHANGELOG
+artefact, the resource-group serialisation, the concurrent-bump
+rebase loop. Each piece small; the integration is what makes it M
+not S. L4 evidence is straightforward; L5 is the real test
+because it runs the cross-repo trigger flow end-to-end.
+
+### Out of scope for v0.14.0
+
+- **Merge transaction execution.** Cross-repo atomic merge of all
+  story MRs. Filed as I-066.
+- **Merge transaction gating.** Button-light-up logic based on
+  commit statuses across managed MRs. Filed as I-066.
+- **Auto-merge of bump MRs.** Filed as I-067.
+- **Major / minor bump heuristics.** Default is patch; minor +
+  major require explicit `[bump-minor]` / `[bump-major]` markers
+  on the merge commit. No semver-from-commit-content inference
+  (e.g. parsing conventional commits) — that's a separate concern
+  filed if needed.
+- **Tag rollback.** If the auto-tag fires but the
+  `report-tag-to-root` notification fails irrecoverably, the tag
+  on the managed repo is real but root's project.yaml is stale.
+  Recovery is a manual `tag-release` invocation. No automatic
+  rollback in v0.14.0.
+
+
 ---
 
 ## I-005: API scaffold should include CORS and configurable port out of the box
@@ -3556,6 +3817,272 @@ work is the caller-preflight scan, the new step verb (schema +
 provider + tests), the historical-CAT delete, the source-repo
 guard. Plus L4/L5 evidence for TODOM-S03 against the workshop.
 
+### Locked design (v0.14.0 RENAME)
+
+**Status:** DRAFT — review before impl.
+
+Locked 2026-05-06 ahead of v0.14.0 RENAME implementation. Builds on
+the v0.12.x ADD + REMOVE locked designs above; only the deltas
+RENAME forces are spelled out here.
+
+**1. Scope.** Pure RENAME — change a component's `name` field (and
+the symbolic identifiers derived from it: docker service name,
+hostname in URLs, REPOS list entry, fan-out list entry). Component's
+`location`, `port`, `role`, `type`, `tag` are **preserved**.
+Renaming the GitLab repo at `location` is a *separate operation* the
+user does outside M; methodology RENAME is purely a yaml-side
+rebadge. If the user wants both, they run RENAME plus their own
+`gitlab project rename` step out of band.
+
+The structural-ness of RENAME is "the topology now refers to the
+component by a new name." Source-code references to the old name
+inside managed repos are **callers** — same shape as REMOVE callers.
+Per M's verifiability invariant: a structural change must be
+verifiable as structural in isolation; bundling caller-rewrites
+with a name change conflates topology rebadge with code rewrite.
+
+RENAME-with-callers is therefore **rejected at decompose-story
+Step 2** with a guidance message naming the callers and
+recommending a prep-story split (update callers to indirect via a
+config indirection, then RENAME, then optionally clean the
+indirection in a follow-up). Same discipline as REMOVE.
+
+Compiled CATs on root (`pats/*.cy.js`) referencing the old name are
+**not callers** — they are AOT artefacts, regenerable from PAT yaml
++ topology. They are rewritten in the gate MR bundle, not used as
+rejection signals. PAT yamls on root (`pats/*.pat.yaml`) are
+**audit trail** — they are *not* rewritten and *not* used as
+rejection signals. The compiled `.cy.js` will diverge from its
+source `.pat.yaml` after RENAME; that divergence is intentional and
+documented in the gate MR description.
+
+**2. Phase orchestration.** RENAME uses the **unphased call** —
+same as REMOVE. The renamed component already exists at the
+preserved `location`; M's view of the project is `project.yaml`,
+and a name change inside yaml needs no `scaffold-repo` step. One
+call: `decompose-story → generate-pats → compile-story-pats`.
+
+**3. Sub-tasks.** A pure RENAME has **zero managed-repo sub-tasks**
+— the change is entirely in `project.yaml` + the renderer
+regenerating topology files. Same readiness-tracker `components: []`
+shape as REMOVE; same vacuous merge-transaction completeness gate;
+same per-AC gate proof carried by the story-level PAT plus the
+regenerated topology probes.
+
+**4. Story-level PAT shape — symmetric two-AC composition.** RENAME
+introduces **no new step verbs**. The PAT composes verbs already
+shipped in v0.11.0 (HTTP) and v0.12.x (`expect-unreachable`):
+
+```yaml
+acceptance:
+  - id: AC-001
+    when: The composed system is up after metrics is renamed to telemetry
+    then: GET /health on the new name (telemetry) returns 200
+    steps:
+      - http: "GET http://telemetry:3004/health"
+      - expect-status: 200
+      - expect-body-contains: "ok"
+  - id: AC-002
+    when: The composed system is up after metrics is renamed to telemetry
+    then: GET /health on the previously-existing name (metrics) is unreachable
+    steps:
+      - http: "GET http://metrics:3004/health"
+      - expect-unreachable
+```
+
+This is the first structural verb that ships **without schema
+changes**. RENAME's expressiveness falls out of the existing verb
+set. `generate-pats` produces the two-AC PAT the same way it
+produces any other; `compile-story-pats` compiles via the existing
+cypress provider absorption. Worth calling out in the release notes
+as evidence the verb-absorption strategy from v0.11.0 generalises.
+
+**5. Historical CAT cleanup — rewrite, not delete.** Where REMOVE
+deletes compiled CATs that reference the gone component, RENAME
+**rewrites them in place** so they continue to run against the
+renamed component. The scan finds `pats/*.cy.js` files matching
+`<old-name>:<port>` (and the bare token `<old-name>` where it is a
+docker service identifier — distinguishable by surrounding context;
+when in doubt, the rewrite is the safe direction because the old
+identifier is no longer in the topology). Each match has the
+identifier replaced with `<new-name>`, and the rewritten file is
+included in the gate MR bundle as a `update` action.
+
+Source PAT yamls on root (`pats/*.pat.yaml`) are **not rewritten**.
+They preserve the original story's wording (which referenced the
+component by its name at the time the story shipped). The compiled
+`.cy.js` and the source `.pat.yaml` diverge after RENAME — this is
+intentional and the divergence is the audit trail. A reader
+following provenance from `.cy.js` to `.pat.yaml` to the merged
+gate MR sees the rename event in the history and can reconcile.
+
+**6. Historical-CAT scan extracted to a shared utility (closes
+I-062).** The inline grep that REMOVE shipped in
+`compile-story-pats`'s bundle assembly is extracted to
+`.m/capabilities/_lib/historical-cat-scan.mjs`. Two operations:
+
+- `findReferencing(rootDir, terms[])` → returns matching
+  `pats/*.cy.js` files. Used by REMOVE for deletion.
+- `rewriteReferencing(rootDir, oldTerm, newTerm)` → returns
+  matching files **and the rewritten content** for each. Caller
+  decides whether to push the rewrites (RENAME) or ignore them.
+
+This is the second-caller extraction the I-062 design block
+forecast. With RENAME's contract clarified, the abstraction is no
+longer premature.
+
+**7. Caller pre-flight check at decompose-story Step 2.** Extends
+the REMOVE pre-flight (which only scanned root) to also scan
+managed-repo source files. Specifically:
+
+- **Root `pats/*.pat.yaml`** for references to the old name. A
+  match here is a stale audit-trail concern, **not** a hard reject
+  — the user gets a warning that historical PAT yamls reference
+  the old name; the corresponding `.cy.js` files will be rewritten
+  to use the new name, creating documented divergence.
+- **Each managed repo's source files** matching
+  `*.{js,jsx,ts,tsx,mjs,cjs}` outside `node_modules/` and `dist/`
+  for `<old-name>:<port>` or `http://<old-name>` literal patterns.
+  A match here is a **hard reject** — these are real callers; the
+  rename would break them. Guidance message names the matching
+  files and recommends a prep story.
+- **Each managed repo's `pats/*.pat.yaml`** for `<old-name>:<port>`.
+  A match is a **hard reject** — the managed-repo PAT yaml feeds
+  scaffold-repo / generate-acceptance-tests, and stale references
+  would compile to broken CATs at the next regeneration.
+
+The pre-flight is reused via the shared utility from (6); the only
+new work is the file-glob discovery for managed repos.
+
+**8. project.yaml mutation shape.** Single key change inside the
+component's entry:
+
+```yaml
+- name: metrics    →    - name: telemetry
+  type: referenced       type: referenced
+  location: ...          location: ...    # preserved
+  port: 3004             port: 3004        # preserved
+  ...                    ...
+```
+
+The renderer regenerates `docker-compose.yml`,
+`scripts/integration-test.sh`, `.gitlab-ci.yml`,
+`scripts/report-shadow-status.sh`, and
+`scripts/detect-story-trigger.sh` — each picks up the new name
+from yaml. No new renderer logic.
+
+**9. compose.integration.health.endpoints update.** If the
+endpoints list contains `http://localhost:<port>/...` entries that
+reference the old name elsewhere (none expected — endpoints
+typically reference `localhost`, not the docker service name), no
+change. If the endpoints list does reference the docker service
+name, the renderer rewrites consistently.
+
+### Worked example (TODOM-S04 — "rename `metrics` to `telemetry`")
+
+For the upcoming evidence run (post v0.13.0; restored after v0.12.x
+REMOVE deleted metrics — assumes a prep ADD story re-adds metrics
+under the original name first, OR runs against a fresh fixture
+that still has metrics):
+
+1. `decompose-story` reads `TODOM-S04.md` ("rename the metrics
+   component to telemetry"), runs caller pre-flight:
+   - Root `pats/*.pat.yaml`: scan finds `pats/TODOM-S02.pat.yaml`
+     references `metrics:3004`. **Warning printed**, not rejected.
+   - Managed repos: assume scan finds zero references in source.
+     **Pass.**
+   - Managed-repo PAT yamls: assume scan finds zero. **Pass.**
+   Proposes empty sub-task list, gets confirmation, writes the
+   readiness tracker with `components: []`, mutates `project.yaml`
+   to set `name: telemetry` on the matching component, and runs the
+   renderer to regenerate the four topology files.
+2. `generate-pats` produces the story PAT
+   `pats/TODOM-S04.pat.yaml` with two ACs (AC-001: telemetry
+   reachable; AC-002: metrics unreachable).
+3. `compile-story-pats` compiles the PAT to
+   `pats/TODOM-S04.cy.js` via the cypress provider (no new step
+   verbs; both ACs use existing absorption). Calls the new
+   historical-CAT utility:
+   - `rewriteReferencing(root, "metrics", "telemetry")` returns
+     `pats/TODOM-S02.cy.js` with `metrics:3004` → `telemetry:3004`.
+   - The rewritten `pats/TODOM-S02.cy.js` is included in the bundle
+     as an `update` action.
+   - `pats/TODOM-S02.pat.yaml` is **not touched** (audit trail).
+   Pushes the bundle to root MR `feat/TODOM-S04d-integration-gate`:
+   - `project.yaml` (mutated)
+   - `docker-compose.yml`, `.gitlab-ci.yml`,
+     `scripts/integration-test.sh`,
+     `scripts/report-shadow-status.sh`,
+     `scripts/detect-story-trigger.sh` (regenerated)
+   - `stories/TODOM-S04.yaml` (readiness tracker, empty components)
+   - `pats/TODOM-S04.pat.yaml` + `pats/TODOM-S04.cy.js` (new)
+   - `pats/TODOM-S02.cy.js` (REWRITTEN — was probing `metrics:3004`,
+     now probes `telemetry:3004`; original `pats/TODOM-S02.pat.yaml`
+     unchanged on main)
+4. Root MR pipeline runs `validate:compose` against the renamed
+   topology. Topology aliveness probes pass (probe count unchanged
+   — same component count, just renamed). `validate:integration-
+   test` no-op as today. Pipeline green. L4 evidence: local
+   `cypress/included` run executes the new TODOM-S04 spec — AC-001
+   reaches `telemetry:3004`, AC-002 confirms `metrics:3004` is
+   unreachable. Plus TODOM-S02 (now rewritten to probe telemetry)
+   regression passes. Plus TODOM-000 regression 6/6 pass.
+5. Squash-merge the gate MR. Topology on main reflects the renamed
+   component. Audit trail preserved: `pats/TODOM-S02.pat.yaml`
+   still says `metrics:3004` in plain words (frozen at the time of
+   that story); `pats/TODOM-S02.cy.js` now references
+   `telemetry:3004` because that is what the topology now exposes.
+   The git history of the gate MR is the bridge between them.
+
+### Implementation deltas vs v0.12.x REMOVE
+
+| Capability / file | Change for RENAME |
+|---|---|
+| `decompose-story` SKILL | Pre-flight scan extended to managed-repo source files + managed-repo PAT yamls (hard reject). Root PAT yaml warning (not reject). Same Step 2 location as REMOVE; same hard-reject-with-guidance shape |
+| `pat.schema.json` | **No change.** RENAME's PAT shape uses only verbs already in the schema (`http:`, `expect-status`, `expect-body-contains`, `expect-unreachable`) |
+| `generate-pats` | **No change** — produces the two-AC RENAME PAT the same way it produces any other multi-AC story PAT |
+| `.m/providers/test/cat/cypress.mjs` | **No change** — both ACs compile through existing absorption |
+| `.m/capabilities/_lib/historical-cat-scan.mjs` | **NEW** — extracts the inline grep from `compile-story-pats`'s REMOVE bundle assembly. Exposes `findReferencing` (REMOVE) + `rewriteReferencing` (RENAME). Closes I-062 |
+| `compile-story-pats` SKILL | Bundle assembly invokes the shared utility for REMOVE (find-for-deletion) and RENAME (find-for-rewrite, push as `update` actions) |
+| `compile-story-pats` SKILL | New "RENAME bundle assembly" subsection mirroring the existing "Structural REMOVE stories only" subsection |
+| `render-topology-artefacts` | **No change** — purely a function of `project.yaml`; new name in yaml → all derived files use new name |
+| `wire-orchestration` | **No change** — managed-repo wiring uses GitLab project IDs, not component names; webhooks survive a name change at the methodology layer |
+
+### Dependencies + follow-ups
+
+- Depends on **I-063** (`scm.delete_file` MCP primitive — locked
+  below) for the gate MR bundle's mixed-action push: RENAME's bundle
+  is all `update` actions (no deletes), but the historical-CAT
+  utility surfaces both shapes; the cleaner provider contract from
+  I-063 lands the unified `actions[]` payload.
+
+### Sizing
+
+**S–M.** Smaller than REMOVE (no new step verbs, no schema
+changes). Most of the work is:
+
+- The pre-flight scan extension (managed-repo source + PAT yamls)
+- The shared utility extraction (closes I-062)
+- The `update`-style bundle assembly (vs REMOVE's `delete`)
+- Plus L4/L5 evidence for TODOM-S04 against the workshop
+
+The cypress absorption story is "we already shipped this in v0.11.0
++ v0.12.x" — RENAME consumes the existing surface.
+
+### Out of scope for v0.14.0 RENAME
+
+- **MERGE / SPLIT / PORT-CHANGE / TYPE-CHANGE.** Each has its own
+  design surface (combinations of ADD+REMOVE, port-only changes
+  with no name change, embedded↔referenced flips). Filed as
+  separate v0.14.x items per the same locked-design-then-impl
+  pattern.
+- **Renaming the GitLab repo at `location`.** User-side operation
+  outside M's view. Methodology RENAME is purely yaml-side rebadge.
+- **Auto-deletion of orphan name references** in managed-repo
+  source code. Pre-flight rejects RENAME-with-callers; we do not
+  attempt to rewrite real callers. That is a behaviour change with
+  its own ACs, not a structural change.
+
 
 ---
 
@@ -5030,6 +5557,217 @@ capability that issues file deletions through the SCM:
 Worth shipping early so REMOVE evidence runs use the real delete
 on the next iteration.
 
+### Locked design (v0.14.0 — provider contract + curl fallback)
+
+**Status:** DRAFT — review before impl.
+
+Locked 2026-05-06 ahead of v0.14.0 implementation. Bundles with
+v0.14.0 RENAME + I-004; the unified `actions[]` push contract from
+this design unblocks RENAME's mixed-action bundles even though
+RENAME itself only uses `update`.
+
+**1. Scope.** Three deliverables, all in the methodology repo:
+
+- **(a) Provider interface contract** — `scm.push_or_update_files`
+  becomes `scm.push_files` with a unified `actions[]` payload that
+  accepts `create` / `update` / `delete` action kinds. Same name +
+  shape as GitLab's commits API.
+- **(b) `scm/gitlab.md` provider doc** — spec the
+  `delete` action shape: agent calls a per-file delete via direct
+  curl against `DELETE /projects/:id/repository/files/:path` (the
+  v0.14.0 reality, while the MCP wrapper catches up), or against
+  `POST /projects/:id/repository/commits` with the atomic
+  `actions[]` payload (preferred path once the wrapper supports
+  it).
+- **(c) `compile-story-pats` REMOVE bundle** updated to use the
+  new contract — the v0.13.0 stub-describe workaround for
+  historical-CAT cleanup retires; deletes are real deletes.
+
+The MCP wrapper change (`mcp__gitlab__delete_file` or
+extending `mcp__gitlab__create_or_update_file` with a
+`delete: true` mode) lives in a **separate codebase** (the MCP
+gitlab server) and is **out of scope** for the methodology repo.
+v0.14.0 ships the methodology contract + a curl fallback that
+works today; the MCP wrapper change can land asynchronously
+without re-shipping the methodology side.
+
+**2. Why ship now.** I-063 became blocking when the v0.12.1
+REMOVE evidence run (MR !36, merged 2026-05-06) had to ship the
+historical-CAT delete as a stub `describe()` block instead of a
+real delete. The MR description called out the limitation
+explicitly. Each subsequent REMOVE / RENAME story compounds the
+audit-trail debt: stub files accumulate on main, diverging from
+the methodology's documented "delete = real delete" semantic.
+Locking this design alongside RENAME (which surfaces the same
+mixed-action shape) is the moment to align the contract.
+
+**3. Provider contract — `scm.push_files` with unified
+`actions[]`.** Replaces the v0.5.1 `scm.push_or_update_files`
+shape. New shape:
+
+```js
+scm.push_files({
+  project: <repo-path>,
+  branch: <branch>,
+  start_branch: <main-or-target>,
+  commit_message: <string>,
+  actions: [
+    { action: "create", file_path: <path>, content: <content> },
+    { action: "update", file_path: <path>, content: <content> },
+    { action: "delete", file_path: <path> },
+  ],
+})
+```
+
+Each `action` independently atomic-or-N-call per the provider
+implementation. The naming convention (`push_files`, no
+`_or_update_files`) reflects that the operation is no longer
+restricted to create-or-update.
+
+**4. GitLab provider implementation — two paths.**
+
+- **Preferred (atomic):** single `POST /projects/:id/repository/
+  commits` with the full `actions[]` payload. One commit, one
+  network call. Available today via curl; available via the MCP
+  wrapper once it lands.
+- **Interim (per-file):** when the actions list is small (≤ 5
+  files) and the MCP wrapper is the only option, fall back to
+  per-action calls:
+  - `create` / `update` → `mcp__gitlab__create_or_update_file`
+  - `delete` → curl
+    `DELETE /projects/:id/repository/files/<encoded-path>` with
+    `?branch=<branch>&commit_message=<msg>` query params, using
+    `M_GROUP_TOKEN`.
+- The provider implementation chooses based on whether the agent
+  has access to the atomic-commits endpoint at runtime (probe via
+  `OPTIONS` or feature flag in `project.yaml.providers.scm`).
+
+**5. Curl fallback shape (v0.14.0 reality).** The capability
+agent (running `compile-story-pats`) issues delete actions via
+the Bash tool against a small node script:
+
+```js
+// .m/providers/scm/gitlab/delete-file.mjs
+import { argv } from "node:process";
+const [, , project, branch, path, message, token] = argv;
+const url = `https://gitlab.com/api/v4/projects/${encodeURIComponent(project)}/repository/files/${encodeURIComponent(path)}?branch=${branch}&commit_message=${encodeURIComponent(message)}`;
+const res = await fetch(url, {
+  method: "DELETE",
+  headers: { "PRIVATE-TOKEN": token },
+});
+if (!res.ok) {
+  console.error(`DELETE failed: ${res.status} ${await res.text()}`);
+  process.exit(1);
+}
+```
+
+Same shape as v0.10.0's `report-failure-to-root` curl
+(post-I-057 with `-g` not needed for DELETE — no `[]` in the
+delete URL). Lives at `.m/providers/scm/gitlab/delete-file.mjs`.
+Agent invokes via Bash; failure surfaces in the bundle assembly's
+already-existing error path.
+
+**6. compile-story-pats SKILL update.** Existing REMOVE bundle
+assembly subsection ("Structural REMOVE stories only") already
+documents the delete contract:
+
+> "the SCM provider's `delete_file` action is used (or, for the
+> GitLab interim N-call implementation, a per-file delete API
+> call)"
+
+Update to reflect v0.14.0 reality: the contract is now
+`scm.push_files` with an `actions[]` array; the GitLab provider
+selects atomic-or-N-call based on the project's MCP wrapper
+capability.
+
+**7. Backward compatibility — `scm.push_or_update_files` callers.**
+The existing `scm.push_or_update_files` shape (v0.5.1) is renamed
+to `scm.push_files`. Callers update at the same time. Two callers
+in v0.13.0:
+
+- `decompose-story` Phase B (S-2 topology artefact regeneration —
+  pure `update` + `create` actions; no behaviour change beyond
+  rename).
+- `compile-story-pats` Step 3 (gate MR push — gains a `delete`
+  action shape; previously pushed `update` actions only).
+
+Update is mechanical: rename the call, restructure the per-file
+shape from `{ action, file_path, content }` already used in v0.5.1
+to the same shape (no change beyond the addition of `delete`).
+
+### Worked example (RENAME bundle from the v0.14.0 RENAME design)
+
+For TODOM-S04 (rename `metrics` to `telemetry`), the
+`compile-story-pats` bundle is:
+
+```js
+scm.push_files({
+  project: "methodology-m/todo-m-workshop/todo-m-root",
+  branch: "feat/TODOM-S04d-integration-gate",
+  start_branch: "main",
+  commit_message: "TODOM-S04: rename metrics to telemetry",
+  actions: [
+    { action: "update", file_path: "project.yaml", content: "..." },
+    { action: "update", file_path: "docker-compose.yml", content: "..." },
+    { action: "update", file_path: ".gitlab-ci.yml", content: "..." },
+    { action: "update", file_path: "scripts/integration-test.sh", content: "..." },
+    { action: "update", file_path: "scripts/report-shadow-status.sh", content: "..." },
+    { action: "update", file_path: "scripts/detect-story-trigger.sh", content: "..." },
+    { action: "create", file_path: "stories/TODOM-S04.yaml", content: "..." },
+    { action: "create", file_path: "pats/TODOM-S04.pat.yaml", content: "..." },
+    { action: "create", file_path: "pats/TODOM-S04.cy.js", content: "..." },
+    { action: "update", file_path: "pats/TODOM-S02.cy.js", content: "..." },  // rewritten by historical-cat-scan
+  ],
+})
+```
+
+For a REMOVE bundle (TODOM-S03 retroactive — once v0.14.0 ships,
+re-run the workshop REMOVE without the stub):
+
+```js
+scm.push_files({
+  ...
+  actions: [
+    { action: "update", file_path: "project.yaml", content: "..." },
+    ...regenerated-topology-files,
+    { action: "create", file_path: "stories/TODOM-S03.yaml", content: "..." },
+    { action: "create", file_path: "pats/TODOM-S03.pat.yaml", content: "..." },
+    { action: "create", file_path: "pats/TODOM-S03.cy.js", content: "..." },
+    { action: "delete", file_path: "pats/TODOM-S02.cy.js" },  // real delete now, not a stub
+  ],
+})
+```
+
+### Implementation deltas
+
+| File | Change |
+|---|---|
+| `.m/providers/provider-interface.md` | Rename `scm.push_or_update_files` → `scm.push_files`. Update the action enum to include `delete`. Update return shape (success per action, atomic-or-partial-fallback) |
+| `.m/providers/scm/gitlab.md` | Spec the two paths (atomic commits API, interim per-file curl). Document `delete-file.mjs` helper. Update existing `push_or_update_files` section accordingly |
+| `.m/providers/scm/gitlab/delete-file.mjs` | **NEW** — small node script for the curl fallback. ~15 LOC, zero deps |
+| `.m/providers/scm/log-only.md` | Update mock provider to log `delete` actions alongside `create` / `update` |
+| `.m/capabilities/decompose-story/SKILL.md` | Update Phase B S-2 reference from `scm.push_or_update_files` → `scm.push_files` |
+| `.m/capabilities/compile-story-pats/SKILL.md` | Update Step 2 (push bundle assembly) to use `actions[]` shape; update REMOVE subsection to drop the stub-describe workaround language and use real `delete` actions |
+
+### Dependencies + follow-ups
+
+- The actual MCP wrapper change (adding `mcp__gitlab__delete_file`
+  or extending `mcp__gitlab__create_or_update_file`) is filed
+  upstream in the MCP gitlab server's repo — separate codebase,
+  not in scope here. Once it lands, the gitlab provider's
+  selection logic prefers the wrapper over the curl fallback.
+- **I-068** filed as follow-up: extend the same `actions[]`
+  contract to support `move` (atomic rename of a path) for use
+  cases where the methodology wants to relocate a file rather
+  than delete-then-create. Pull-driven.
+
+### Sizing
+
+**S.** Mostly contract + documentation. The new helper script is
+small. The breaking-rename of the provider function name touches
+two callers, both mechanical. The v0.13.0 stub-describe
+workaround in `compile-story-pats` retires cleanly.
+
 
 ---
 
@@ -5084,3 +5822,131 @@ Pattern adapted from `textologylabs/hex` (`src/update.ts`).
 - `compareVersions` is a 3-tuple numeric compare; pre-release tags
   on the npm `latest` dist-tag would over-prompt, but Methodology M
   doesn't ship pre-releases on `latest`.
+
+
+---
+
+## I-066: Merge transaction execution + gating
+
+**Category:** M capability / orchestration completeness
+**Priority:** Medium (deferred from I-004 — post-MVP)
+**Discovered:** 2026-05-06, locking the v0.14.0 I-004 post-merge
+slice
+
+### Problem
+
+The merge-transaction job in the root repo currently sits at
+`when: manual` with a placeholder script. v0.14.0's I-004 ship
+covers the *post-merge* lifecycle (auto-tag, auto-bump,
+project-level CHANGELOG) but does not cover:
+
+1. **Cross-repo atomic merge** — when a tech lead clicks the
+   merge-transaction button, all managed-repo MRs for the story
+   should merge atomically. Currently nothing happens; the dev
+   merges each MR by hand.
+2. **Button-light-up gating** — the merge-transaction button is
+   always available, even when shadow status on managed MRs is
+   red. The dev gets no signal that the system is *ready* to
+   merge.
+
+Both are real value, but bundling with the v0.14.0 post-merge
+slice would inflate risk for no incremental gain. The post-merge
+flow works without atomic merge — devs merge story MRs
+individually in any order, and the auto-tag-and-bump cycle fans
+out from each merge.
+
+### Why deferred
+
+- Cross-repo atomicity has rollback semantics (what if 2 of 3
+  merges succeed and the third fails?) — non-trivial design
+  surface.
+- Gating logic depends on commit-status aggregation across
+  managed MRs, which is itself a design decision (how stale
+  before re-checking, how to handle MRs added mid-flight, etc.).
+- v0.14.0's post-merge automation removes the *most painful*
+  manual bookkeeping (yaml bumps + CHANGELOG entries). The
+  remaining manual step (clicking N merge buttons in sequence)
+  is annoying but not error-prone in the same way.
+
+### Proposal
+
+Pull-driven — re-evaluate after v0.14.0 ships and I-004's
+post-merge slice has been exercised on a real project. Likely
+shape: GitLab Merge When Pipeline Succeeds + a coordinator job
+on root that watches managed-MR commit statuses.
+
+
+---
+
+## I-067: Auto-merge of topology bump MRs
+
+**Category:** M capability / automation polish
+**Priority:** Low (human-clicked merge is fine for v0.14.0)
+**Discovered:** 2026-05-06, locking the v0.14.0 I-004 post-merge
+slice
+
+### Problem
+
+v0.14.0's I-004 ship opens a `chore/bump-<component>-<tag>` MR
+on the root repo for every managed-repo tag event. The MR's
+diff is one yaml line + one CHANGELOG line, the pipeline runs
+`validate:compose` against the new tag and proves it reaches the
+component, and a human clicks merge.
+
+The human click is not strictly necessary — the bump MR's
+content is mechanical and the pipeline already gates the safety
+of the new tag. Auto-merging green bump MRs would close the
+auto-bump loop end-to-end.
+
+### Why deferred
+
+- Bump MRs interleave with story MRs and (eventually)
+  merge-transaction MRs. Auto-merging changes the baseline for
+  in-flight stories.
+- "Always auto-merge if green" is a footgun if a future bump
+  pulls in a managed-repo version that introduces a behaviour
+  change (the `validate:compose` gate is aliveness, not
+  behaviour).
+- v0.14.0 keeps the human in the loop deliberately while the
+  auto-tag-and-bump flow is new. Once it has been exercised on
+  real projects, opt-in auto-merge becomes a safer default.
+
+### Proposal
+
+Pull-driven — wait for a real project to ask. When implemented,
+likely behind an opt-in flag in `project.yaml.providers.ci`
+(e.g. `auto_merge_topology_bumps: true`).
+
+
+---
+
+## I-068: `scm.move_file` action — atomic file relocation
+
+**Category:** SCM provider tooling
+**Priority:** Low (delete + create works today; move is a
+hygiene improvement)
+**Discovered:** 2026-05-06, locking the v0.14.0 I-063 design
+
+### Problem
+
+I-063's locked design extends `scm.push_files` with `create` /
+`update` / `delete` action kinds. GitLab's commits API also
+supports `move` (an atomic rename of a path), but the
+methodology hasn't surfaced a use case yet.
+
+A future use case: if the methodology decides to relocate
+artefacts (e.g. `pats/<story>.cy.js` → `pats/compiled/<story>.cy.js`
+during a layout reorganisation), `move` would do it atomically
+in one commit; the alternative is `delete` + `create`, which
+loses the git rename detection and produces a worse `git log
+--follow` experience for downstream readers.
+
+### Why low priority
+
+No call site today. Premature without a concrete need; the
+contract from I-063 (`actions[]` with create/update/delete)
+covers everything in v0.14.0 + foreseeable v0.14.x scope.
+
+Pull-driven — extend `scm.push_files` `actions[]` to accept
+`{ action: "move", file_path: <new>, previous_path: <old> }`
+when a real call site appears.
