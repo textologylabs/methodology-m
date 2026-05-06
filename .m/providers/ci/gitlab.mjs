@@ -472,6 +472,30 @@ readiness_status() {
 EVENT_KIND="\${EVENT_KIND:-mr}"
 echo "Trigger classification: EVENT_KIND=$EVENT_KIND"
 
+# Source-repo guard (v0.12.x REMOVE — I-040 follow-up): if the trigger
+# originated from a repo NOT in the current topology, classify as
+# standalone immediately. Eliminates spurious shadow runs from orphan
+# managed repos whose webhooks remain installed after a REMOVE story
+# merged. SOURCE_PROJECT_PATH is set by the webhook URL config (mr
+# events) and by the report-failure-to-root job (pipeline events); when
+# absent we trust the legacy enumeration path below.
+if [ -n "\${SOURCE_PROJECT_PATH:-}" ]; then
+  source_repo=$(printf '%s' "$SOURCE_PROJECT_PATH" | awk -F/ '{print $NF}')
+  source_in_topology=0
+  for repo in $REPOS; do
+    if [ "$repo" = "$source_repo" ]; then
+      source_in_topology=1
+      break
+    fi
+  done
+  if [ "$source_in_topology" -eq 0 ]; then
+    echo "Trigger source ($SOURCE_PROJECT_PATH) is not in current topology — classifying as standalone (orphan repo? see I-061 unwire-orchestration)"
+    echo "STORY_ID=" > detect.env
+    echo "TRIGGER_MODE=standalone" >> detect.env
+    exit 0
+  fi
+fi
+
 if [ "$EVENT_KIND" = "pipeline" ]; then
   # I-032: webhook fired by a managed-repo pipeline event. Query the
   # source project's recent pipelines for the most recent failure, and

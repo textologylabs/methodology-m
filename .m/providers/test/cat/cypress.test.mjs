@@ -198,6 +198,109 @@ describe('cypress.compile_story_pat — http steps (I-045)', () => {
   });
 });
 
+describe('cypress.compile_story_pat — expect-unreachable (v0.12.x REMOVE)', () => {
+  test('http: + expect-unreachable fuses into a single fetch+catch block', () => {
+    const { content } = compile_story_pat(pat([
+      { http: 'GET http://metrics:3004/health' },
+      { 'expect-unreachable': true },
+    ]));
+    // The atomic block uses fetch with AbortController, NOT cy.request,
+    // because cy.request throws on network errors before .then runs.
+    assert.match(content, /cy\.then\(\(\) => new Cypress\.Promise\(/);
+    assert.match(content, /new AbortController\(\)/);
+    assert.match(content, /fetch\('http:\/\/metrics:3004\/health'/);
+    // Pass on 5xx, fail on 1xx-4xx.
+    assert.match(content, /if \(r\.status >= 500\) resolve\(\)/);
+    assert.match(content, /reject\(new Error\('expected unreachable, got status '/);
+    // Pass on network error (catch resolves).
+    assert.match(content, /\.catch\(\(\) => \{ clearTimeout\(t\); resolve\(\); \}\)/);
+    // The standard cy.request().as('lastResponse') pattern is NOT used
+    // — fusion replaces it.
+    assert.doesNotMatch(content, /cy\.request\([^)]*\)\.as\('lastResponse'\)/);
+  });
+
+  test('expect-unreachable rejects without a preceding http step', () => {
+    assert.throws(
+      () => compile_story_pat(pat([{ 'expect-unreachable': true }])),
+      /expect-unreachable must immediately follow an http step/,
+    );
+  });
+
+  test('expect-unreachable rejects when not preceded by http (preceded by something else)', () => {
+    assert.throws(
+      () => compile_story_pat(pat([
+        { navigate: '/' },
+        { 'expect-unreachable': true },
+      ])),
+      /expect-unreachable must immediately follow an http step/,
+    );
+  });
+
+  test('expect-unreachable: false rejects (must be true)', () => {
+    assert.throws(
+      () => compile_story_pat(pat([
+        { http: 'GET /x' },
+        { 'expect-unreachable': false },
+      ])),
+      /expect-unreachable must be 'true'/,
+    );
+  });
+
+  test('http step with body fuses correctly', () => {
+    const { content } = compile_story_pat(pat([
+      { http: "POST http://metrics:3004/health body '{\"check\":1}'" },
+      { 'expect-unreachable': true },
+    ]));
+    assert.match(content, /method: 'POST'/);
+    assert.match(content, /body: JSON\.stringify\(\{"check":1\}\)/);
+    assert.match(content, /headers: \{ 'Content-Type': 'application\/json' \}/);
+  });
+
+  test('mixed AC: http + expect-unreachable can coexist with normal http + expect-status in same spec', () => {
+    const { content } = compile_story_pat({
+      story: 'TODOM-MIX',
+      version: 1,
+      acceptance: [
+        {
+          id: 'AC-001',
+          when: 'metrics is removed',
+          then: 'its health endpoint is unreachable',
+          steps: [
+            { http: 'GET http://metrics:3004/health' },
+            { 'expect-unreachable': true },
+          ],
+        },
+        {
+          id: 'AC-002',
+          when: 'api-read is alive',
+          then: 'its health endpoint returns 200',
+          steps: [
+            { http: 'GET http://api-read:3002/health' },
+            { 'expect-status': 200 },
+          ],
+        },
+      ],
+    });
+    // Atomic block for AC-001
+    assert.match(content, /fetch\('http:\/\/metrics:3004\/health'/);
+    // Standard cy.request chain for AC-002
+    assert.match(content, /cy\.request\('GET', 'http:\/\/api-read:3002\/health'\)\.as\('lastResponse'\);/);
+    assert.match(content, /cy\.get\('@lastResponse'\)\.its\('status'\)\.should\('equal', 200\);/);
+  });
+
+  test('atomic block emits with 4-space indent inside the it() body', () => {
+    const { content } = compile_story_pat(pat([
+      { http: 'GET http://x:1/y' },
+      { 'expect-unreachable': true },
+    ]));
+    // Each line of the multi-line block sits at the it()-body indent (4 spaces).
+    assert.match(content, /^    cy\.then\(\(\) => new Cypress\.Promise\(/m);
+    assert.match(content, /^      const ctrl = new AbortController\(\);/m);
+    assert.match(content, /^      const t = setTimeout/m);
+    assert.match(content, /^    \}\)\);/m);
+  });
+});
+
 describe('cypress.compile_story_pat — mixed PAT (browser + http)', () => {
   test('AC-001 browser, AC-002 http compile in declared order to one .cy.js', () => {
     const out = compile_story_pat({

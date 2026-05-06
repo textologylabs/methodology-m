@@ -348,6 +348,63 @@ describe('.gitlab-ci.yml — I-055 Option Y classification semantics', () => {
   });
 });
 
+describe('detect-story-trigger.sh — source-repo guard (v0.12.x REMOVE)', () => {
+  // The guard runs after EVENT_KIND is read but before either the mr or
+  // pipeline branch. If SOURCE_PROJECT_PATH is set and its leaf segment is
+  // NOT in $REPOS, the script writes TRIGGER_MODE=standalone and exits.
+  // Eliminates spurious shadow runs from orphan repos whose webhooks
+  // remain installed after a REMOVE story merged.
+
+  test('source-repo guard block is rendered', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    assert.match(sh.content, /Source-repo guard \(v0\.12\.x REMOVE/);
+    assert.match(sh.content, /SOURCE_PROJECT_PATH/);
+    assert.match(sh.content, /source_in_topology=0/);
+    assert.match(sh.content, /not in current topology — classifying as standalone/);
+  });
+
+  test('guard sits between the EVENT_KIND echo and the EVENT_KIND branch', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    const eventKindEchoIdx = sh.content.indexOf('echo "Trigger classification: EVENT_KIND=');
+    const guardIdx = sh.content.indexOf('Source-repo guard');
+    const branchIdx = sh.content.indexOf('if [ "$EVENT_KIND" = "pipeline" ];');
+    assert.ok(eventKindEchoIdx !== -1 && guardIdx !== -1 && branchIdx !== -1, 'all anchors present');
+    assert.ok(eventKindEchoIdx < guardIdx, 'guard comes after EVENT_KIND echo');
+    assert.ok(guardIdx < branchIdx, 'guard runs before pipeline/mr branch');
+  });
+
+  test('guard exits cleanly with detect.env set so downstream jobs gate to standalone', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    const guardBlock = sh.content.match(/Source-repo guard[\s\S]*?exit 0\n  fi\nfi/);
+    assert.ok(guardBlock, 'guard block boundaries not found');
+    const body = guardBlock[0];
+    assert.match(body, /echo "STORY_ID=" > detect\.env/);
+    assert.match(body, /echo "TRIGGER_MODE=standalone" >> detect\.env/);
+    assert.match(body, /exit 0/);
+  });
+
+  test('guard is conditional on SOURCE_PROJECT_PATH being set — absent path falls through', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    // The outer `if [ -n "${SOURCE_PROJECT_PATH:-}" ]` ensures missing
+    // SOURCE_PROJECT_PATH falls through to the legacy enumeration path
+    // (preserves test-environment compatibility where the var isn't set).
+    assert.match(sh.content, /if \[ -n "\$\{SOURCE_PROJECT_PATH:-\}" \]/);
+  });
+
+  test('guard scans the same $REPOS list used by the legacy enumeration', () => {
+    const project = loadFixture('todo-m-base.yaml');
+    const { 'scripts/detect-story-trigger.sh': sh } = filesByPath(render_pipeline(project, 'gitlab'));
+    // No separate hardcoded list — the for-loop iterates $REPOS so the
+    // guard tracks topology changes automatically.
+    const guardBlock = sh.content.match(/Source-repo guard[\s\S]*?exit 0\n  fi\nfi/);
+    assert.match(guardBlock[0], /for repo in \$REPOS; do/);
+  });
+});
+
 describe('.gitlab-ci.yml — I-031 pre-AOT invalidation', () => {
   test('shadow:invalidate-status lives on the detect stage', () => {
     const project = loadFixture('todo-m-base.yaml');

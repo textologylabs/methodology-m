@@ -25,6 +25,17 @@ export function readTopology(rootRepoDir) {
       result.group = extractValue(trimmed);
     }
 
+    // Section boundary: a non-indented header line (no leading space, not a
+    // list item) that isn't `components:` ends any in-progress component.
+    // Otherwise later sections like `persistence:` with their own `type:` /
+    // `location:` keys would silently overwrite the last component's fields.
+    const isTopLevelHeader =
+      line.length > 0 && line[0] !== ' ' && line[0] !== '-' && trimmed.endsWith(':');
+    if (isTopLevelHeader && trimmed !== 'components:' && currentComponent) {
+      result.components.push(currentComponent);
+      currentComponent = null;
+    }
+
     // Component list entries
     if (trimmed.startsWith('- name:')) {
       if (currentComponent) result.components.push(currentComponent);

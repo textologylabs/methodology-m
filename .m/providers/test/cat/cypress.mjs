@@ -64,10 +64,48 @@ function renderAc(lines, ac) {
   }
   const title = `${ac.id}: ${ac.when} → ${ac.then}`;
   lines.push(`  it('${escapeSingle(title)}', () => {`);
-  for (const step of ac.steps) {
-    lines.push(`    ${compileStep(step)}`);
+  for (const compiled of compileSteps(ac.steps)) {
+    for (const line of compiled.split('\n')) {
+      lines.push(`    ${line}`);
+    }
   }
   lines.push('  });');
+}
+
+function compileSteps(steps) {
+  // Walks the step list emitting compiled fragments. Most steps compile
+  // 1:1 via compileStep, but `http: + expect-unreachable` is fused into
+  // an atomic fetch+catch block — see compileHttpUnreachable for why.
+  const out = [];
+  let i = 0;
+  while (i < steps.length) {
+    const cur = steps[i];
+    const next = i + 1 < steps.length ? steps[i + 1] : null;
+    const curVerb = stepVerb(cur);
+
+    if (curVerb === 'http' && next && stepVerb(next) === 'expect-unreachable') {
+      if (next['expect-unreachable'] !== true) {
+        throw new Error(`cypress.compile_story_pat: expect-unreachable must be 'true' (got ${JSON.stringify(next['expect-unreachable'])})`);
+      }
+      out.push(compileHttpUnreachable(cur.http));
+      i += 2;
+      continue;
+    }
+
+    if (curVerb === 'expect-unreachable') {
+      throw new Error(`cypress.compile_story_pat: expect-unreachable must immediately follow an http step`);
+    }
+
+    out.push(compileStep(cur));
+    i += 1;
+  }
+  return out;
+}
+
+function stepVerb(step) {
+  if (!step || typeof step !== 'object') return null;
+  const keys = Object.keys(step);
+  return keys.length === 1 ? keys[0] : null;
 }
 
 function compileStep(step) {
@@ -97,6 +135,11 @@ function compileStep(step) {
       return compileExpectStatus(value);
     case 'expect-body-contains':
       return compileExpectBodyContains(value);
+    case 'expect-unreachable':
+      // expect-unreachable is fused into the preceding http step in compileSteps.
+      // If we reach this branch, it means the verb appeared without a preceding
+      // http: — caller error.
+      throw new Error(`cypress.compile_story_pat: expect-unreachable must immediately follow an http step`);
     case 'render':
       throw new Error(
         `cypress.compile_story_pat: 'render' step is invalid in story-level PATs ` +
@@ -176,6 +219,36 @@ function compileExpectBodyContains(value) {
   }
   // Body may be a string or an object — coerce to JSON text for substring match.
   return `cy.get('@lastResponse').its('body').then((b) => expect(typeof b === 'string' ? b : JSON.stringify(b)).to.include('${escapeSingle(value)}'));`;
+}
+
+function compileHttpUnreachable(httpValue) {
+  // Compiles `http: <X>` + `expect-unreachable: true` atomically.
+  // Why fused: cy.request throws on network errors before any chained .then
+  // runs, so the standard `cy.request(...).as('lastResponse')` pattern can
+  // never observe DNS failure / connection refused — the spec aborts
+  // first. Browser fetch with a try/catch is the only reliable shape that
+  // both observes the response when one arrives AND catches network
+  // errors when nothing is listening.
+  //
+  // Pass conditions: fetch rejects (network error / DNS / abort) OR
+  // fetch resolves with status >= 500. Anything 1xx-4xx fails the test.
+  const m = httpValue.match(/^(GET|POST|PUT|PATCH|DELETE) (\S+)(?: body '([^']*)')?$/);
+  if (!m) {
+    throw new Error(`cypress.compile_story_pat: malformed http step: ${httpValue}`);
+  }
+  const [, method, url, body] = m;
+  const fetchInit = body === undefined
+    ? `{ method: '${method}', signal: ctrl.signal }`
+    : `{ method: '${method}', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(${body}) }`;
+  return [
+    `cy.then(() => new Cypress.Promise((resolve, reject) => {`,
+    `  const ctrl = new AbortController();`,
+    `  const t = setTimeout(() => ctrl.abort(), 5000);`,
+    `  fetch('${escapeSingle(url)}', ${fetchInit})`,
+    `    .then((r) => { clearTimeout(t); if (r.status >= 500) resolve(); else reject(new Error('expected unreachable, got status ' + r.status)); })`,
+    `    .catch(() => { clearTimeout(t); resolve(); });`,
+    `}));`,
+  ].join('\n');
 }
 
 function selectorArg(value) {

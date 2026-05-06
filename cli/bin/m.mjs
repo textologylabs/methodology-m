@@ -25,7 +25,19 @@ const HELP = `
     --ide vscode             IDE workspace format (default: vscode)
 `;
 
+// Operational commands trigger a self-update check on entry. Metadata
+// commands skip it so the user gets clean output without an interrupting
+// prompt. Set M_NO_UPDATE_CHECK=1 to disable, or run from a non-TTY.
+const META_COMMANDS = new Set([
+  undefined, 'help', '--help', '-h', 'version', 'changelog',
+]);
+
 async function main() {
+  if (!META_COMMANDS.has(command)) {
+    const { maybeUpdate } = await import('../src/lib/update-check.mjs');
+    await maybeUpdate();
+  }
+
   switch (command) {
     case 'init': {
       const { init } = await import('../src/commands/init.mjs');
