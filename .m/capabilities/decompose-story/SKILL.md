@@ -113,6 +113,54 @@ TODOM-S02, references in `pats/TODOM-S02.cy.js` are expected — that
 historical CAT is handled by `compile-story-pats`'s historical-CAT
 delete; see its SKILL).
 
+**RENAME pre-flight (structural RENAME stories only).** If the story
+prose implies renaming a component (verbs like "rename", "rebadge",
+"call it"), run the same shape of caller pre-flight as REMOVE — the
+verifiability invariant applies identically: a name change that
+leaves real callers referencing the old name is a behaviour change
+in the callers, not a pure topology rebadge.
+
+Pre-flight scans for active references to the to-be-renamed
+component's old identifier (`<old-name>:<port>` or the bare
+`<old-name>` token where unambiguous):
+
+- **Each managed repo's source files** matching
+  `*.{js,jsx,ts,tsx,mjs,cjs}` outside `node_modules/` and `dist/`
+  — these are real callers; if any match, **hard reject** with the
+  same prep-story discipline as REMOVE.
+- **Each managed repo's `pats/*.pat.yaml`** for the old identifier —
+  managed-repo PAT yamls feed `scaffold-repo` /
+  `generate-acceptance-tests`, and stale references would compile
+  to broken CATs at the next regeneration. **Hard reject.**
+- **The root repo's `pats/*.pat.yaml`** for the old identifier —
+  these are audit-trail artefacts, frozen at the time each story
+  shipped. Print an **informational warning** that lists the matches
+  and notes that the corresponding `pats/*.cy.js` files will be
+  rewritten to use the new identifier in the gate MR (creating
+  documented divergence between source PAT yaml and compiled CAT
+  on main). **Not a reject** — the rewrite path is the canonical
+  RENAME audit trail.
+- **The root repo's `pats/*.cy.js`** — these are NOT scanned for
+  reject purposes; they are handled in `compile-story-pats`'s
+  historical-CAT rewrite step (see its SKILL). They are listed in
+  the pre-flight output for transparency.
+
+Hard-reject guidance message names the callers and recommends a
+prep-story split:
+
+> Cannot decompose RENAME story `<story-id>`: component `<old-name>`
+> is still actively referenced by `<caller(s)>`. Ship a prep story
+> first that updates the callers to indirect via a config field (or
+> remove the active use). Then re-run decompose-story for this
+> RENAME.
+
+For pure RENAME stories that pass pre-flight, the component list is
+empty (same as REMOVE) — the change is entirely in `project.yaml` +
+renderer regeneration. The readiness tracker has `components: []`
+and the per-AC gate proof is carried by the story-level PAT (two
+ACs: `<new-name>` reachable + `<old-name>` unreachable) plus the
+regenerated topology probes.
+
 Reason about which acceptance criteria each component is responsible
 for, then present the proposed mapping to the user. Mapping is
 derived from the story's AC prose and the component list — not from

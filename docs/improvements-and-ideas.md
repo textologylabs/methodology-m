@@ -19,8 +19,8 @@ listed for completeness — their write-ups remain below as reference.
 
 | Item | Title | Rationale |
 |------|-------|-----------|
-| I-004 | Merge transaction, auto-tag, auto-bump (remaining) | Shadow status works. Post-merge lifecycle is entirely manual. Other half of the M promise. |
-| I-040 | Topology changes | Adding/removing components mid-project is undefined. Depends on I-036 for clean implementation. |
+| I-004 | Merge transaction execution + gating (remaining after v0.14.0) | Auto-tag + auto-bump shipped in v0.14.0 as the post-merge slice. Cross-repo atomic merge of story MRs and merge-transaction button-light-up gating remain — filed as I-066. |
+| I-040 | Topology changes (MERGE / SPLIT / PORT-CHANGE / TYPE-CHANGE) | ADD (v0.12.0), REMOVE (v0.12.1, shipped in v0.13.0), and RENAME (v0.14.0) all shipped. MERGE / SPLIT / PORT-CHANGE / TYPE-CHANGE remain — each its own design surface. |
 | I-041 | Pessimistic invalidation on pipeline start | Push `pending` to all story MRs when any constituent pipeline starts. Tightens the gate. |
 | I-045 | Extend PAT yaml to multi-framework assertions | PAT yaml's step types are Cypress-shaped (data-testid, click, type). Structural stories, backend-only stories, and component-level health checks need HTTP-style step types compiling to curl/supertest. Surfaced by the TODOM-S01 structural test. |
 | I-050 | Capability regression test harness — **partial: thin seed done v0.5.1** | Formalise the rewind-replay-diff pattern into a repeatable harness covering bootstrap + scaffold + all structural ops (ADD/REMOVE/RENAME/MERGE/SPLIT/PORT-CHANGE) + business. **Thin seed (`scripts/e2e-harness.mjs`) shipped in v0.5.1 — covers render → branch → push → MR → poll pipeline → assert → teardown for ADD. Full structural-op coverage still open.** |
@@ -89,7 +89,11 @@ listed for completeness — their write-ups remain below as reference.
 | I-057 | `report-failure-to-root` curl-globbing regression | v0.10.0's job constructs the trigger URL with `variables[KEY]=VAL` form syntax. curl interprets `[` and `]` as numeric-range glob and exits code 3 (`bad range in URL position 114`) before the request leaves the runner. Caught by L5 validation. Fix: add `-g` (`--globoff`). v0.10.1. |
 | I-045 | HTTP step types in PAT yaml | Three new step verbs (`http`, `expect-status`, `expect-body-contains`) added to `pat.schema.json`. Single-provider absorption: the cypress provider compiles them via `cy.request(...).as('lastResponse')` rather than introducing a parallel `curl`/`supertest` provider plus a framework selector. PAT step types stay framework-agnostic at the schema layer; mixed PATs (browser + HTTP) compile to a single `.cy.js`. `compose-service:` and a standalone backend-only provider remain deferred until a real project demands them. v0.11.0. |
 | I-040 | Topology changes (ADD) | A project's component set can evolve mid-project via the standard story flow. ADD shipped via two-phase `decompose-story` (Phase A: sub-task + readiness tracker, no SCM mutation; Phase B: `project.yaml` mutation + topology re-render) composed with v0.6.0's `generate-pats`/`compile-story-pats`/`test.cat.cypress`, v0.11.0's HTTP step types + cypress absorption, v0.5.1's pure-function topology renderer + `scm.push_or_update_files`, and #18's phase-split contract. No new code in v0.12.0 — the release ships I-040 because end-to-end ADD is now demonstrated against a real workshop testbed (TODOM-S02 → metrics on port 3004, root MR !35, pipeline 2495405820, all 5 jobs success; topology aliveness probes 5/5 pass on real GitLab CI). REMOVE / RENAME / MERGE / SPLIT / PORT-CHANGE remain deferred. v0.12.0. |
-| I-040 | Topology changes (REMOVE) | The structural-verb family extended: a project's component set can also shrink mid-project. New `expect-unreachable` step verb (cypress provider absorbs it via fused fetch+catch — cy.request can't observe network errors before chained .then). Caller pre-flight at decompose-story Step 2 enforces M's verifiability invariant: removing a component with active callers conflates structural change with behaviour change, so REMOVE-with-callers is hard-rejected with guidance to ship a prep story first. compile-story-pats's bundle assembly identifies historical compiled CATs that probe the removed component (static grep on name + ports) and includes their deletion. Regenerated detect-story-trigger.sh carries a 5-line source-repo guard so orphan-repo webhooks classify as standalone (no spurious shadow runs); managed-repo decommission proper is filed as I-061 follow-up. Demonstrated end-to-end against the live workshop (TODOM-S03 → remove metrics, root MR !36, pipeline 2495493085, validate:compose green with topology probes 4/4 — was 5/5 before). v0.12.1. |
+| I-040 | Topology changes (REMOVE) | The structural-verb family extended: a project's component set can also shrink mid-project. New `expect-unreachable` step verb (cypress provider absorbs it via fused fetch+catch — cy.request can't observe network errors before chained .then). Caller pre-flight at decompose-story Step 2 enforces M's verifiability invariant: removing a component with active callers conflates structural change with behaviour change, so REMOVE-with-callers is hard-rejected with guidance to ship a prep story first. compile-story-pats's bundle assembly identifies historical compiled CATs that probe the removed component (static grep on name + ports) and includes their deletion. Regenerated detect-story-trigger.sh carries a 5-line source-repo guard so orphan-repo webhooks classify as standalone (no spurious shadow runs); managed-repo decommission proper is filed as I-061 follow-up. Demonstrated end-to-end against the live workshop (TODOM-S03 → remove metrics, root MR !36, pipeline 2495493085, validate:compose green with topology probes 4/4 — was 5/5 before). v0.12.1 (shipped as part of v0.13.0 — see release notes). |
+| I-040 | Topology changes (RENAME) | First structural verb to ship without schema changes. RENAME's two-AC PAT (new name reachable + old name unreachable) composes existing `http:` + `expect-status` + `expect-body-contains` + `expect-unreachable` verbs through the established cypress absorption (v0.11.0 + v0.12.x). Pre-flight scan in decompose-story Step 2 mirrors REMOVE: managed-repo source files + managed-repo PAT yamls hard-reject on real callers (same prep-story discipline); root PAT yamls warn (audit-trail). Historical compiled CATs that reference the old identifier are rewritten in place via the new shared utility `.m/capabilities/_lib/historical-cat-scan.mjs` (closes I-062). Source PAT yamls on root are deliberately not rewritten — divergence between source PAT yaml and compiled CAT after RENAME is the audit trail. Bundle uses I-063's unified actions[] payload (all `update` actions). v0.14.0. |
+| I-004 | Post-merge lifecycle (auto-tag + auto-bump + topology CHANGELOG) | Closes the post-merge half of the M promise. Three new CI pieces: (a) the placeholder `tag` job in scaffold-repo's managed-repo template becomes a real semver patch bump with `[skip-auto-tag]` / `[bump-minor]` / `[bump-major]` markers; (b) new `report-tag-to-root` CI job mirrors v0.10.0's `report-failure-to-root`; (c) detect-story-trigger.sh learns a third `EVENT_KIND=tag` branch routing to the new `shadow:bump-topology` job, which shells out to a new rendered `scripts/bump-topology.sh` that mutates project.yaml, appends to a project-level `CHANGELOG.md` (seeded by bootstrap-root-repo), and opens a `chore/bump-<comp>-<tag>` MR. Resource group `bump_topology` serialises concurrent bumps. Merge transaction execution / gating filed as I-066; auto-merge of bump MRs filed as I-067. Manual `tag-release` retained as fallback. v0.14.0. |
+| I-062 | Historical-CAT scan extracted to shared utility | Inline grep from compile-story-pats's REMOVE bundle assembly moved to `.m/capabilities/_lib/historical-cat-scan.mjs` with two operations: `findReferencing` (REMOVE) + `rewriteReferencing` (RENAME). RENAME's contract gave the abstraction a second caller, so it's no longer premature. v0.14.0. |
+| I-063 | `scm.delete_file` provider primitive | `scm.push_or_update_files` extended to accept a third entry kind `{ path, action: 'delete' }`. GitLab provider documents two paths: atomic single-commit via `POST /projects/:id/repository/commits` with mixed `actions[]` (preferred, available via curl today; via MCP wrapper once that lands), interim per-action via existing `mcp_gitlab_create_or_update_file` for create/update plus a new `.m/providers/scm/gitlab/delete-file.mjs` helper for delete. Retires the v0.13.0 stub-`describe()` workaround in `compile-story-pats`'s historical-CAT cleanup. Function name preserved (rename to `scm.push_files` would have collided with the existing strict create-only function); same design intent. v0.14.0. |
 | I-058 | Workshop MF chunk + api fetch fail under headless cypress | Shell + MFE bundles baked in `http://localhost:300x` URLs at build time — works for host browser (port mapping) but fails inside cypress-in-docker (`localhost` from cypress container ≠ host's localhost). Same-origin proxy through shell's nginx (and webpack-dev-server in `npm run dev`): `/mfe/* → mfe:3001/*`, `/api-read/* → api-read:3002/*`, `/api-write/* → api-write:3003/*`. Bundles now use relative URLs (`todoMfe@/mfe/remoteEntry.js`, `API_URL=/api-read`). Verified: TODOM-000 6/6 + TODOM-L4 3/3 cypress tests pass. Workshop-side fix only; no methodology impact. Resolved 2026-04-26. |
 | I-059 | `m clone` topology parser miscount with `persistence:` block | Hand-rolled line scanner in `cli/src/lib/topology.mjs` didn't track scope: a top-level `persistence:` block (or any non-`components:` top-level header whose first child key was `type:` / `location:`) leaked into the last component, dropping it from `getReferencedRepos`. Fixed with a section-boundary check that closes the in-progress component when a non-indented header line is hit. Renderer was unaffected (uses `js-yaml`). Regression test in `cli/test/cli.test.mjs`. v0.13.0. |
 | I-064 | Self-update prompt on operational `m` commands | CLI checks the npm registry on entry to operational commands and offers `Update now? (y/N)`. On accept, runs `npm i -g methodology-m@latest` and re-execs the original command. Skipped for meta commands (`help`, `version`, `changelog`), non-TTY environments, and when `M_NO_UPDATE_CHECK=1` is set. 2s registry timeout with silent fall-through on any error. Pattern adapted from `textologylabs/hex` (`src/update.ts`). Limits: assumes `npm` for installs (pnpm/yarn/bun users opt out via env var); pre-release tags on npm `latest` would over-prompt but Methodology M doesn't ship any. v0.13.0. |
@@ -300,7 +304,7 @@ PAT→CAT as the mechanism; the project chooses the tools.
 
 **Category:** Orchestration / CI pipeline design
 **Priority:** Critical (core M workflow gap)
-**Status:** ✅ Partially resolved (2026-04-05) — shadow status reporting working; merge transaction, auto-tag, auto-bump still TODO
+**Status:** ✅ Mostly resolved — shadow status reporting (2026-04-05), auto-tag + auto-bump + project-level CHANGELOG (v0.14.0, 2026-05-06). Cross-repo merge-transaction execution + gating remain — filed as **I-066** follow-up.
 **Discovered:** 2026-04-04, during pass1 step 13–14 execution
 
 ### Problem
@@ -3429,7 +3433,7 @@ step anymore. It's a side effect of decomposition.
 **Category:** Methodology / architecture
 **Priority:** Important (uncovered territory)
 **Discovered:** 2026-04-11, discussing wiring between managed repos
-**Status:** ✅ Resolved — ADD (v0.12.0, 2026-05-02) and REMOVE (v0.12.1, 2026-05-03) shipped, both demonstrated end-to-end against the live workshop testbed: TODOM-S02 added the metrics component (root MR !35, pipeline 2495405820); TODOM-S03 removed it (root MR !36, pipeline 2495493085, validate:compose green against the smaller topology). RENAME / MERGE / SPLIT / PORT-CHANGE remain deferred to v0.12.x as separate items per the Locked designs below. See CHANGELOG v0.12.0 / v0.12.1 for L4/L5 evidence.
+**Status:** ✅ ADD / REMOVE / RENAME shipped — ADD (v0.12.0, 2026-05-02), REMOVE (v0.12.1 → bundled into v0.13.0, 2026-05-06), RENAME (v0.14.0, 2026-05-06). RENAME is the first structural verb to ship without schema changes; the symmetric two-AC PAT (new name reachable + old name unreachable) composes existing v0.11.0 / v0.12.x verbs. ADD + REMOVE were demonstrated end-to-end against the live workshop testbed (TODOM-S02 + TODOM-S03); RENAME L4/L5 evidence is filed against TODOM-S04 (post-restoration of the metrics component). MERGE / SPLIT / PORT-CHANGE / TYPE-CHANGE remain deferred to v0.14.x as separate items per the same locked-design-then-impl pattern. See CHANGELOG v0.12.0 / v0.13.0 (REMOVE) / v0.14.0 (RENAME).
 
 ### Problem
 
@@ -5454,6 +5458,12 @@ Pull-driven — implement when a real project asks for it.
 
 ## I-062: Historical-CAT scan as a shared utility (REMOVE today, RENAME tomorrow)
 
+**Status:** ✅ Resolved 2026-05-06 — extracted to
+`.m/capabilities/_lib/historical-cat-scan.mjs` with two operations:
+`findReferencing` (REMOVE) and `rewriteReferencing` (RENAME).
+RENAME's contract gave the abstraction a second caller, so the
+extraction is no longer premature. v0.14.0.
+
 **Category:** M capability / refactor
 **Priority:** Low (single-call-site for now)
 **Discovered:** 2026-05-02, locking the v0.12.x REMOVE design
@@ -5489,6 +5499,15 @@ Re-evaluate once RENAME's design is locked.
 ---
 
 ## I-063: `scm.delete_file` MCP primitive
+
+**Status:** ✅ Resolved 2026-05-06 — `scm.push_or_update_files`
+extended with a third action kind `{ path, action: 'delete' }`.
+GitLab provider documents two paths (atomic mixed-actions commit,
+interim per-action curl via the new `delete-file.mjs` helper);
+backwards-compatible (existing `{ path, content }` entries unchanged).
+The function name was preserved (the locked design's proposed
+rename to `scm.push_files` would have collided with the existing
+strict create-only function); same design intent. v0.14.0.
 
 **Category:** SCM provider tooling
 **Priority:** Medium (workaround exists but methodology-defined

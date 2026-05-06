@@ -191,6 +191,36 @@ scm.store_ci_secret(
 Set these on **every managed repo**, not the root. They are read by
 the managed repo's CI job, not by the root pipeline.
 
+#### Variables for the auto-tag CI job (I-004)
+
+The `tag` job in scaffold-repo's managed-repo template (see
+scaffold-repo SKILL, I-004) runs on merges to main and needs a
+project access token with `write_repository` scope to push
+annotated tags back. The same token also signs the
+`report-tag-to-root` notification implicitly via job context. Set
+on **every managed repo**:
+
+```
+scm.store_ci_secret(
+  repo: <managed-repo>,
+  key: "M_PROJECT_TAG_TOKEN",
+  value: <project access token with write_repository scope>,
+  protected: true,        # main is protected on production projects
+  masked: true
+)
+```
+
+Re-uses the per-repo project access token created by `scaffold-repo`
+during repo creation (`scm.create_access_token` with `write_repository`
+already in scope alongside `api` and `read_repository`). On
+**free-tier GitLab** where project access tokens are unavailable,
+fall back to the same group-scoped PAT used for `M_GROUP_TOKEN` —
+provided it has `write_repository` scope on the managed repo.
+
+**Why `protected: true`.** The `tag` job only runs on merges to
+main (which is a protected ref). Restricting the token to protected
+refs prevents accidental tag pushes from MR pipelines.
+
 **Why `protected: false`.** The fan-out job runs on MR pipelines
 and main pushes — both unprotected ref kinds (MR refs are never
 protected; main is protected on production projects but the failure

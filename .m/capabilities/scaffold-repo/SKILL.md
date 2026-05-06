@@ -212,15 +212,92 @@ snapshot:
     - if: $CI_MERGE_REQUEST_IID
   needs: [test]
 
-# --- Merge to main only: auto-tag ---
+# --- Merge to main only: auto-tag (I-004) ---
+# After a story MR merges to main, computes the next semver tag and
+# pushes it. Default bump is `patch`. Honours escape hatches in the
+# merge commit message:
+#   [skip-auto-tag]    — skip entirely (refactor / revert merges)
+#   [bump-minor]       — minor bump instead of patch
+#   [bump-major]       — major bump instead of patch
+# Skips silently if the merge commit's tree is unchanged from the
+# previously-tagged commit (no functional change).
+#
+# Auth: M_PROJECT_TAG_TOKEN — a project access token with
+# write_repository scope, provisioned by wire-orchestration.
 
 tag:
   stage: tag
+  image: alpine:3.19
+  before_script:
+    - apk add --no-cache git curl
+    - git config --global user.email "m-auto-tag@methodology-m"
+    - git config --global user.name "M auto-tag"
   script:
-    - npm run tag --if-present
+    - |
+      MSG=$(git log -1 --pretty=%B)
+      case "$MSG" in
+        *"[skip-auto-tag]"*|*"[no-tag]"*)
+          echo "Skipping auto-tag (escape hatch in commit message)"
+          exit 0
+          ;;
+      esac
+      LATEST=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+      MAJOR=$(echo "$LATEST" | sed -E 's/^v([0-9]+)\.([0-9]+)\.([0-9]+).*/\1/')
+      MINOR=$(echo "$LATEST" | sed -E 's/^v([0-9]+)\.([0-9]+)\.([0-9]+).*/\2/')
+      PATCH=$(echo "$LATEST" | sed -E 's/^v([0-9]+)\.([0-9]+)\.([0-9]+).*/\3/')
+      case "$MSG" in
+        *"[bump-major]"*) NEW="v$((MAJOR+1)).0.0" ;;
+        *"[bump-minor]"*) NEW="v$MAJOR.$((MINOR+1)).0" ;;
+        *)               NEW="v$MAJOR.$MINOR.$((PATCH+1))" ;;
+      esac
+      if [ "$LATEST" != "v0.0.0" ]; then
+        if git diff --quiet "$LATEST" HEAD; then
+          echo "Skipping auto-tag (tree unchanged since $LATEST)"
+          exit 0
+        fi
+      fi
+      echo "Tagging $NEW (was $LATEST)"
+      git tag -a "$NEW" -m "$MSG"
+      AUTH_URL=$(echo "$CI_REPOSITORY_URL" | sed -E "s|https://[^@]+@|https://oauth2:$M_PROJECT_TAG_TOKEN@|")
+      git push "$AUTH_URL" "$NEW"
+      echo "M_AUTO_TAG_NEW=$NEW" >> tag.env
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
   needs: [test]
+  artifacts:
+    reports:
+      dotenv: tag.env
+
+# --- Tag → root notification (I-004) ---
+# Runs only when `tag` produced a new tag (the dotenv is empty
+# otherwise). Mirrors report-failure-to-root in shape but classifies
+# the trigger as EVENT_KIND=tag so root's detect-story-trigger.sh
+# routes it to shadow:bump-topology (I-004).
+
+report-tag-to-root:
+  stage: .post
+  image: alpine:3.19
+  needs: [tag]
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - |
+      if [ -z "${M_AUTO_TAG_NEW:-}" ]; then
+        echo "No new tag in this run — nothing to notify"
+        exit 0
+      fi
+      if [ -z "${M_TRIGGER_TOKEN:-}" ] || [ -z "${ROOT_PROJECT_ID:-}" ]; then
+        echo "M_TRIGGER_TOKEN or ROOT_PROJECT_ID not set — skipping notify"
+        exit 0
+      fi
+      ENCODED_PATH=$(printf '%s' "$CI_PROJECT_PATH" | sed 's|/|%2F|g')
+      URL="$CI_API_V4_URL/projects/$ROOT_PROJECT_ID/ref/main/trigger/pipeline?token=$M_TRIGGER_TOKEN&variables[SOURCE_PROJECT_ID]=$CI_PROJECT_ID&variables[SOURCE_PROJECT_PATH]=$ENCODED_PATH&variables[NEW_TAG]=$M_AUTO_TAG_NEW&variables[EVENT_KIND]=tag"
+      echo "Notifying root of new tag $M_AUTO_TAG_NEW"
+      # -g (globoff) per I-057.
+      curl -fsSL -g -X POST -o /dev/null "$URL"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: on_success
 
 # --- Pipeline-failure fan-out trigger (I-056) ---
 # Runs on any pipeline failure. Calls the root repo's trigger
@@ -269,8 +346,7 @@ replaces them with real commands.
     "start": "node src/server.js",
     "build": "echo 'no build step configured'",
     "test": "echo 'no tests configured' && exit 0",
-    "snapshot": "echo 'snapshot: not yet implemented'",
-    "tag": "echo 'auto-tag: not yet implemented'"
+    "snapshot": "echo 'snapshot: not yet implemented'"
   }
 }
 ```
@@ -282,11 +358,17 @@ replaces them with real commands.
     "start": "webpack serve --mode development",
     "build": "webpack --mode production",
     "test": "echo 'no tests configured' && exit 0",
-    "snapshot": "echo 'snapshot: not yet implemented'",
-    "tag": "echo 'auto-tag: not yet implemented'"
+    "snapshot": "echo 'snapshot: not yet implemented'"
   }
 }
 ```
+
+The `tag` script was retired in v0.14.0 — the auto-tag CI job
+computes the next semver and pushes the tag directly via git, no
+package.json hook needed. Repos that need custom tag-time work
+(e.g. publishing to npm) can still add a `tag` script and have
+the CI job invoke it; the default behaviour is "tag and push, no
+side effects."
 
 The `start` script is required for local compose — the root repo's
 `start-all.sh` calls each component's start script. Backend repos
@@ -302,7 +384,8 @@ working defaults.
 | `build`    | Every pipeline           | Compile, bundle, transpile           | Pipeline fails           |
 | `test`     | Every pipeline           | Run repo-level PATs and unit tests   | Pipeline fails, MR blocked |
 | `snapshot` | MR pipelines only        | Publish pre-release artefact         | MR can't shadow-integrate |
-| `tag`      | Merge to main only       | Create semver tag on the new commit  | Manual tag required       |
+| `tag`      | Merge to main only       | Compute next semver bump (default patch; `[bump-minor]` / `[bump-major]` / `[skip-auto-tag]` markers in the merge commit message override), tag, push (I-004) | Job fails — recover by manual `tag-release` invocation |
+| `.post` (`report-tag-to-root`) | Merge to main, `when: on_success` after `tag` | Notify root of the new tag so root's `shadow:bump-topology` opens a `chore/bump-<comp>-<tag>` MR against `project.yaml` (I-004) | Best-effort — if root unreachable, the managed-repo tag is real but `project.yaml` stays stale until manual `tag-release` |
 | `.post` (`report-failure-to-root`) | MR + main pipelines, only `when: on_failure` | Notify root that this repo's pipeline failed (I-056) so the root shadow chain fans `failed` to sibling story MRs immediately, without waiting for the next MR event | Best-effort — if root unreachable, sibling MRs simply revert to MR-event cadence |
 
 **CI image:** The pipeline must specify `image: node:20` (or the

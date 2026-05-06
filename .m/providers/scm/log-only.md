@@ -191,14 +191,16 @@ so they are available out-of-band without polluting the trace.
   files:
     - <path_1> (<N bytes>)
     - <path_2> (<N bytes>)
+    - DELETE <path_3>
     ...
 → returns: { commit_sha: "deadbeef00000000000000000000000000000003" }
 ```
 
 Same size-only logging rule as `push_files` — log path + content size,
-never dump full file content into the trace. The log-only provider
-does not attempt to distinguish create from update per file; the trace
-records only that the batch was dispatched.
+never dump full file content into the trace. Delete entries log
+`DELETE <path>` with no size suffix. The log-only provider does not
+attempt to distinguish create from update per file; the trace records
+only that the batch was dispatched.
 
 ---
 

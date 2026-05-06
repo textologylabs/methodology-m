@@ -4,6 +4,122 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-05-06
+
+### Added
+
+- **I-040 (RENAME) — Topology RENAME shipped.** A component's
+  `name` field can change mid-project via the standard structural
+  story flow. **First structural verb to ship without schema
+  changes** — RENAME's PAT shape composes existing `http:` +
+  `expect-status` + `expect-body-contains` + `expect-unreachable`
+  verbs into a two-AC PAT (new name reachable + old name
+  unreachable). Cypress provider compiles cleanly via the existing
+  v0.11.0 + v0.12.x absorption.
+
+  **Pre-flight scope.** `decompose-story` Step 2 now runs a RENAME
+  pre-flight that mirrors REMOVE's verifiability invariant: scan
+  managed-repo source files (`*.{js,jsx,ts,tsx,mjs,cjs}` outside
+  `node_modules/` and `dist/`) and managed-repo `pats/*.pat.yaml`
+  for `<old-name>:<port>` literal references. Hard-reject on any
+  match; recommend a prep story (update callers via config
+  indirection, then RENAME). Root `pats/*.pat.yaml` references
+  surface as informational warnings — they're audit-trail, not
+  callers, and the corresponding `pats/*.cy.js` files are rewritten
+  in the gate MR.
+
+  **Historical CAT rewrite.** `compile-story-pats`'s Step 2 bundle
+  assembly now invokes the new shared utility
+  `.m/capabilities/_lib/historical-cat-scan.mjs`'s
+  `rewriteReferencing(rootDir, oldTerm, newTerm)` to find
+  `pats/*.cy.js` files referencing the old identifier and replace
+  it in place with the new one. Each rewritten file goes into the
+  push bundle as a standard create-or-update entry. Source PAT
+  yamls are deliberately not touched — the documented divergence
+  between source PAT yaml and compiled CAT *is* the audit trail.
+
+- **I-004 (post-merge slice) — Auto-tag + auto-bump + project
+  CHANGELOG.** Three new CI pieces close the manual-bookkeeping
+  gap on a green story merge:
+
+  - The placeholder `tag` job in scaffold-repo's managed-repo
+    template (was `echo 'auto-tag: not yet implemented'`) becomes
+    a real semver patch bump on every merge to main, with
+    `[skip-auto-tag]` / `[bump-minor]` / `[bump-major]` markers in
+    the merge commit message as escape hatches. Skips silently if
+    the merge commit's tree is unchanged from the previously-tagged
+    commit.
+  - New `report-tag-to-root` CI job (mirrors v0.10.0's
+    `report-failure-to-root`) calls root's trigger endpoint with
+    `EVENT_KIND=tag, SOURCE_PROJECT_PATH=<repo>, NEW_TAG=<vX.Y.Z>`.
+  - `scripts/detect-story-trigger.sh` learns a third
+    `EVENT_KIND=tag` branch (in addition to v0.10.0's `mr` and
+    `pipeline`) emitting `TRIGGER_MODE=bump-topology`. The new
+    `shadow:bump-topology` job (in resource group `bump_topology`
+    so concurrent bumps serialise) shells out to a new
+    `scripts/bump-topology.sh` script that mutates
+    `project.yaml` to pin the component to the new tag, appends a
+    line under `[Topology bumps]` in a project-level
+    `CHANGELOG.md` (seeded by `bootstrap-root-repo`), commits to a
+    fresh `chore/bump-<component>-<tag>` branch, pushes, and opens
+    a MR against main.
+
+  **Bump MR auto-merge is OFF by default** — the MR is opened, sits
+  with a green pipeline (`validate:compose` proves the new tag is
+  reachable), waits for a human click. Filed as I-067 follow-up.
+  Merge transaction execution + gating remain deferred (filed as
+  I-066). `wire-orchestration` provisions a new
+  `M_PROJECT_TAG_TOKEN` CI variable on each managed repo
+  (`write_repository` scope, `protected: true`) so the auto-tag
+  job can push tags back to main.
+
+  **The agent-driven `tag-release` capability is retained as the
+  manual fallback path** for escape-hatch overrides, recovery
+  after a failed `report-tag-to-root`, and repo-specific bumps.
+
+### Fixed / Changed
+
+- **I-063 — `scm.delete_file` provider primitive.** The provider
+  contract for `scm.push_or_update_files` was extended to accept a
+  third action kind: `{ path, action: 'delete' }`. Previously the
+  shape was create-only or create-or-update; now deletes are
+  first-class. The GitLab provider doc spells out the two
+  implementations: atomic via `POST /projects/:id/repository/commits`
+  with mixed `actions[]` (preferred, available today via curl,
+  available via the MCP wrapper once it lands), interim via
+  per-action calls (existing `mcp_gitlab_create_or_update_file` for
+  create/update plus a new
+  `.m/providers/scm/gitlab/delete-file.mjs` helper for delete).
+  Retires the v0.13.0 stub-`describe()` workaround that
+  `compile-story-pats` had to use for historical-CAT cleanup.
+  Backwards-compatible: callers passing `{ path, content }` keep
+  the existing create-or-update behaviour with no change.
+
+- **I-062 — Historical-CAT scan extracted to shared utility.**
+  The inline `grep` in `compile-story-pats`'s REMOVE bundle
+  assembly moved to `.m/capabilities/_lib/historical-cat-scan.mjs`
+  with two operations — `findReferencing` (REMOVE) and
+  `rewriteReferencing` (RENAME). RENAME's contract gave the
+  abstraction a second caller, so it's no longer premature.
+  Resolved.
+
+### Deviations from the v0.14.0 sketch (#26)
+
+- **I-063: `scm.push_or_update_files` was NOT renamed.** The locked
+  design proposed renaming it to `scm.push_files`, but the existing
+  `scm.push_files` (strict create-only, used by
+  `bootstrap-root-repo` and `scaffold-repo`) made the rename a
+  collision. Cleaner path was to keep both names and extend
+  `push_or_update_files` with the unified action surface. Same
+  design intent (delete is first-class), no caller breakage.
+- **I-004: bump-topology shell script renders as a fourth file.**
+  The locked design described `shadow:bump-topology`'s logic
+  inline; making it a rendered shell script (deterministic, in CI
+  jobs, easier to test) was the cleaner shape during impl. The
+  renderer's `render_pipeline` output now returns four files
+  (`.gitlab-ci.yml`, `detect-story-trigger.sh`,
+  `report-shadow-status.sh`, **`bump-topology.sh`**).
+
 ## [0.13.0] — 2026-05-06
 
 ### Added
