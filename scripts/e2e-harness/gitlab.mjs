@@ -74,6 +74,54 @@ export function groupToProjectName(groupPath) {
 }
 
 // ---------------------------------------------------------------------------
+// Read-side helpers (fetch existing repo state for scenarios that need to
+// rewrite or reason about it — e.g. RENAME's historical-CAT scan).
+// ---------------------------------------------------------------------------
+
+// Returns the file content as a UTF-8 string, or null if the file doesn't
+// exist on the given ref.
+export async function fetchFile(rootRepo, ref, path) {
+  const token = process.env.GITLAB_TOKEN;
+  if (!token) die(EXIT.PRECONDITION, 'GITLAB_TOKEN env var required');
+  const encodedPath = encodeURIComponent(path);
+  const res = await fetch(
+    `${API}/projects/${encodeProject(rootRepo)}/repository/files/${encodedPath}/raw?ref=${encodeURIComponent(ref)}`,
+    { method: 'GET', headers: { 'PRIVATE-TOKEN': token } },
+  );
+  if (res.status === 404) {
+    await res.arrayBuffer().catch(() => {});
+    return null;
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitLab GET file ${path}@${ref} → ${res.status}: ${text}`);
+  }
+  return res.text();
+}
+
+// Lists a directory's tree (one level) on the given ref. Returns
+// [{ id, name, type, path, mode }, ...]. Returns [] if the path does not
+// exist (treated as "no entries" — same shape the historical-cat-scan
+// utility's local fallback uses for an absent pats/ dir).
+export async function listTree(rootRepo, ref, dirPath) {
+  const token = process.env.GITLAB_TOKEN;
+  if (!token) die(EXIT.PRECONDITION, 'GITLAB_TOKEN env var required');
+  const url =
+    `${API}/projects/${encodeProject(rootRepo)}/repository/tree` +
+    `?path=${encodeURIComponent(dirPath)}&ref=${encodeURIComponent(ref)}&per_page=100`;
+  const res = await fetch(url, { headers: { 'PRIVATE-TOKEN': token } });
+  if (res.status === 404) {
+    await res.arrayBuffer().catch(() => {});
+    return [];
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitLab tree ${dirPath}@${ref} → ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
 // Workflow steps
 // ---------------------------------------------------------------------------
 
