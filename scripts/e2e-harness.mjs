@@ -132,7 +132,7 @@ async function main() {
   await checkRootRepoExists(rootRepo);
   ok(`scenario: ${scenario.description}`);
 
-  const prepared = scenario.prepare({ repoRoot: REPO_ROOT, args });
+  const prepared = await scenario.prepare({ repoRoot: REPO_ROOT, rootRepo, args, defaults });
 
   let mr = null;
   try {
