@@ -9,10 +9,11 @@
 // authoritative description; if Step 2 grows new responsibilities, this
 // scenario must absorb them or fall behind.
 //
-// Defaults rename `analytics` → `telemetry` against the TODOM-S01
-// fixture, but the after-rename project.yaml is computed dynamically
-// (no static after-fixture to drift). The workshop is assumed to be at
-// or downstream of TODOM-S01 (analytics:3004 reachable on main).
+// Defaults rename `analytics` → `analytics-renamed` against the live
+// workshop main (which must have an `analytics` leaf component
+// seeded — the canonical renamable target). The after-rename
+// project.yaml is computed dynamically (no static after-fixture to
+// drift).
 
 import { spawnSync } from 'node:child_process';
 import {
@@ -27,11 +28,11 @@ import { EXIT, die, fetchFile, listTree, ok, step } from '../gitlab.mjs';
 
 export default {
   id: 'rename',
-  description: 'TODOM-RENAME (analytics → telemetry) — compile + render + historical-CAT rewrite',
+  description: 'TODOM-RENAME (analytics → analytics-renamed) — compile + render + historical-CAT rewrite',
 
   defaults({ branchSuffix }) {
-    const oldName = 'api-write';
-    const newName = 'api-write-renamed';
+    const oldName = 'analytics';
+    const newName = 'analytics-renamed';
     const storyId = `TODOM-RENAME-${branchSuffix}`;
     return {
       oldName,
