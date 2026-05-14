@@ -10,7 +10,9 @@
 // the authoritative description; if Step 2 grows new responsibilities,
 // this scenario must absorb them or fall behind.
 //
-// Defaults remove `analytics` against the TODOM-S01 fixture, but the
+// Defaults remove `analytics` against the live workshop main (which
+// must have an `analytics` leaf component seeded — the canonical
+// removable target per the compile-story-pats SKILL examples). The
 // after-remove project.yaml is computed dynamically (no static
 // after-fixture to drift). The harness intentionally bypasses
 // decompose-story's verifiability invariant (REMOVE rejected if the
