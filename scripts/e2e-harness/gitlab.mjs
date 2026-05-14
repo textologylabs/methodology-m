@@ -142,11 +142,19 @@ export async function createBranch(rootRepo, branchName) {
 export async function pushOrUpdateFiles(rootRepo, branchName, files, commitMessage) {
   step(4, 'Push files via interim push_or_update_files (per-file create_or_update_file)');
   for (const f of files) {
+    const encodedPath = encodeURIComponent(f.path);
+    if (f.action === 'delete') {
+      await gitlab('DELETE', `/projects/${encodeProject(rootRepo)}/repository/files/${encodedPath}`, {
+        branch: branchName,
+        commit_message: commitMessage,
+      });
+      ok(`delete ${f.path}`);
+      continue;
+    }
     const content = f.content ?? readFileSync(f.fullPath, 'utf8');
     const exists = await fileExists(rootRepo, branchName, f.path);
-    const action = exists ? 'PUT' : 'POST';
-    const encodedPath = encodeURIComponent(f.path);
-    await gitlab(action, `/projects/${encodeProject(rootRepo)}/repository/files/${encodedPath}`, {
+    const method = exists ? 'PUT' : 'POST';
+    await gitlab(method, `/projects/${encodeProject(rootRepo)}/repository/files/${encodedPath}`, {
       branch: branchName,
       content,
       commit_message: commitMessage,
