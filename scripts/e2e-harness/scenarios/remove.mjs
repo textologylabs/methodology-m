@@ -19,17 +19,20 @@
 // component has active callers) — the harness drives bundle assembly
 // directly, so the chosen component just needs to be removable from
 // the topology graph (no inbound depends_on).
+//
+// Verb-specific logic lives here; everything reusable (compile, render,
+// historical-CAT fetch) is in ../scenario-lib.mjs.
 
-import { spawnSync } from 'node:child_process';
-import {
-  mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 import { findReferencing } from '../../../.m/capabilities/_lib/historical-cat-scan.mjs';
 import yaml from '../../../.m/vendor/js-yaml.mjs';
-import { EXIT, die, fetchFile, listTree, ok, step } from '../gitlab.mjs';
+import { EXIT, die, fetchFile, ok, step } from '../gitlab.mjs';
+import {
+  compileStoryPat, portFor, renderTopology, withWorkshopPats,
+} from '../scenario-lib.mjs';
 
 export default {
   id: 'remove',
@@ -47,7 +50,7 @@ export default {
     };
   },
 
-  async prepare({ repoRoot, rootRepo, args, defaults }) {
+  async prepare({ repoRoot, rootRepo, defaults }) {
     const { componentName, storyId } = defaults;
     step(2, `Prepare REMOVE bundle (drop ${componentName}) — base: workshop main`);
 
@@ -77,57 +80,35 @@ export default {
       ok(`authored synthetic REMOVE PAT for ${storyId}`);
 
       // 2c. Compile the PAT into a CAT spec via compile-story-pats.
-      const newCatPath = `pats/${storyId}.cy.js`;
-      const newCatContent = runOrchestrator({
-        bin: resolve(repoRoot, '.m/capabilities/compile-story-pats/compile.mjs'),
-        argv: ['--pat', patPath, '--project-yaml', afterPath, '--target-dir', scratch],
-        readBack: join(scratch, newCatPath),
-        label: 'compile-story-pats',
+      const newCat = compileStoryPat({
+        repoRoot, patPath, projectYamlPath: afterPath, scratch, storyId,
       });
-      ok(`compiled story PAT → ${newCatPath}`);
+      ok(`compiled story PAT → ${newCat.path}`);
 
       // 2d. Render topology artefacts from the after-remove project.yaml.
-      const renderOut = mkdtempSync(join(tmpdir(), 'e2e-remove-render-'));
-      runOrchestrator({
-        bin: resolve(repoRoot, '.m/capabilities/render-topology-artefacts/render.mjs'),
-        argv: ['--project-yaml', afterPath, '--target-dir', renderOut],
-        label: 'render-topology-artefacts',
-      });
-      const topologyFiles = collectFiles(renderOut).map((f) => ({
-        path: f.path,
-        content: readFileSync(f.fullPath, 'utf8'),
-      }));
-      rmSync(renderOut, { recursive: true, force: true });
+      const topologyFiles = renderTopology({ repoRoot, projectYamlPath: afterPath });
       ok(`rendered ${topologyFiles.length} topology files`);
 
-      // 2e. Fetch existing pats/*.cy.js from workshop main; find specs
-      // that reference the removed component (name OR port). Each match
-      // becomes a {path, action: 'delete'} entry in the bundle so
+      // 2e. Scan workshop main's pats/*.cy.js for specs probing the
+      // removed component and mark each match as a delete action, so
       // cypress's pats/**/*.cy.js glob no longer runs them against the
-      // smaller topology.
-      const synthRoot = mkdtempSync(join(tmpdir(), 'e2e-remove-pats-'));
-      mkdirSync(join(synthRoot, 'pats'), { recursive: true });
-      const tree = await listTree(rootRepo, 'main', 'pats');
-      let fetched = 0;
-      for (const e of tree) {
-        if (e.type !== 'blob' || !e.name.endsWith('.cy.js')) continue;
-        const content = await fetchFile(rootRepo, 'main', e.path);
-        if (content == null) continue;
-        writeFileSync(join(synthRoot, e.path), content, 'utf8');
-        fetched += 1;
-      }
-      ok(`fetched ${fetched} existing pats/*.cy.js from workshop main`);
-      const matches = findReferencing(synthRoot, [componentName, String(port)]);
-      rmSync(synthRoot, { recursive: true, force: true });
-      const deletes = matches.map(({ path }) => ({ path, action: 'delete' }));
-      ok(`found ${deletes.length} historical CATs probing ${componentName} (or :${port})`);
+      // smaller topology. The bare-port term (`String(port)`) is a
+      // deliberately broad substring match — compile-story-pats' SKILL
+      // ("Historical CAT cleanup for REMOVE") accepts false positives
+      // here: worst case is a reviewer re-adds a wrongly-deleted CAT.
+      const deletes = await withWorkshopPats(rootRepo, (synthRoot, fetched) => {
+        ok(`fetched ${fetched} existing pats/*.cy.js from workshop main`);
+        const matches = findReferencing(synthRoot, [componentName, String(port)]);
+        ok(`found ${matches.length} historical CATs probing ${componentName} (or :${port})`);
+        return matches.map(({ path }) => ({ path, action: 'delete' }));
+      });
 
       // 2f. Bundle: project.yaml + topology + new CAT + delete actions
       // for historical CATs probing the removed component.
       const files = [
         { path: 'project.yaml', content: readFileSync(afterPath, 'utf8') },
         ...topologyFiles,
-        { path: newCatPath, content: newCatContent },
+        newCat,
         ...deletes,
       ];
       ok(`bundle assembled: ${files.length} files total`);
@@ -145,18 +126,8 @@ export default {
 };
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Verb-specific helpers
 // ---------------------------------------------------------------------------
-
-function runOrchestrator({ bin, argv, readBack, label }) {
-  const res = spawnSync('node', [bin, ...argv], { encoding: 'utf8' });
-  if (res.status !== 0) {
-    console.error(res.stderr || res.stdout);
-    die(EXIT.PREPARE, `${label} exited with code ${res.status}`);
-  }
-  if (readBack) return readFileSync(readBack, 'utf8');
-  return null;
-}
 
 function removeComponent(project, name) {
   const cloned = JSON.parse(JSON.stringify(project));
@@ -169,12 +140,6 @@ function removeComponent(project, name) {
   }
   cloned.components.splice(idx, 1);
   return cloned;
-}
-
-function portFor(project, name) {
-  const comp = project.components.find((c) => c.name === name);
-  if (!comp || comp.port == null) throw new Error(`component '${name}' has no port`);
-  return String(comp.port);
 }
 
 function renderRemovePat({ storyId, componentName, port }) {
@@ -190,18 +155,4 @@ acceptance:
       - http: GET http://${componentName}:${port}/health
       - expect-unreachable: true
 `;
-}
-
-function collectFiles(root, prefix = '') {
-  const out = [];
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    const full = join(root, entry.name);
-    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      out.push(...collectFiles(full, rel));
-    } else if (entry.isFile()) {
-      out.push({ path: rel, fullPath: full });
-    }
-  }
-  return out;
 }

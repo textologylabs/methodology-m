@@ -106,19 +106,29 @@ export async function fetchFile(rootRepo, ref, path) {
 export async function listTree(rootRepo, ref, dirPath) {
   const token = process.env.GITLAB_TOKEN;
   if (!token) die(EXIT.PRECONDITION, 'GITLAB_TOKEN env var required');
-  const url =
-    `${API}/projects/${encodeProject(rootRepo)}/repository/tree` +
-    `?path=${encodeURIComponent(dirPath)}&ref=${encodeURIComponent(ref)}&per_page=100`;
-  const res = await fetch(url, { headers: { 'PRIVATE-TOKEN': token } });
-  if (res.status === 404) {
-    await res.arrayBuffer().catch(() => {});
-    return [];
+  const PER_PAGE = 100;
+  const out = [];
+  // Page-walk so a directory with more than PER_PAGE entries is not
+  // silently truncated. Stop on the first short page.
+  for (let page = 1; ; page++) {
+    const url =
+      `${API}/projects/${encodeProject(rootRepo)}/repository/tree` +
+      `?path=${encodeURIComponent(dirPath)}&ref=${encodeURIComponent(ref)}` +
+      `&per_page=${PER_PAGE}&page=${page}`;
+    const res = await fetch(url, { headers: { 'PRIVATE-TOKEN': token } });
+    if (res.status === 404) {
+      await res.arrayBuffer().catch(() => {});
+      return [];
+    }
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`GitLab tree ${dirPath}@${ref} → ${res.status}: ${text}`);
+    }
+    const batch = await res.json();
+    out.push(...batch);
+    if (batch.length < PER_PAGE) break;
   }
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`GitLab tree ${dirPath}@${ref} → ${res.status}: ${text}`);
-  }
-  return res.json();
+  return out;
 }
 
 // ---------------------------------------------------------------------------
