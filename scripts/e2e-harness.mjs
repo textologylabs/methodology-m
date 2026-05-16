@@ -51,6 +51,7 @@ function parseArgs(argv) {
     scenario: 'add',
     fixture: null,
     keepOnFail: false,
+    noTeardown: false,
     branchSuffix: `e2e-${Date.now().toString(36)}`,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -60,6 +61,7 @@ function parseArgs(argv) {
       case '--scenario': args.scenario = argv[++i]; break;
       case '--fixture': args.fixture = argv[++i]; break;
       case '--keep-on-fail': args.keepOnFail = true; break;
+      case '--no-teardown': args.noTeardown = true; break;
       case '--branch-suffix': args.branchSuffix = argv[++i]; break;
       case '--list-scenarios': listScenariosAndExit();
       case '--help': case '-h': printHelp(); process.exit(EXIT.PASS);
@@ -82,6 +84,7 @@ function printHelp() {
     --scenario <id>         Scenario to run (default: add). See --list-scenarios.
     --fixture <path>        Override scenario default fixture
     --keep-on-fail          Leave branch + MR on failure for inspection
+    --no-teardown           Leave MR open on success too (caller will merge)
     --branch-suffix <s>     Scratch branch suffix (default: e2e-<timestamp>)
     --list-scenarios        List available scenarios and exit
 `);
@@ -132,7 +135,7 @@ async function main() {
   await checkRootRepoExists(rootRepo);
   ok(`scenario: ${scenario.description}`);
 
-  const prepared = scenario.prepare({ repoRoot: REPO_ROOT, args });
+  const prepared = await scenario.prepare({ repoRoot: REPO_ROOT, rootRepo, args, defaults });
 
   let mr = null;
   try {
@@ -145,7 +148,11 @@ async function main() {
       if (!args.keepOnFail) await teardown(rootRepo, mr.iid, defaults.branchName);
       die(EXIT.PIPELINE_RED, `pipeline ${pipeline.id} did not pass`);
     }
-    await teardown(rootRepo, mr.iid, defaults.branchName);
+    if (args.noTeardown) {
+      console.log(`     · --no-teardown: leaving MR !${mr.iid} open on branch ${defaults.branchName}`);
+    } else {
+      await teardown(rootRepo, mr.iid, defaults.branchName);
+    }
   } catch (e) {
     if (mr && !args.keepOnFail) {
       await teardown(rootRepo, mr.iid, defaults.branchName).catch(() => {});

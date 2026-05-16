@@ -74,6 +74,64 @@ export function groupToProjectName(groupPath) {
 }
 
 // ---------------------------------------------------------------------------
+// Read-side helpers (fetch existing repo state for scenarios that need to
+// rewrite or reason about it — e.g. RENAME's historical-CAT scan).
+// ---------------------------------------------------------------------------
+
+// Returns the file content as a UTF-8 string, or null if the file doesn't
+// exist on the given ref.
+export async function fetchFile(rootRepo, ref, path) {
+  const token = process.env.GITLAB_TOKEN;
+  if (!token) die(EXIT.PRECONDITION, 'GITLAB_TOKEN env var required');
+  const encodedPath = encodeURIComponent(path);
+  const res = await fetch(
+    `${API}/projects/${encodeProject(rootRepo)}/repository/files/${encodedPath}/raw?ref=${encodeURIComponent(ref)}`,
+    { method: 'GET', headers: { 'PRIVATE-TOKEN': token } },
+  );
+  if (res.status === 404) {
+    await res.arrayBuffer().catch(() => {});
+    return null;
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitLab GET file ${path}@${ref} → ${res.status}: ${text}`);
+  }
+  return res.text();
+}
+
+// Lists a directory's tree (one level) on the given ref. Returns
+// [{ id, name, type, path, mode }, ...]. Returns [] if the path does not
+// exist (treated as "no entries" — same shape the historical-cat-scan
+// utility's local fallback uses for an absent pats/ dir).
+export async function listTree(rootRepo, ref, dirPath) {
+  const token = process.env.GITLAB_TOKEN;
+  if (!token) die(EXIT.PRECONDITION, 'GITLAB_TOKEN env var required');
+  const PER_PAGE = 100;
+  const out = [];
+  // Page-walk so a directory with more than PER_PAGE entries is not
+  // silently truncated. Stop on the first short page.
+  for (let page = 1; ; page++) {
+    const url =
+      `${API}/projects/${encodeProject(rootRepo)}/repository/tree` +
+      `?path=${encodeURIComponent(dirPath)}&ref=${encodeURIComponent(ref)}` +
+      `&per_page=${PER_PAGE}&page=${page}`;
+    const res = await fetch(url, { headers: { 'PRIVATE-TOKEN': token } });
+    if (res.status === 404) {
+      await res.arrayBuffer().catch(() => {});
+      return [];
+    }
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`GitLab tree ${dirPath}@${ref} → ${res.status}: ${text}`);
+    }
+    const batch = await res.json();
+    out.push(...batch);
+    if (batch.length < PER_PAGE) break;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Workflow steps
 // ---------------------------------------------------------------------------
 
@@ -94,11 +152,19 @@ export async function createBranch(rootRepo, branchName) {
 export async function pushOrUpdateFiles(rootRepo, branchName, files, commitMessage) {
   step(4, 'Push files via interim push_or_update_files (per-file create_or_update_file)');
   for (const f of files) {
+    const encodedPath = encodeURIComponent(f.path);
+    if (f.action === 'delete') {
+      await gitlab('DELETE', `/projects/${encodeProject(rootRepo)}/repository/files/${encodedPath}`, {
+        branch: branchName,
+        commit_message: commitMessage,
+      });
+      ok(`delete ${f.path}`);
+      continue;
+    }
     const content = f.content ?? readFileSync(f.fullPath, 'utf8');
     const exists = await fileExists(rootRepo, branchName, f.path);
-    const action = exists ? 'PUT' : 'POST';
-    const encodedPath = encodeURIComponent(f.path);
-    await gitlab(action, `/projects/${encodeProject(rootRepo)}/repository/files/${encodedPath}`, {
+    const method = exists ? 'PUT' : 'POST';
+    await gitlab(method, `/projects/${encodeProject(rootRepo)}/repository/files/${encodedPath}`, {
       branch: branchName,
       content,
       commit_message: commitMessage,
