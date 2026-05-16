@@ -128,6 +128,21 @@ function renameComponent(project, oldName, newName) {
     throw new Error(`base project.yaml has no component named '${oldName}'`);
   }
   comp.name = newName;
+  // Per decompose-story/SKILL.md ("rename → update name AND derived
+  // location"): the location's trailing path segment encodes the
+  // component name. ci/gitlab derives the managed-repo clone target
+  // from the component name while compose derives its build context
+  // from the location basename — leaving location stale makes CI
+  // clone <new> while compose builds from <old>, and the pipeline
+  // cannot pass. Rewrite the trailing segment in lockstep.
+  if (typeof comp.location === 'string') {
+    const segments = comp.location.split('/');
+    const last = segments[segments.length - 1];
+    if (last.endsWith(oldName)) {
+      segments[segments.length - 1] = last.slice(0, -oldName.length) + newName;
+      comp.location = segments.join('/');
+    }
+  }
   return cloned;
 }
 
