@@ -262,6 +262,7 @@ to the SCM platform (`.gitlab-ci.yml` vs `.github/workflows/*.yml` vs
 | Function | Parameters | Returns | Used by |
 |---|---|---|---|
 | `ci.render_pipeline` | `project`, `scm` | `[{path, content}, ...]` | render-topology-artefacts |
+| `ci.render_managed_pipeline` | `repoType` | `[{path, content}, ...]` | scaffold-repo |
 
 #### Function Contracts
 
@@ -288,6 +289,30 @@ gh-flavored status script. Jenkins, CircleCI, etc. analogous.
 
 The caller (render-topology-artefacts) resolves the active scm provider from
 `project.yaml`'s `providers.scm` field and passes it to this function.
+
+---
+
+**`ci.render_managed_pipeline(repoType)`**
+
+Render a **managed** repo's CI pipeline file(s). Unlike the root pipeline,
+the managed-repo lifecycle pipeline (install → build → test → snapshot →
+tag → report-*) has no `project.yaml` dependence — it is static per
+`repoType`. Returns the same `[{path, content, mode}]` shape as
+`ci.render_pipeline`.
+
+Determinism still holds: same `repoType` → byte-identical output. The
+reference provider `ci/gitlab` serves the file verbatim from a
+version-controlled template (`gitlab/templates/managed-pipeline.yml`)
+rather than string-building it — a static asset, not a hidden input.
+
+The reference provider supports `repoType: node` and throws for others
+(other repo types share the lifecycle phases but need a template with
+the right package manager).
+
+Used by `scaffold-repo` Step 3 to seed a managed repo's `.gitlab-ci.yml`.
+Keeping it in the `ci` provider means all CI-platform knowledge lives in
+one place — a `ci/github` provider would emit `.github/workflows/` for
+both root and managed repos, and `scaffold-repo` stays provider-agnostic.
 
 ---
 

@@ -2,18 +2,32 @@
 
 /**
  * ci/gitlab — reference implementation of the `ci.*` namespace for
- * GitLab CI. Emits `.gitlab-ci.yml` and `scripts/report-shadow-status.sh`.
+ * GitLab CI.
  *
- * Pure function of (project, scm). Same input → byte-identical output.
- * No filesystem reads, no timestamps, no randomness.
+ * `render_pipeline(project, scm)` emits the ROOT repo's `.gitlab-ci.yml`
+ * and helper scripts. It is a pure function of (project, scm) — same
+ * input → byte-identical output, no filesystem reads, no timestamps,
+ * no randomness.
  *
- * Contract: see ./gitlab.md. Function signature matches
- * ci.render_pipeline from .m/providers/provider-interface.md.
+ * `render_managed_pipeline(repoType)` emits a MANAGED repo's
+ * `.gitlab-ci.yml`. The managed-repo lifecycle pipeline is static per
+ * repo-type (no topology dependence), so it is served verbatim from a
+ * version-controlled template file rather than string-built. Output is
+ * still deterministic — the template is a fixed, co-located asset.
+ *
+ * Contract: see ./gitlab.md and the `ci.*` namespace in
+ * .m/providers/provider-interface.md.
  *
  * This module is the source of truth for gitlab CI rendering
  * behaviour. The SKILL.md describes the intent; the code here enforces
  * byte-level determinism.
  */
+
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const TEMPLATES_DIR = join(dirname(fileURLToPath(import.meta.url)), 'gitlab', 'templates');
 
 export function render_pipeline(project, scm) {
   if (scm !== 'gitlab') {
@@ -46,6 +60,27 @@ export function render_pipeline(project, scm) {
       mode: 0o755,
     },
   ];
+}
+
+/**
+ * Emit a managed repo's `.gitlab-ci.yml`. The managed-repo lifecycle
+ * pipeline (install → build → test → snapshot → tag → report-*) is
+ * static — it has no `project.yaml` dependence — so it is served
+ * verbatim from `gitlab/templates/managed-pipeline.yml`.
+ *
+ * Returns the same `[{ path, content, mode }]` shape as
+ * `render_pipeline` so callers (scaffold-repo) handle both uniformly.
+ */
+export function render_managed_pipeline(repoType = 'node') {
+  if (repoType !== 'node') {
+    throw new Error(
+      `ci/gitlab render_managed_pipeline supports repoType='node', got '${repoType}'. `
+      + 'Other repo types follow the same lifecycle phases but need their own '
+      + 'template (different package manager) — add managed-pipeline-<type>.yml.',
+    );
+  }
+  const content = readFileSync(join(TEMPLATES_DIR, 'managed-pipeline.yml'), 'utf8');
+  return [{ path: '.gitlab-ci.yml', content, mode: 0o644 }];
 }
 
 // ---------------------------------------------------------------------------
