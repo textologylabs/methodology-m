@@ -19,6 +19,11 @@
 // pushes them via `scm.push_or_update_files` with the appropriate
 // `action` (`delete` for REMOVE, default create-or-update for
 // RENAME).
+//
+// Not every structural verb is a caller. TYPE-CHANGE
+// (embedded <-> referenced) preserves the component's name and
+// port, so no compiled CAT on the root repo needs deleting or
+// rewriting — it invokes neither scan path.
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
