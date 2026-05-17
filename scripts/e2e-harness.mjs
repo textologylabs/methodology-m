@@ -105,10 +105,19 @@ async function loadScenario(id) {
     die(EXIT.PRECONDITION, `Unknown scenario: '${id}'. Try --list-scenarios.`);
   }
   const mod = await import(pathToFileURL(path).href);
-  if (!mod.default || typeof mod.default.prepare !== 'function') {
-    die(EXIT.PRECONDITION, `Scenario '${id}' has no default export with prepare()`);
+  const scenario = mod.default;
+  // A scenario is one of two shapes:
+  //   - gate-MR    — exports prepare(); the runner drives the
+  //                  branch → push → MR → pipeline → assert arc.
+  //   - lifecycle  — exports run(); owns its whole execution (create
+  //                  repos, mutate config, verify, teardown). Used by
+  //                  capabilities that are not root-repo gate-MR
+  //                  shaped (e.g. wire-orchestration).
+  if (!scenario
+    || (typeof scenario.prepare !== 'function' && typeof scenario.run !== 'function')) {
+    die(EXIT.PRECONDITION, `Scenario '${id}' has no default export with prepare() or run()`);
   }
-  return mod.default;
+  return scenario;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,14 +135,28 @@ async function main() {
     ...cliArgs,
     fixture: cliArgs.fixture ?? defaults.fixture,
   };
-
-  const project = groupToProjectName(args.group);
-  const rootRepo = `${args.group}/${project}-root`;
   const started = Date.now();
 
   step(1, `Preconditions (scenario=${scenario.id})`);
-  await checkRootRepoExists(rootRepo);
   ok(`scenario: ${scenario.description}`);
+
+  if (typeof scenario.run === 'function') {
+    // Lifecycle scenario — owns its whole execution.
+    await scenario.run({ repoRoot: REPO_ROOT, args, defaults });
+  } else {
+    await runGateMrScenario(scenario, args, defaults);
+  }
+
+  const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+  console.log(`\n✓ e2e harness PASS — scenario=${scenario.id}, ${elapsed}s`);
+}
+
+// Gate-MR arc: branch → push → MR → poll pipeline → assert green →
+// teardown. The shape every structural-verb scenario shares.
+async function runGateMrScenario(scenario, args, defaults) {
+  const project = groupToProjectName(args.group);
+  const rootRepo = `${args.group}/${project}-root`;
+  await checkRootRepoExists(rootRepo);
 
   const prepared = await scenario.prepare({ repoRoot: REPO_ROOT, rootRepo, args, defaults });
 
@@ -161,11 +184,6 @@ async function main() {
   } finally {
     prepared.cleanup?.();
   }
-
-  const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-  console.log(
-    `\n✓ e2e harness PASS — scenario=${scenario.id}, ${elapsed}s, project=${project}, branch=${defaults.branchName}`,
-  );
 }
 
 main().catch((e) => die(EXIT.SCM, e.message));
