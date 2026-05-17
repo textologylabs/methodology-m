@@ -44,6 +44,7 @@ Each capability follows the [Agent Skills](https://agentskills.io) standard (`<n
 | `scaffold-repo` | [SKILL.md](capabilities/scaffold-repo/SKILL.md) | Create and configure a managed repo from a sub-task file |
 | `wire-orchestration` | [SKILL.md](capabilities/wire-orchestration/SKILL.md) | Connect managed repos to root repo orchestration (webhooks, CI, tokens) |
 | `generate-acceptance-tests` | [SKILL.md](capabilities/generate-acceptance-tests/SKILL.md) | Compile sub-task PATs into repo-level executable acceptance tests (CATs) |
+| `extract-component` | [SKILL.md](capabilities/extract-component/SKILL.md) | TYPE-CHANGE `embedded → referenced` — extract an embedded component into its own managed repo |
 | `tag-release` | [SKILL.md](capabilities/tag-release/SKILL.md) | Tag a managed repo at a version and update root repo topology |
 
 ## Execution Protocol
