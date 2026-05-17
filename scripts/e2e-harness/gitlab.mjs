@@ -357,3 +357,80 @@ export async function storeCiSecret(
 export async function getCiVariables(projectId) {
   return gitlab('GET', `/projects/${projectId}/variables`);
 }
+
+// GitLab branch-protection access levels.
+export const ACCESS = Object.freeze({ NONE: 0, DEVELOPER: 30, MAINTAINER: 40 });
+
+// Apply M-standard branch protection (push: no one, merge: maintainer,
+// no force-push by default). GitLab auto-protects `main` on first push
+// and has no update API, so any existing protection is removed first.
+//
+// GitLab's auto-protect can land asynchronously, racing our delete: the
+// delete finds nothing, then auto-protect appears before our create
+// (409). On a 409 we retry the delete+create once — by then the
+// protection definitely exists, so the retried delete removes it.
+export async function protectBranch(
+  projectId, branch,
+  { push = ACCESS.NONE, merge = ACCESS.MAINTAINER, allowForcePush = false } = {},
+) {
+  const apply = async () => {
+    try {
+      await gitlab('DELETE', `/projects/${projectId}/protected_branches/${encodeURIComponent(branch)}`);
+    } catch (e) {
+      if (!/→ 404/.test(e.message)) throw e;
+    }
+    return gitlab('POST', `/projects/${projectId}/protected_branches`, {
+      name: branch,
+      push_access_level: push,
+      merge_access_level: merge,
+      allow_force_push: allowForcePush,
+    });
+  };
+  try {
+    return await apply();
+  } catch (e) {
+    if (/→ 409/.test(e.message)) return apply();
+    throw e;
+  }
+}
+
+// Read a branch's protection config, or null if the branch is unprotected.
+export async function getBranchProtection(projectId, branch) {
+  try {
+    return await gitlab('GET', `/projects/${projectId}/protected_branches/${encodeURIComponent(branch)}`);
+  } catch (e) {
+    if (/→ 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+// Create a project access token. `expiresAt` is an ISO date string —
+// GitLab requires it. Returns { id, token }.
+export async function createAccessToken(
+  projectId, name, scopes, accessLevel = ACCESS.MAINTAINER, expiresAt,
+) {
+  const t = await gitlab('POST', `/projects/${projectId}/access_tokens`, {
+    name, scopes, access_level: accessLevel, expires_at: expiresAt,
+  });
+  return { id: t.id, token: t.token };
+}
+
+// Commit a file bundle as a SINGLE commit via the commits API. Unlike
+// `pushOrUpdateFiles` (per-file, N commits → N pipelines), this lands
+// one commit. `startBranch` creates `branch` from it in the same call;
+// omit it to commit onto an existing (or fresh-repo) branch. Returns
+// the commit SHA.
+export async function commitFiles(projectId, branch, files, message, startBranch) {
+  const body = {
+    branch,
+    commit_message: message,
+    actions: files.map((f) => ({
+      action: f.action || 'create',
+      file_path: f.path,
+      content: f.content,
+    })),
+  };
+  if (startBranch) body.start_branch = startBranch;
+  const commit = await gitlab('POST', `/projects/${projectId}/repository/commits`, body);
+  return commit.id;
+}
