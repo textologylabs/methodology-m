@@ -274,3 +274,86 @@ export async function teardown(rootRepo, mrIid, branchName) {
     console.error(`  (delete branch failed: ${e.message})`);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Repo + orchestration primitives (lifecycle scenarios)
+//
+// Used by scenarios that exercise capabilities outside the gate-MR arc
+// (wire-orchestration, and in future scaffold-repo) — they create
+// throwaway repos, mutate repo configuration, verify by read-back, and
+// clean up. Kept thin: each is a single REST call over `gitlab()`.
+// ---------------------------------------------------------------------------
+
+// Resolve a group path (e.g. methodology-m/todo-m-workshop) to its
+// numeric GitLab group ID.
+export async function resolveGroupId(groupPath) {
+  const g = await gitlab('GET', `/groups/${encodeURIComponent(groupPath)}`);
+  return g.id;
+}
+
+// Resolve a project path to its numeric GitLab project ID.
+export async function resolveProjectId(projectPath) {
+  const p = await gitlab('GET', `/projects/${encodeProject(projectPath)}`);
+  return p.id;
+}
+
+// Create a project under a namespace. Returns { id, path, url }.
+export async function createRepo(name, namespaceId, visibility = 'public') {
+  const p = await gitlab('POST', '/projects', {
+    name,
+    path: name,
+    namespace_id: namespaceId,
+    visibility,
+    initialize_with_readme: false,
+  });
+  return { id: p.id, path: p.path_with_namespace, url: p.web_url };
+}
+
+// Delete a project by numeric ID. A 404 (already gone) is swallowed so
+// teardown is safe to call unconditionally.
+export async function deleteRepo(projectId) {
+  try {
+    await gitlab('DELETE', `/projects/${projectId}`);
+  } catch (e) {
+    if (!/→ 404/.test(e.message)) throw e;
+  }
+}
+
+// Create a pipeline trigger on a project. Returns { id, token }.
+export async function createPipelineTrigger(projectId, description) {
+  const t = await gitlab('POST', `/projects/${projectId}/triggers`, { description });
+  return { id: t.id, token: t.token };
+}
+
+// Install a webhook. `events` is { merge_request, push, pipeline } —
+// each flag defaults falsy. Returns the webhook ID.
+export async function createWebhook(projectId, url, events) {
+  const h = await gitlab('POST', `/projects/${projectId}/hooks`, {
+    url,
+    merge_requests_events: !!events.merge_request,
+    push_events: !!events.push,
+    pipeline_events: !!events.pipeline,
+    enable_ssl_verification: true,
+  });
+  return h.id;
+}
+
+// List a project's webhooks.
+export async function getWebhooks(projectId) {
+  return gitlab('GET', `/projects/${projectId}/hooks`);
+}
+
+// Store a CI/CD variable on a project. Flags default to a real
+// secret (protected + masked); callers override for non-secrets.
+export async function storeCiSecret(
+  projectId, key, value, { isProtected = true, masked = true } = {},
+) {
+  await gitlab('POST', `/projects/${projectId}/variables`, {
+    key, value, protected: isProtected, masked,
+  });
+}
+
+// List a project's CI/CD variables (keys + flags).
+export async function getCiVariables(projectId) {
+  return gitlab('GET', `/projects/${projectId}/variables`);
+}
