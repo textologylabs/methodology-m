@@ -68,7 +68,8 @@ Read the story file. Extract:
 - Component list (from the Project section)
 - Acceptance criteria (plain prose)
 - Any structural verbs in the title/summary that indicate the story
-  is structural (add, remove, rename, merge, split, port change)
+  is structural (add, remove, rename, merge, split, port change,
+  type change)
 
 This step reads story prose ONLY — PAT yaml does not exist yet at
 this point in the lifecycle.
@@ -160,6 +161,21 @@ renderer regeneration. The readiness tracker has `components: []`
 and the per-AC gate proof is carried by the story-level PAT (two
 ACs: `<new-name>` reachable + `<old-name>` unreachable) plus the
 regenerated topology probes.
+
+**TYPE-CHANGE needs no caller pre-flight.** Flipping a component
+between `embedded` and `referenced` preserves its `name`, `port`, and
+`role` — every caller keeps working unchanged, because callers
+address a component by name and port, never by topology type. There
+is therefore no verifiability hazard to reject for: TYPE-CHANGE is
+the one structural verb that conflates nothing. The only check is a
+sanity one — confirm the component currently has the `type` the
+story flips *away from* (reject a no-op TYPE-CHANGE), and for the
+`embedded → referenced` direction confirm the target managed repo
+exists (precondition below). For pure TYPE-CHANGE stories the
+component list is empty (same as REMOVE/RENAME); the per-AC gate
+proof is carried by the story-level PAT — a single reachability AC
+that passes byte-identically before and after, since only the
+build/clone topology moved.
 
 Reason about which acceptance criteria each component is responsible
 for, then present the proposed mapping to the user. Mapping is
@@ -392,7 +408,8 @@ passes to `generate-pats` (then `compile-story-pats`).
 
 **A story is structural** if its description implies topology changes:
 adding a new component, removing a component, merging two components
-into one, splitting one into two, or changing ports/roles. The
+into one, splitting one into two, changing a component's port, or
+flipping a component between `embedded` and `referenced` topology. The
 distinction is in the agent's reading of the story — there is no tag,
 no flag, no automatic detection. Most stories are business; a few are
 structural.
@@ -432,6 +449,22 @@ reads story prose and writes sub-task artefacts.
 
 - **For PORT CHANGE**: no special precondition beyond the component
   already existing. Uses the unphased call.
+
+- **For TYPE CHANGE (`embedded → referenced`)**: the new managed repo
+  MUST exist before **Phase B** — same reasoning as ADD. The
+  component's code is extracted out of the root repo into that repo
+  by the `extract-component` capability, run between Phase A and
+  Phase B. Without it the regenerated `docker-compose.yml` would
+  reference a sibling build context that doesn't exist on disk.
+
+- **For TYPE CHANGE (`referenced → embedded`)**: no SCM-platform
+  precondition for the render, but the component's code MUST be
+  physically moved into the root-repo working tree before the gate
+  pipeline runs, or `docker compose build` fails on the now-embedded
+  build context. The `embed-component` capability performs the
+  lift-and-shift and the `unwire-orchestration` (I-061) decommission
+  of the now-orphan managed repo. Uses the phased call (the code
+  move sits at the phase boundary, like ADD's scaffold step).
 
 **Order of operations for ADD-type structural changes:**
 
@@ -475,6 +508,51 @@ arguments; Phase B no-ops at the end of the unphased call).
 REMOVE has no `scaffold-repo` step (no new repo to seed) and uses
 the unphased call (no inter-phase precondition to satisfy).
 
+**Order of operations for TYPE-CHANGE structural changes** (v1.0.0):
+
+TYPE-CHANGE moves a component's *realization* between repos without
+touching the topology graph. Code physically moves, so — like ADD —
+the phases must split around the move.
+
+`embedded → referenced` (extract):
+
+1. `decompose-story --phase=a` → enriched story, readiness tracker
+   with empty `components: []` (pure TYPE-CHANGE has no sub-tasks).
+2. `generate-pats` → one-AC story PAT: the component reachable on
+   its unchanged port. No sub-task PATs.
+3. `extract-component` (for the component) → creates the managed
+   repo, lifts the component's code out of the root repo into it,
+   seeds the deterministic CI/steering layer, protects `main`, mints
+   the merge-transaction token, and runs `wire-orchestration`.
+4. `decompose-story --phase=b` → flip `type`/`location` in
+   `project.yaml`, regenerate topology artefacts (now safe — the
+   referenced build context exists), and stage the root-repo
+   deletion of the extracted code.
+5. `compile-story-pats` → bundles compiled CAT + readiness tracker +
+   structural artefacts (incl. the root-repo code deletion) into the
+   integration-gate MR.
+
+`referenced → embedded` (fold-in):
+
+1. `decompose-story --phase=a` → enriched story, readiness tracker
+   with empty `components: []`.
+2. `generate-pats` → one-AC story PAT (component reachable on its
+   unchanged port).
+3. `embed-component` (for the component) → lifts the managed repo's
+   code into the root-repo working tree, then runs
+   `unwire-orchestration` (I-061) to decommission the now-orphan
+   managed repo (delete webhook, CI variables; repo deletion is a
+   user decision, as with REMOVE).
+4. `decompose-story --phase=b` → flip `type`/`location` in
+   `project.yaml` (drop the `tag` field), regenerate topology
+   artefacts (now safe — the embedded build context exists on disk).
+5. `compile-story-pats` → bundles compiled CAT + readiness tracker +
+   structural artefacts into the integration-gate MR.
+
+TYPE-CHANGE never invokes the historical-CAT scan: the component
+keeps its name and port, so no compiled CAT on the root repo needs
+deleting (REMOVE) or rewriting (RENAME).
+
 ### S-1 — Author the new project.yaml (stage locally)
 
 Transform the story's structural description into the new topology
@@ -488,6 +566,8 @@ manifest and write it to the root-repo working directory
 | "merge `<a>` and `<b>` into `<c>`" | Delete `<a>` and `<b>`; append `<c>` with the lowest-numbered port of the two |
 | "rename `<a>` to `<b>`" | Update `name` and derived `location` on that entry |
 | "change port of `<a>` to N` | Update the `port` field |
+| "change `<name>` from embedded to referenced" (extract) | Flip `components[].type` from `embedded` to `referenced`; rewrite `location` from the root-relative path (`./packages/<name>`) to the managed repo's full SCM path (`<group>/<root-repo>/<repo-name>`). `name`, `port`, `role` unchanged. The new managed repo must already exist — see Preconditions. |
+| "change `<name>` from referenced to embedded" (fold-in) | Flip `components[].type` from `referenced` to `embedded`; rewrite `location` to the root-relative path (`./packages/<name>`); drop the `tag` field (embedded components are not snapshot-pinned). `name`, `port`, `role` unchanged. |
 
 Validate the result against `.m/schemas/project.schema.json` before
 proceeding.
