@@ -562,7 +562,7 @@ manifest and write it to the root-repo working directory
 | Story prose | project.yaml change |
 |---|---|
 | "add a new backend component `<name>`" | Append a `components:` entry with `type: referenced`, `role: backend`, next free port (lowest unused ≥ 3002); append `http://localhost:<port>/health` to `compose.integration.health.endpoints` |
-| "remove component `<name>`" | Delete that `components:` entry; remove the matching `http://localhost:<port>/...` entry from `compose.integration.health.endpoints`. Note: M does NOT delete or unwire the GitLab managed repo — that's a user decision (see I-061 for the optional `unwire-orchestration` capability). The regenerated `detect-story-trigger.sh` includes a source-repo guard so any orphan webhook fires harmlessly as standalone |
+| "remove component `<name>`" | Delete that `components:` entry; remove the matching `http://localhost:<port>/...` entry from `compose.integration.health.endpoints`. Note: M does NOT delete the GitLab managed repo — that's a user decision — but the orphan repo's orchestration wiring (webhook + per-repo CI variables) is tidied by the `unwire-orchestration` capability (I-061). The regenerated `detect-story-trigger.sh` also includes a source-repo guard so any webhook left in place fires harmlessly as standalone |
 | "merge `<a>` and `<b>` into `<c>`" | Delete `<a>` and `<b>`; append `<c>` with the lowest-numbered port of the two |
 | "rename `<a>` to `<b>`" | Update `name` and derived `location` on that entry |
 | "change port of `<a>` to N` | Update the `port` field |
