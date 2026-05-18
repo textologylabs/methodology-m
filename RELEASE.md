@@ -22,10 +22,10 @@ Lands the work itself. Should also:
 
 - Add the `## [X.Y.Z] — YYYY-MM-DD` section to `CHANGELOG.md`.
 - Bump `cli/package.json` `version` to `X.Y.Z`.
-- Mark the row in `docs/roadmap.md` shipped.
-- Flip the relevant `I-NNN` entry in
-  `docs/improvements-and-ideas.md` to Resolved + add the row to
-  the Resolved table.
+- Update the ClickUp board — flip the relevant ticket(s) to
+  `complete`. Roadmap and improvement (`I-NNN`) tracking moved to
+  ClickUp in v1.0.0; `docs/roadmap.md` and
+  `docs/improvements-and-ideas.md` no longer exist.
 
 If the PR ships "evidence only" (no new code, like v0.12.0) the bump
 is still required. The tag must land on a commit whose
