@@ -343,6 +343,11 @@ export async function getWebhooks(projectId) {
   return gitlab('GET', `/projects/${projectId}/hooks`);
 }
 
+// Delete a webhook by ID — the inverse of createWebhook.
+export async function deleteWebhook(projectId, hookId) {
+  await gitlab('DELETE', `/projects/${projectId}/hooks/${hookId}`);
+}
+
 // Store a CI/CD variable on a project. Flags default to a real
 // secret (protected + masked); callers override for non-secrets.
 export async function storeCiSecret(
@@ -356,6 +361,11 @@ export async function storeCiSecret(
 // List a project's CI/CD variables (keys + flags).
 export async function getCiVariables(projectId) {
   return gitlab('GET', `/projects/${projectId}/variables`);
+}
+
+// Delete a CI/CD variable by key — the inverse of storeCiSecret.
+export async function deleteCiVariable(projectId, key) {
+  await gitlab('DELETE', `/projects/${projectId}/variables/${key}`);
 }
 
 // GitLab branch-protection access levels.
