@@ -4,6 +4,77 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-05-18
+
+**Methodology M v1.0 — the MVP capability baseline.** The full
+structural-verb set is operational and regression-proven end to end.
+The MVP delivery loop — bootstrap → decompose → PATs → scaffold →
+wire → structural change → merge transaction → auto-tag — runs on a
+real project without M itself being the bottleneck.
+
+This tag also carries the v0.14.0 work (I-040 RENAME, I-004
+post-merge slice, I-063 delete primitive — see the [0.14.0] section),
+which was changelogged but never tagged; v1.0.0 is the first release
+since v0.13.0 and assembles the whole v0.6 → v0.14 history as the
+v1.0 baseline.
+
+### Added
+
+- **M1.4 (TYPE-CHANGE) — the seventh and final structural verb.** A
+  component can flip between `type: embedded` and `type: referenced`
+  via the standard structural-story flow. Two new SKILL-only
+  capabilities, no new orchestrator:
+
+  - `extract-component` (`embedded → referenced`) — lifts an embedded
+    component's code out of the root repo into its own managed repo,
+    composing `scaffold-repo`'s deterministic CI/steering seed with
+    the lift-and-shift, then protecting `main`, minting the
+    merge-transaction token, and wiring the new repo in.
+  - `embed-component` (`referenced → embedded`) — folds a managed
+    repo's code back into the root repo's `packages/<name>/` tree and
+    decommissions the managed repo via `unwire-orchestration`.
+
+  `decompose-story` recognises TYPE-CHANGE: S-1 mutation rows for
+  both directions, direction-dependent preconditions, an
+  order-of-operations section, and the rationale that TYPE-CHANGE
+  needs no caller pre-flight (it preserves `name` + `port`, so it
+  conflates nothing) and invokes neither historical-CAT scan path.
+
+- **I-061 — `unwire-orchestration` capability.** The inverse of
+  `wire-orchestration` scoped to one managed repo leaving the
+  topology: removes the MR webhook, the root repo's per-repo
+  `M_TOKEN_<COMPONENT>` secret, and the managed repo's own CI
+  variables. Never touches topology-wide shared state (the pipeline
+  trigger, `M_GROUP_TOKEN`) and never deletes the repo — disposition
+  is a user decision, with an optional archive. Used by REMOVE and by
+  TYPE-CHANGE fold-in. Idempotent.
+
+- **M2.12 (I-050) — capability regression harness complete.** The
+  `e2e-harness` gained scenario coverage for every structural verb
+  plus `scaffold-repo` and `wire-orchestration` — ten L5-evidenced
+  scenarios, each run against the real GitLab workshop. Introduced a
+  pluggable `Scenario` shape with two kinds: gate-MR scenarios
+  (export `prepare()`, the runner drives the branch → push → MR →
+  pipeline → assert arc) and lifecycle scenarios (export `run()`,
+  own their whole execution — used by capabilities that create and
+  delete throwaway repos). A passing full-suite run is the v1.0.0
+  release gate.
+
+### Changed
+
+- **I-036 — `scaffold-repo` template extraction.** The seed files
+  `scaffold-repo` embedded inline in its SKILL (steering doc, API
+  stubs, managed pipeline) were extracted to version-controlled
+  template files; the managed-repo `.gitlab-ci.yml` is now served by
+  the `ci` provider (`ci.render_managed_pipeline`). Single source of
+  truth — closes the drift I-036 exists to eliminate.
+
+### Removed
+
+- `docs/roadmap.md` and `docs/improvements-and-ideas.md` — migrated
+  to the ClickUp board, now the single source of truth for roadmap
+  and improvement tracking.
+
 ## [0.14.0] — 2026-05-06
 
 ### Added
