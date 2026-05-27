@@ -8,6 +8,6 @@ generate acceptance tests, compile cats
 
 ## Execution
 
-Read and execute the full capability at `.m/capabilities/generate-acceptance-tests/SKILL.md`.
+Read and execute the full capability at `{{M_ROOT}}/capabilities/generate-acceptance-tests/SKILL.md`.
 
-Follow the M execution protocol defined in `.m/m.md`.
+Follow the M execution protocol defined in `{{M_ROOT}}/m.md`.

@@ -8,6 +8,6 @@ decompose story, break down story
 
 ## Execution
 
-Read and execute the full capability at `.m/capabilities/decompose-story/SKILL.md`.
+Read and execute the full capability at `{{M_ROOT}}/capabilities/decompose-story/SKILL.md`.
 
-Follow the M execution protocol defined in `.m/m.md`.
+Follow the M execution protocol defined in `{{M_ROOT}}/m.md`.

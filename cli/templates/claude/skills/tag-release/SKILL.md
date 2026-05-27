@@ -8,6 +8,6 @@ tag release, version component
 
 ## Execution
 
-Read and execute the full capability at `.m/capabilities/tag-release/SKILL.md`.
+Read and execute the full capability at `{{M_ROOT}}/capabilities/tag-release/SKILL.md`.
 
-Follow the M execution protocol defined in `.m/m.md`.
+Follow the M execution protocol defined in `{{M_ROOT}}/m.md`.
