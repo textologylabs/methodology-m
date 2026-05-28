@@ -391,6 +391,56 @@ describe('wrappers/claude', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// 7b. scope.mjs
+// ---------------------------------------------------------------------------
+
+describe('scope', async () => {
+  const { resolveScope } = await import('../src/lib/scope.mjs');
+
+  test('defaults to project scope at cwd', () => {
+    const s = resolveScope([]);
+    assert.strictEqual(s.scope, 'project');
+    assert.strictEqual(s.userScope, false);
+    assert.strictEqual(s.mRoot, '.m');
+    assert.strictEqual(s.target, resolve('.'));
+  });
+
+  test('positional path sets project target', () => {
+    const s = resolveScope(['/tmp/foo']);
+    assert.strictEqual(s.scope, 'project');
+    assert.strictEqual(s.target, resolve('/tmp/foo'));
+    assert.strictEqual(s.mRoot, '.m');
+  });
+
+  test('--user switches to user scope with ~/.m placeholder', () => {
+    const origHome = process.env.HOME;
+    process.env.HOME = '/Users/spock';
+    try {
+      const s = resolveScope(['--user']);
+      assert.strictEqual(s.scope, 'user');
+      assert.strictEqual(s.userScope, true);
+      assert.strictEqual(s.mRoot, '~/.m');
+      assert.strictEqual(s.target, '/Users/spock');
+    } finally {
+      process.env.HOME = origHome;
+    }
+  });
+
+  test('--user combined with positional path throws', () => {
+    assert.throws(
+      () => resolveScope(['--user', '/tmp/foo']),
+      /incompatible with an explicit path/,
+    );
+  });
+
+  test('rest preserves non-scope flags but drops --user', () => {
+    const s = resolveScope(['--user', '--refresh-wrappers']);
+    assert.ok(!s.rest.includes('--user'));
+    assert.ok(s.rest.includes('--refresh-wrappers'));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 8. init command (end-to-end)
 // ---------------------------------------------------------------------------
 
@@ -436,6 +486,89 @@ describe('init command', async () => {
       console.log = origLog;
     }
     assert.ok(logs.some((l) => l.includes('already installed')));
+  });
+
+  test('--user installs into homedir and wrappers reference ~/.m/', async () => {
+    const origHome = process.env.HOME;
+    process.env.HOME = tmp;
+    // Pre-create ~/.claude so the agent runtime is detected
+    mkdirSync(join(tmp, '.claude'));
+    try {
+      await init(['--user']);
+    } finally {
+      process.env.HOME = origHome;
+    }
+    assert.ok(existsSync(join(tmp, '.m', 'm.md')), 'canonical layer at ~/.m');
+    assert.ok(existsSync(join(tmp, '.m-version')), 'pin file at ~/.m-version');
+    const skill = readFileSync(
+      join(tmp, '.claude', 'skills', 'scaffold-repo', 'SKILL.md'), 'utf8',
+    );
+    assert.ok(skill.includes('~/.m/capabilities/scaffold-repo/SKILL.md'));
+    assert.ok(!skill.includes('{{M_ROOT}}'));
+  });
+
+  test('--user refuses to install over an existing user-scope install', async () => {
+    const origHome = process.env.HOME;
+    process.env.HOME = tmp;
+    try {
+      await init(['--user']);
+      const logs = [];
+      const origLog = console.log;
+      console.log = (...a) => logs.push(a.join(' '));
+      try {
+        await init(['--user']);
+      } finally {
+        console.log = origLog;
+      }
+      assert.ok(logs.some((l) => l.includes('already installed')));
+    } finally {
+      process.env.HOME = origHome;
+    }
+  });
+
+  test('--user combined with positional path errors', async () => {
+    await assert.rejects(
+      () => init(['--user', tmp]),
+      /incompatible with an explicit path/,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8b. update command — --refresh-wrappers
+// ---------------------------------------------------------------------------
+
+describe('update command --refresh-wrappers', async () => {
+  const { init } = await import('../src/commands/init.mjs');
+  const { update } = await import('../src/commands/update.mjs');
+
+  let tmp;
+  beforeEach(() => { tmp = makeTmp(); });
+  afterEach(() => { cleanTmp(tmp); });
+
+  test('regenerates missing wrappers without touching existing ones', async () => {
+    mkdirSync(join(tmp, '.claude'));
+    await init([tmp]);
+
+    const skillPath = join(tmp, '.claude', 'skills', 'scaffold-repo', 'SKILL.md');
+    // Hand-edit an existing wrapper
+    writeFileSync(skillPath, 'HAND EDITED');
+    // Delete a different wrapper so refresh has work to do
+    rmSync(join(tmp, '.claude', 'skills', 'decompose-story'), { recursive: true });
+
+    const logs = [];
+    const origLog = console.log;
+    console.log = (...a) => logs.push(a.join(' '));
+    try {
+      await update([tmp, '--refresh-wrappers']);
+    } finally {
+      console.log = origLog;
+    }
+
+    // Hand-edit preserved
+    assert.strictEqual(readFileSync(skillPath, 'utf8'), 'HAND EDITED');
+    // Missing wrapper restored
+    assert.ok(existsSync(join(tmp, '.claude', 'skills', 'decompose-story', 'SKILL.md')));
   });
 });
 

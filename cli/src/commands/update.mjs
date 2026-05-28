@@ -1,20 +1,25 @@
-import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { copyDistM } from '../lib/copy.mjs';
 import { readInstalledVersion, writeInstalledVersion, readAvailableVersion } from '../lib/version-file.mjs';
 import { diffTrees, formatDiff } from '../lib/diff-trees.mjs';
+import { generateClaudeWrappers } from '../lib/wrappers/claude.mjs';
+import { detectAgents } from '../lib/detect-agent.mjs';
+import { resolveScope } from '../lib/scope.mjs';
 
 export async function update(args) {
-  const target = resolve(args[0] || '.');
+  const { target, mRoot, rest, userScope } = resolveScope(args);
+  const refreshWrappers = rest.includes('--refresh-wrappers');
   const installed = readInstalledVersion(target);
   const available = readAvailableVersion();
 
   if (!installed) {
-    console.error('M is not installed in this project. Run "m init" first.');
+    const hint = userScope ? '"m init --user"' : '"m init"';
+    console.error(`M is not installed at this scope. Run ${hint} first.`);
     process.exit(1);
   }
 
-  if (installed === available) {
+  // Allow --refresh-wrappers to run even when versions match
+  if (installed === available && !refreshWrappers) {
     console.log(`Already at v${installed}. Nothing to update.`);
     return;
   }
@@ -22,20 +27,34 @@ export async function update(args) {
   const installedDir = join(target, '.m');
   const availableDir = join(import.meta.dirname, '..', '..', 'dist-m');
 
-  // Show what will change
-  console.log(`Updating Methodology M: v${installed} → v${available}`);
-  console.log('');
+  if (installed !== available) {
+    console.log(`Updating Methodology M: v${installed} → v${available}`);
+    console.log('');
 
-  const result = diffTrees(installedDir, availableDir);
-  console.log(formatDiff(result));
-  console.log('');
+    const result = diffTrees(installedDir, availableDir);
+    console.log(formatDiff(result));
+    console.log('');
 
-  // Apply the update
-  copyDistM(target);
-  writeInstalledVersion(target, available);
+    copyDistM(target);
+    writeInstalledVersion(target, available);
 
-  console.log(`Updated to v${available}.`);
-  console.log('');
-  console.log('Agent wrappers (.claude/, .kiro/) were NOT touched.');
-  console.log('Review the changes above and update your agent wrappers if needed.');
+    console.log(`Updated to v${available}.`);
+    console.log('');
+    console.log('Agent wrappers (.claude/, .kiro/) were NOT touched.');
+    console.log('Review the changes above and update your agent wrappers if needed.');
+  }
+
+  if (refreshWrappers) {
+    const agents = detectAgents(target);
+    if (agents.includes('claude')) {
+      console.log('');
+      console.log('Refreshing missing Claude wrappers...');
+      const { created, skipped } = generateClaudeWrappers(target, { mRoot });
+      for (const f of created) console.log(`  ✓ ${f} created`);
+      for (const f of skipped) console.log(`  · ${f} already exists (skipped)`);
+    } else {
+      console.log('');
+      console.log('· No agent runtime detected — nothing to refresh.');
+    }
+  }
 }

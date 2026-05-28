@@ -1,15 +1,17 @@
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { readInstalledVersion, readAvailableVersion } from '../lib/version-file.mjs';
 import { diffTrees, formatDiff } from '../lib/diff-trees.mjs';
+import { resolveScope } from '../lib/scope.mjs';
 
 export async function diff(args) {
-  const target = resolve(args[0] || '.');
+  const { target, userScope } = resolveScope(args);
   const installed = readInstalledVersion(target);
   const available = readAvailableVersion();
 
   if (!installed) {
-    console.error('M is not installed in this project. Run "m init" first.');
+    const hint = userScope ? '"m init --user"' : '"m init"';
+    console.error(`M is not installed at this scope. Run ${hint} first.`);
     process.exit(1);
   }
 
