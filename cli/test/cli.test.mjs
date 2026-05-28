@@ -339,21 +339,24 @@ describe('wrappers/claude', async () => {
 
   test('creates steering and individual skill wrappers when missing', () => {
     const { created, skipped } = generateClaudeWrappers(tmp);
-    // 1 steering + 9 skills = 10 (compile-story-pats added in v0.6.0)
-    assert.strictEqual(created.length, 10);
+    // 1 steering + 9 skills + 1 agent + 1 command = 12
+    // (compile-story-pats added v0.6.0; agents/commands seeded by 869d9ak60)
+    assert.strictEqual(created.length, 12);
     assert.strictEqual(skipped.length, 0);
     assert.ok(existsSync(join(tmp, '.claude', 'steering', 'm-steering.md')));
     assert.ok(existsSync(join(tmp, '.claude', 'skills', 'scaffold-repo', 'SKILL.md')));
     assert.ok(existsSync(join(tmp, '.claude', 'skills', 'decompose-story', 'SKILL.md')));
     assert.ok(existsSync(join(tmp, '.claude', 'skills', 'compile-story-pats', 'SKILL.md')));
     assert.ok(existsSync(join(tmp, '.claude', 'skills', 'wire-orchestration', 'SKILL.md')));
+    assert.ok(existsSync(join(tmp, '.claude', 'agents', 'pat-validator.md')));
+    assert.ok(existsSync(join(tmp, '.claude', 'commands', 'm-validate-pat.md')));
   });
 
   test('skips files that already exist', () => {
     generateClaudeWrappers(tmp);
     const { created, skipped } = generateClaudeWrappers(tmp);
     assert.strictEqual(created.length, 0);
-    assert.strictEqual(skipped.length, 10);
+    assert.strictEqual(skipped.length, 12);
   });
 
   test('created files have content from templates with default mRoot', () => {
@@ -387,6 +390,28 @@ describe('wrappers/claude', async () => {
     assert.ok(skill.includes('~/.m/capabilities/scaffold-repo/SKILL.md'));
     assert.ok(!skill.includes('{{M_ROOT}}'), 'token must be fully substituted');
     assert.ok(!skill.includes('`.m/'), 'no project-scope path should leak through');
+  });
+
+  test('agent and command wrappers substitute {{M_ROOT}} too', () => {
+    generateClaudeWrappers(tmp, { mRoot: '~/.m' });
+    const agent = readFileSync(
+      join(tmp, '.claude', 'agents', 'pat-validator.md'), 'utf8',
+    );
+    assert.ok(agent.includes('~/.m/schemas/pat.schema.json'));
+    assert.ok(!agent.includes('{{M_ROOT}}'));
+
+    const command = readFileSync(
+      join(tmp, '.claude', 'commands', 'm-validate-pat.md'), 'utf8',
+    );
+    assert.ok(command.includes('~/.m/schemas/pat.schema.json'));
+    assert.ok(!command.includes('{{M_ROOT}}'));
+  });
+
+  test('ignores non-.md files in agents/commands template dirs', () => {
+    // .gitkeep and similar files must not be wrapped
+    generateClaudeWrappers(tmp);
+    assert.ok(!existsSync(join(tmp, '.claude', 'agents', '.gitkeep')));
+    assert.ok(!existsSync(join(tmp, '.claude', 'commands', '.gitkeep')));
   });
 });
 
