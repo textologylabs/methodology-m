@@ -8,6 +8,6 @@ wire orchestration, connect repos
 
 ## Execution
 
-Read and execute the full capability at `.m/capabilities/wire-orchestration/SKILL.md`.
+Read and execute the full capability at `{{M_ROOT}}/capabilities/wire-orchestration/SKILL.md`.
 
-Follow the M execution protocol defined in `.m/m.md`.
+Follow the M execution protocol defined in `{{M_ROOT}}/m.md`.

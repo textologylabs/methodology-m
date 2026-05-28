@@ -9,6 +9,6 @@ compile story pat, compile story pats, raise integration gate
 
 ## Execution
 
-Read and execute the full capability at `.m/capabilities/compile-story-pats/SKILL.md`.
+Read and execute the full capability at `{{M_ROOT}}/capabilities/compile-story-pats/SKILL.md`.
 
-Follow the M execution protocol defined in `.m/m.md`.
+Follow the M execution protocol defined in `{{M_ROOT}}/m.md`.

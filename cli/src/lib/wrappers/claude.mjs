@@ -1,4 +1,6 @@
-import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import {
+  existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -7,26 +9,33 @@ import { join } from 'node:path';
  *   .claude/skills/<name>/SKILL.md  (one per M capability)
  *
  * Only creates files that don't already exist — respects project ownership.
+ *
+ * Templates carry `{{M_ROOT}}` placeholders that resolve to the path
+ * where M's canonical layer lives, relative to the agent. The default
+ * `.m` is correct for project-scope installs (the canonical layer
+ * sits at `<target>/.m/`). User-scope installs (M2.10) pass an
+ * absolute path like `~/.m` so the wrappers point at the agent's
+ * user-level M instead.
  */
-export function generateClaudeWrappers(target) {
+export function generateClaudeWrappers(target, { mRoot = '.m' } = {}) {
   const created = [];
   const skipped = [];
   const templatesDir = join(import.meta.dirname, '..', '..', '..', 'templates', 'claude');
 
-  // Steering wrapper (single file)
-  const steeringPair = {
-    src: join(templatesDir, 'steering', 'm-steering.md'),
-    dest: join(target, '.claude', 'steering', 'm-steering.md'),
-    label: '.claude/steering/m-steering.md',
+  const writeWrapper = (srcPath, destPath) => {
+    if (existsSync(destPath)) return false;
+    mkdirSync(join(destPath, '..'), { recursive: true });
+    const content = readFileSync(srcPath, 'utf8').replaceAll('{{M_ROOT}}', mRoot);
+    writeFileSync(destPath, content);
+    return true;
   };
 
-  if (existsSync(steeringPair.dest)) {
-    skipped.push(steeringPair.label);
-  } else {
-    mkdirSync(join(steeringPair.dest, '..'), { recursive: true });
-    cpSync(steeringPair.src, steeringPair.dest);
-    created.push(steeringPair.label);
-  }
+  // Steering wrapper (single file)
+  const steeringSrc = join(templatesDir, 'steering', 'm-steering.md');
+  const steeringDest = join(target, '.claude', 'steering', 'm-steering.md');
+  const steeringLabel = '.claude/steering/m-steering.md';
+  if (writeWrapper(steeringSrc, steeringDest)) created.push(steeringLabel);
+  else skipped.push(steeringLabel);
 
   // Skill wrappers (one directory per capability)
   const skillsTemplateDir = join(templatesDir, 'skills');
@@ -39,14 +48,8 @@ export function generateClaudeWrappers(target) {
       const label = `.claude/skills/${name.name}/SKILL.md`;
 
       if (!existsSync(src)) continue;
-
-      if (existsSync(dest)) {
-        skipped.push(label);
-      } else {
-        mkdirSync(join(dest, '..'), { recursive: true });
-        cpSync(src, dest);
-        created.push(label);
-      }
+      if (writeWrapper(src, dest)) created.push(label);
+      else skipped.push(label);
     }
   }
 

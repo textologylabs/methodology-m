@@ -8,6 +8,6 @@ setup workspace, create project workspace
 
 ## Execution
 
-Read and execute the full capability at `.m/capabilities/setup-workspace/SKILL.md`.
+Read and execute the full capability at `{{M_ROOT}}/capabilities/setup-workspace/SKILL.md`.
 
-Follow the M execution protocol defined in `.m/m.md`.
+Follow the M execution protocol defined in `{{M_ROOT}}/m.md`.

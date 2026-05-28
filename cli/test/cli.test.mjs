@@ -356,20 +356,37 @@ describe('wrappers/claude', async () => {
     assert.strictEqual(skipped.length, 10);
   });
 
-  test('created files have content from templates', () => {
+  test('created files have content from templates with default mRoot', () => {
     generateClaudeWrappers(tmp);
+    // Default mRoot is `.m`; templates carry `{{M_ROOT}}` placeholders
+    // that must be substituted on write. The output is the substituted
+    // template, not the raw template.
     const steering = readFileSync(
       join(tmp, '.claude', 'steering', 'm-steering.md'), 'utf8',
     );
     const template = readFileSync(
       join(TEMPLATES, 'claude', 'steering', 'm-steering.md'), 'utf8',
     );
-    assert.strictEqual(steering, template);
-    // Verify a skill wrapper points to the right .m/ capability
+    const expected = template.replaceAll('{{M_ROOT}}', '.m');
+    assert.strictEqual(steering, expected);
+    assert.ok(!steering.includes('{{M_ROOT}}'), 'token must be fully substituted');
+    // Skill wrappers resolve to the project-scope canonical path.
     const skill = readFileSync(
       join(tmp, '.claude', 'skills', 'scaffold-repo', 'SKILL.md'), 'utf8',
     );
     assert.ok(skill.includes('.m/capabilities/scaffold-repo/SKILL.md'));
+  });
+
+  test('substitutes mRoot when provided (user-scope shape)', () => {
+    // User-scope install passes an absolute path so the wrappers
+    // resolve against the agent's user-level M, not the project's.
+    generateClaudeWrappers(tmp, { mRoot: '~/.m' });
+    const skill = readFileSync(
+      join(tmp, '.claude', 'skills', 'scaffold-repo', 'SKILL.md'), 'utf8',
+    );
+    assert.ok(skill.includes('~/.m/capabilities/scaffold-repo/SKILL.md'));
+    assert.ok(!skill.includes('{{M_ROOT}}'), 'token must be fully substituted');
+    assert.ok(!skill.includes('`.m/'), 'no project-scope path should leak through');
   });
 });
 

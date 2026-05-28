@@ -8,6 +8,6 @@ bootstrap root repo, create root repo
 
 ## Execution
 
-Read and execute the full capability at `.m/capabilities/bootstrap-root-repo/SKILL.md`.
+Read and execute the full capability at `{{M_ROOT}}/capabilities/bootstrap-root-repo/SKILL.md`.
 
-Follow the M execution protocol defined in `.m/m.md`.
+Follow the M execution protocol defined in `{{M_ROOT}}/m.md`.
