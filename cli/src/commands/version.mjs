@@ -1,19 +1,21 @@
-import { resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { readInstalledVersion, readAvailableVersion } from '../lib/version-file.mjs';
+import { resolveScope } from '../lib/scope.mjs';
 
 export async function version(args) {
-  const target = resolve(args[0] || '.');
+  const { target, userScope } = resolveScope(args);
   const bundled = readAvailableVersion();
   const installed = readInstalledVersion(target);
   const latest = checkRegistry();
 
   console.log(`Bundled:   v${bundled} (shipped with this CLI)`);
 
+  const scopeLabel = userScope ? ' (user scope)' : '';
   if (installed) {
-    console.log(`Installed: v${installed}`);
+    console.log(`Installed: v${installed}${scopeLabel}`);
   } else {
-    console.log('Installed: not installed (run "m init")');
+    const hint = userScope ? '"m init --user"' : '"m init"';
+    console.log(`Installed: not installed (run ${hint})`);
   }
 
   if (latest) {
@@ -21,7 +23,8 @@ export async function version(args) {
     if (installed && installed !== latest) {
       console.log('');
       console.log(`Update available: v${installed} → v${latest}`);
-      console.log('Run "npm i -g methodology-m@latest" then "m update"');
+      const cmd = userScope ? '"m update --user"' : '"m update"';
+      console.log(`Run "npm i -g methodology-m@latest" then ${cmd}`);
     }
   } else {
     console.log('Latest:    (not published yet / offline)');

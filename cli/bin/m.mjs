@@ -9,20 +9,26 @@ const HELP = `
   methodology-m — inject and manage Methodology M in your project
 
   Usage:
-    m init                   Set up M in the current project (root repo)
-    m clone <url> [--ide X]  Clone root + all managed repos into a workspace
-    m clone [--ide X]        (from inside root repo) Clone missing siblings
-    m update [version]       Upgrade M to a new version
-    m diff                   Show changes between installed and available M
-    m version                Show installed, bundled, and latest versions
-    m changelog [version]    Show changelog (optionally for a specific version)
-    m help                   Show this help
+    m init [--user]               Set up M in the current project (root repo)
+    m clone <url> [--ide X]       Clone root + all managed repos into a workspace
+    m clone [--ide X]             (from inside root repo) Clone missing siblings
+    m update [--user] [opts]      Upgrade M to a new version
+    m diff [--user]               Show changes between installed and available M
+    m version [--user]            Show installed, bundled, and latest versions
+    m changelog [version]         Show changelog (optionally for a specific version)
+    m help                        Show this help
 
   Starting a new M project?   Run "m init" in your root repo.
   Joining an existing project? Run "m clone <root-repo-url>".
 
   Options:
-    --ide vscode             IDE workspace format (default: vscode)
+    --ide vscode                  IDE workspace format (default: vscode)
+    --user                        Apply to user scope (~/.m/) instead of cwd.
+                                  Useful for Outpost agents and pre-warmed
+                                  containers — M is then available as a
+                                  fallback to any project on the machine.
+    --refresh-wrappers            (update only) Regenerate missing agent
+                                  wrappers without overwriting hand-edits.
 `;
 
 // Operational commands trigger a self-update check on entry. Metadata
