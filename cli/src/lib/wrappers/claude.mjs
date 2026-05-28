@@ -5,8 +5,10 @@ import { join } from 'node:path';
 
 /**
  * Generate Claude Code wrapper files:
- *   .claude/steering/m-steering.md
- *   .claude/skills/<name>/SKILL.md  (one per M capability)
+ *   .claude/steering/m-steering.md            (canonical steering)
+ *   .claude/skills/<name>/SKILL.md            (one per M capability)
+ *   .claude/agents/<name>.md                  (subagents — context-isolated workers)
+ *   .claude/commands/<name>.md                (slash-commands — discoverable in `/`)
  *
  * Only creates files that don't already exist — respects project ownership.
  *
@@ -37,7 +39,7 @@ export function generateClaudeWrappers(target, { mRoot = '.m' } = {}) {
   if (writeWrapper(steeringSrc, steeringDest)) created.push(steeringLabel);
   else skipped.push(steeringLabel);
 
-  // Skill wrappers (one directory per capability)
+  // Skill wrappers (one directory per capability, each with SKILL.md)
   const skillsTemplateDir = join(templatesDir, 'skills');
   if (existsSync(skillsTemplateDir)) {
     for (const name of readdirSync(skillsTemplateDir, { withFileTypes: true })) {
@@ -48,6 +50,22 @@ export function generateClaudeWrappers(target, { mRoot = '.m' } = {}) {
       const label = `.claude/skills/${name.name}/SKILL.md`;
 
       if (!existsSync(src)) continue;
+      if (writeWrapper(src, dest)) created.push(label);
+      else skipped.push(label);
+    }
+  }
+
+  // Agent + command wrappers (flat .md files per directory)
+  for (const kind of ['agents', 'commands']) {
+    const srcDir = join(templatesDir, kind);
+    if (!existsSync(srcDir)) continue;
+    for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+
+      const src = join(srcDir, entry.name);
+      const dest = join(target, '.claude', kind, entry.name);
+      const label = `.claude/${kind}/${entry.name}`;
+
       if (writeWrapper(src, dest)) created.push(label);
       else skipped.push(label);
     }

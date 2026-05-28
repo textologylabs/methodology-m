@@ -198,7 +198,11 @@ were deleted or never generated.
 
 ## Relationship to Agent Runtimes
 
-This directory is the canonical source. Agent-specific directories contain thin wrappers:
+This directory is the canonical source — agent-neutral, machine-readable. **Agent-specific UX surfaces** (Claude subagents, slash-commands; Kiro Powers; future runtimes) live in adapter directories under `.<agent>/`, **not in `.m/`**.
+
+Concretely: a subagent that wraps `decompose-story` for context isolation belongs in `.claude/agents/`, never in `.m/`. A `/m-validate-pat` slash-command belongs in `.claude/commands/`. A Kiro Power that bundles the M capability set belongs in `.kiro/powers/`. The canonical capability body always lives once, in `.m/capabilities/<name>/SKILL.md`, and every adapter resolves back to it. This keeps M portable across agent runtimes: adding a new AI is a matter of adding a new `.<agent>/` adapter, never touching `.m/`.
+
+Agent-specific directories contain thin wrappers:
 
 - **Kiro** (`.kiro/powers/m-power/`) — a Power that bundles these capabilities with MCP servers and hooks
 - **Claude** (`.claude/skills/<name>/SKILL.md`) — thin skill wrappers pointing to `.m/capabilities/<name>/SKILL.md`
