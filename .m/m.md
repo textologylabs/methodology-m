@@ -128,6 +128,74 @@ the schema before committing. If a field is marked `required` in the
 schema, it must be present. If a value has an `enum` constraint or
 `pattern`, use only valid values. Do not invent fields not in the schema.
 
+## Version Pinning Model
+
+M ships as a CLI (`methodology-m` on npm) that injects this `.m/`
+directory into a project. Once injected, `.m/` is the project's
+**M version lockfile**: it is committed to the repo, frozen at the
+version installed, and only changes when an operator runs `m update`.
+The methodology that runs on this repo is the methodology that lives
+in this directory — not whatever the global CLI happens to bundle
+today.
+
+The version itself is recorded in `.m-version` at the repo root.
+`m version` reports installed-vs-bundled-vs-latest; `m diff` shows
+the upgrade delta before it is applied.
+
+### Scopes
+
+Two install scopes exist. Both write the same canonical layer
+(`.m/` + `.m-version` + agent wrappers), only the target differs.
+
+| Scope | Install command | Target | Wrapper M_ROOT |
+|---|---|---|---|
+| Project | `m init` | `<repo>/.m/` | `.m` |
+| User | `m init --user` | `~/.m/` | `~/.m` |
+
+**Project scope is authoritative when present.** Agent runtimes
+resolve skills via their documented project-over-user precedence —
+`.claude/skills/` in the repo overrides `~/.claude/skills/`. The
+user-scope copy acts as a fallback for two cases:
+
+1. **Outpost / pre-warmed agent containers** — the image bakes
+   `m init --user` so the agent is fluent in M before any repo is
+   cloned. See [`docs/outpost-recipe.md`](docs/outpost-recipe.md).
+2. **Early-adopter projects** that have not yet pinned M into the
+   repo — the user-scope copy lets the agent operate sensibly until
+   `m init` is run.
+
+The two scopes never conflict at runtime: precedence is resolved by
+the agent runtime, not by M. A project that has run `m init` always
+wins over any user-scope install.
+
+### Why pin per repo
+
+See [ADR-0001](docs/adr/0001-version-pinning-model.md) for the
+decision record. The short version:
+
+- Capability bodies and provider contracts evolve. A repo bootstrapped
+  on M v1.0 must keep executing v1.0 semantics until it is explicitly
+  upgraded — even when the global CLI has moved on.
+- A frozen `.m/` makes the methodology version a reviewable artefact
+  in PRs, just like any other code change.
+- Cross-repo M-version consistency in a workspace (root + managed
+  repos) is the operator's responsibility, surfaced by `m version`
+  in each repo.
+
+### Upgrade
+
+```sh
+npm i -g methodology-m@latest
+m update                  # in a project repo
+m update --user           # for the user-scope install
+m update --refresh-wrappers   # also regenerate missing agent wrappers
+```
+
+`m update` overwrites `.m/` with the bundled version and rewrites
+`.m-version`. It does **not** touch existing agent wrappers — those
+are project files. Use `--refresh-wrappers` to restore wrappers that
+were deleted or never generated.
+
 ## Relationship to Agent Runtimes
 
 This directory is the canonical source. Agent-specific directories contain thin wrappers:
