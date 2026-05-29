@@ -339,9 +339,9 @@ describe('wrappers/claude', async () => {
 
   test('creates steering and individual skill wrappers when missing', () => {
     const { created, skipped } = generateClaudeWrappers(tmp);
-    // 1 steering + 9 skills + 1 agent + 1 command = 12
-    // (compile-story-pats added v0.6.0; agents/commands seeded by 869d9ak60)
-    assert.strictEqual(created.length, 12);
+    // 1 steering + 9 skills + 4 agents + 1 command = 15
+    // (compile-story-pats added v0.6.0; full subagent set seeded by 869d9ak60)
+    assert.strictEqual(created.length, 15);
     assert.strictEqual(skipped.length, 0);
     assert.ok(existsSync(join(tmp, '.claude', 'steering', 'm-steering.md')));
     assert.ok(existsSync(join(tmp, '.claude', 'skills', 'scaffold-repo', 'SKILL.md')));
@@ -349,6 +349,9 @@ describe('wrappers/claude', async () => {
     assert.ok(existsSync(join(tmp, '.claude', 'skills', 'compile-story-pats', 'SKILL.md')));
     assert.ok(existsSync(join(tmp, '.claude', 'skills', 'wire-orchestration', 'SKILL.md')));
     assert.ok(existsSync(join(tmp, '.claude', 'agents', 'pat-validator.md')));
+    assert.ok(existsSync(join(tmp, '.claude', 'agents', 'topology-renderer.md')));
+    assert.ok(existsSync(join(tmp, '.claude', 'agents', 'provider-author.md')));
+    assert.ok(existsSync(join(tmp, '.claude', 'agents', 'capability-auditor.md')));
     assert.ok(existsSync(join(tmp, '.claude', 'commands', 'm-validate-pat.md')));
   });
 
@@ -356,7 +359,7 @@ describe('wrappers/claude', async () => {
     generateClaudeWrappers(tmp);
     const { created, skipped } = generateClaudeWrappers(tmp);
     assert.strictEqual(created.length, 0);
-    assert.strictEqual(skipped.length, 12);
+    assert.strictEqual(skipped.length, 15);
   });
 
   test('created files have content from templates with default mRoot', () => {
