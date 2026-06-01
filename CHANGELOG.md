@@ -4,6 +4,79 @@ All notable changes to Methodology M are documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-05-30
+
+**Outpost adoption release.** M is now installable at user scope and
+the Claude adapter ships its full UX surface — skills, subagents, and
+slash-commands — out of the box. The two themes are M2.10 (the
+user-scope install + version-pin model) and 869d9ak60 (the Claude
+adapter expansion).
+
+### Added
+
+- **M2.10 — user-scope install (`m init --user`).** The CLI now
+  installs M into `~/.m/` + `~/.claude/` instead of a project repo.
+  Pre-warms M in an Outpost agent container or for any user who wants
+  M available as a fallback to projects that haven't yet pinned a
+  version. Mutually exclusive with a positional path argument;
+  mirrored on `update`, `version`, and `diff`.
+- **`m update --refresh-wrappers`.** Regenerates missing agent
+  wrappers without overwriting hand-edited ones — the existing
+  skip-if-exists policy protects user customisations on upgrade.
+- **`{{M_ROOT}}` template substitution.** Skill and steering wrappers
+  carry a placeholder that resolves to `.m` (project scope) or
+  `~/.m` (user scope) at install time. Same template, both targets.
+- **869d9ak60 — Claude adapter: 4 subagents.** Context-isolated
+  workers that wrap M concerns without polluting the main
+  conversation:
+  - `pat-validator` — validates a PAT.yaml against
+    `.m/schemas/pat.schema.json`
+  - `topology-renderer` — dry-runs M's compose/CI/test.cat renderers
+    and reports drift vs the on-disk artefacts
+  - `provider-author` — long-research workflow for drafting a new
+    namespace provider, with WebFetch on the target platform's docs
+  - `capability-auditor` — verifies every `<namespace>.<fn>(...)`
+    call in `.m/capabilities/` resolves to a function declared in
+    `provider-interface.md`
+- **869d9ak60 — Claude adapter: 6 slash-commands.** Surface M
+  capabilities in Claude's `/` menu for discoverability:
+  - `/m-decompose-story`, `/m-validate-pat`, `/m-render-topology`,
+    `/m-new-provider`, `/m-check-contracts`
+  - Generic `/m <capability>` dispatcher for the long tail
+- **ADR system.** `docs/adr/` directory with README, template, and
+  the first record — [ADR-0001](docs/adr/0001-version-pinning-model.md)
+  documenting the project-scope-frozen `.m/` decision.
+- **Outpost container recipe.** [`docs/outpost-recipe.md`](docs/outpost-recipe.md)
+  — Dockerfile pattern for pre-warming M at user scope in an Outpost
+  agent container.
+- **Version Pinning Model section in `.m/m.md`.** Codifies the
+  project-over-user precedence and the upgrade path. Tense-neutral
+  so a future migration toward dynamic resolution (ADR-0001 Option B)
+  does not require a rewrite.
+- **Adapter-boundary paragraph in `.m/m.md`.** Locks in the rule
+  that agent-specific UX (subagents, slash-commands, Powers) lives
+  in `.<agent>/`, never in `.m/` — same separation that already
+  exists for `.kiro/`.
+
+### Changed
+
+- `generateClaudeWrappers()` now emits `.claude/agents/` and
+  `.claude/commands/` alongside the existing `.claude/skills/` and
+  `.claude/steering/`. A single read-substitute-write helper handles
+  `{{M_ROOT}}` for every file kind.
+
+### PRs
+
+#44 (M → Outpost ideas), #45 (ADR system + ADR-0001), #46 (M2.10
+foundation refactor), #47 (`--user` flag + Outpost recipe), #48
+(pin model docs), #49 (adapter plumbing + pat-validator), #50
+(3 remaining subagents), #51 (5 remaining slash-commands + `/m`).
+
+### ClickUp
+
+M2.10 ([869d6ru73](https://app.clickup.com/t/869d6ru73)) and
+869d9ak60 both flipped to `complete`.
+
 ## [1.0.0] — 2026-05-18
 
 **Methodology M v1.0 — the MVP capability baseline.** The full
